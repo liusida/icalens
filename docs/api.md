@@ -1,11 +1,9 @@
 # ICA Lens API notes
 
-## Initial scope
+## v0.2 development scope
 
-Version 0.1 should focus on fitting ICA Lenses from activations supplied by
-researchers, saving and sharing the resulting artifacts, and applying published
-artifacts. Higher-level text analysis, model execution, and rich result objects
-can be added in a future version.
+Version 0.2 adds explicit base-versus-instruct checkpoint metadata while
+retaining the activation-level fitting and transformation interface.
 
 ```bash
 pip install icalens
@@ -33,8 +31,9 @@ Users can fit a lens one layer at a time:
 from icalens import ICALens
 
 lens = ICALens(
-    base_model="openai-community/gpt2",
-    base_model_revision="FULL_COMMIT_HASH",
+    model_id="openai-community/gpt2",
+    model_revision="FULL_COMMIT_HASH",
+    model_type="base",
     activation_site="resid_post",
 )
 
@@ -53,8 +52,24 @@ lens.push_to_hub("username/icalens-gpt2-small")
 
 Calling `fit()` again with another layer adds or replaces that layer in the
 same model-level collection. `fit()` returns `self`. The input is an activation
-array whose final dimension is the base model's hidden size; leading dimensions
+array whose final dimension is the model's hidden size; leading dimensions
 are treated as samples.
+
+Instruction-tuned checkpoints are declared explicitly:
+
+```python
+lens = ICALens(
+    model_id="Qwen/Qwen2.5-0.5B-Instruct",
+    model_revision="FULL_COMMIT_HASH",
+    model_type="instruct",
+)
+```
+
+`model_type` is checkpoint provenance, not an ICA algorithm choice. It accepts
+`"base"` and `"instruct"`. Chat templating, conversation datasets, and token
+scope are input-pipeline metadata and must not be inferred from this value.
+The old `base_model` and `base_model_revision` constructor names remain
+compatibility aliases for v0.1 callers, and v0.1 artifacts remain loadable.
 
 Fitting is blockwise and multi-pass. `device` selects where whitening and
 FastICA calculations run, while the activation tensor may remain in CPU
@@ -70,7 +85,7 @@ Hugging Face Model repository using that same layout. The official
 `liusida/icalens-*` artifacts should be produced through these public methods.
 
 The argument to `ICALens.from_pretrained()` is a Hugging Face Model repository
-ID. Each repository contains the fitted ICA artifacts for one base model and
+ID. Each repository contains the fitted ICA artifacts for one model and
 may contain multiple layers. `transform()` selects the layer to apply.
 
 `from_pretrained()` should load the repository manifest first. Layer tensor
@@ -93,7 +108,7 @@ The v0.1 interface should support:
 - Saving fitted artifacts in the standard local format.
 - Creating or updating a user-owned Hugging Face Model repository.
 - Loading and caching ICA Lens artifacts from Hugging Face.
-- Inspecting available layers, activation sites, base-model identity, and fitting metadata.
+- Inspecting available layers, activation sites, model identity and type, and fitting metadata.
 - Validating activation shape and artifact compatibility.
 - Transforming hidden-state activations into ICA component scores.
 - Approximately mapping component scores back into activation space.

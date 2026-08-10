@@ -9,10 +9,40 @@ from icalens import ICALens, NotFittedError
 
 def make_lens() -> ICALens:
     return ICALens(
-        base_model="example/model",
-        base_model_revision="abc123",
+        model_id="example/model",
+        model_revision="abc123",
         activation_site="resid_post",
     )
+
+
+def test_instruct_model_metadata() -> None:
+    lens = ICALens(
+        model_id="example/model-instruct",
+        model_revision="def456",
+        model_type="instruct",
+    )
+    assert lens.model_id == "example/model-instruct"
+    assert lens.model_revision == "def456"
+    assert lens.model_type == "instruct"
+    assert lens.metadata["model"]["type"] == "instruct"
+
+
+def test_legacy_constructor_names_remain_compatible() -> None:
+    lens = ICALens(base_model="example/model", base_model_revision="abc123")
+    assert lens.model_id == "example/model"
+    assert lens.base_model == lens.model_id
+    assert lens.base_model_revision == lens.model_revision
+
+
+def test_rejects_invalid_or_conflicting_model_arguments() -> None:
+    with pytest.raises(ValueError, match="model_type"):
+        ICALens(model_id="example/model", model_revision="abc123", model_type="chat")
+    with pytest.raises(ValueError, match="not both"):
+        ICALens(
+            model_id="example/model",
+            base_model="legacy/model",
+            model_revision="abc123",
+        )
 
 
 def test_fit_transform_and_inverse(mixed_signals: np.ndarray) -> None:
@@ -98,3 +128,9 @@ def test_unknown_layer_and_shape_are_clear(mixed_signals: np.ndarray) -> None:
 def test_empty_lens_cannot_be_saved(tmp_path) -> None:
     with pytest.raises(NotFittedError):
         make_lens().save(tmp_path / "artifact")
+
+
+def test_full_components_require_one_more_sample_than_features() -> None:
+    values = np.eye(3, dtype=np.float32)
+    with pytest.raises(ValueError, match="centering limits the data rank"):
+        make_lens().fit(values, layer=1, n_components=3)

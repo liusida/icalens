@@ -1,8 +1,8 @@
 # ICA Lens
 
 ICA Lens fits, shares, and applies Independent Component Analysis bases for
-language-model activations. Version 0.1 operates on activations supplied by the
-caller; it does not load language models or capture activations.
+language-model activations. The core API operates on activations supplied by
+the caller; it does not load language models or capture activations.
 
 ```bash
 uv add icalens
@@ -24,14 +24,30 @@ Fit and publish your own:
 from icalens import ICALens
 
 lens = ICALens(
-    base_model="openai-community/gpt2",
-    base_model_revision="FULL_COMMIT_HASH",
+    model_id="openai-community/gpt2",
+    model_revision="FULL_COMMIT_HASH",
+    model_type="base",
     activation_site="resid_post",
 )
 lens.fit(activations, layer=6, random_state=0)
 lens.save("./my-icalens")
 lens.push_to_hub("username/icalens-gpt2-small")
 ```
+
+Instruction-tuned checkpoints use the same activation-level API and are
+identified explicitly in their portable metadata:
+
+```python
+lens = ICALens(
+    model_id="Qwen/Qwen2.5-0.5B-Instruct",
+    model_revision="FULL_COMMIT_HASH",
+    model_type="instruct",
+)
+```
+
+`model_type` describes the checkpoint and accepts `"base"` or `"instruct"`.
+Conversation formatting and assistant-token selection are separate concerns;
+high-level chat capture helpers are planned for v0.2.
 
 Inputs may be NumPy arrays or PyTorch tensors. Leading dimensions are treated
 as sample dimensions and the final dimension must be the model hidden size.
@@ -49,3 +65,19 @@ For the 1,000-token GPT-2/Pile-10k fitting demo, run:
 uv sync
 uv run python demo/fit.py
 ```
+
+For the corresponding instruct-model demo using assistant tokens from
+UltraChat conversations, run:
+
+```bash
+uv run python demo/fit_chat.py --layers 12
+```
+
+Then inspect assistant-token component scores with:
+
+```bash
+uv run python demo/apply_chat.py
+```
+
+Both `apply.py` and `apply_chat.py` also write standalone interactive HTML
+explorers under `demo/output/`; pass `--output-file` to choose another path.

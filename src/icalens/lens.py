@@ -6,7 +6,7 @@ import copy
 import re
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import torch
@@ -34,17 +34,21 @@ class ICALens:
     def __init__(
         self,
         *,
-        base_model: str,
-        base_model_revision: str,
+        model_id: str | None = None,
+        model_revision: str | None = None,
+        model_type: Literal["base", "instruct"] = "base",
+        base_model: str | None = None,
+        base_model_revision: str | None = None,
         activation_site: str = "resid_post",
         layer_indexing: str = "hidden_states",
         row_normalize: bool = True,
         norm_eps: float = 1e-12,
     ) -> None:
-        if not isinstance(base_model, str) or not base_model.strip():
-            raise ValueError("base_model must be a non-empty Hugging Face repository ID")
-        if not isinstance(base_model_revision, str) or not base_model_revision.strip():
-            raise ValueError("base_model_revision must be a non-empty revision")
+        model_id = _resolve_compatibility_argument("model_id", model_id, "base_model", base_model)
+        model_revision = _resolve_compatibility_argument(
+            "model_revision", model_revision, "base_model_revision", base_model_revision
+        )
+        model_type = _validate_model_type(model_type)
         if not isinstance(activation_site, str) or not activation_site.strip():
             raise ValueError("activation_site must be a non-empty string")
         if re.fullmatch(r"[A-Za-z0-9_.-]+", activation_site.strip()) is None:
@@ -53,8 +57,9 @@ class ICALens:
             raise ValueError("layer_indexing must be a non-empty string")
         if not np.isfinite(norm_eps) or norm_eps <= 0:
             raise ValueError("norm_eps must be a finite positive number")
-        self.base_model = base_model.strip()
-        self.base_model_revision = base_model_revision.strip()
+        self.model_id = model_id
+        self.model_revision = model_revision
+        self.model_type = model_type
         self.activation_site = activation_site.strip()
         self.layer_indexing = layer_indexing.strip()
         self.row_normalize = bool(row_normalize)
@@ -68,6 +73,16 @@ class ICALens:
     def available_layers(self) -> tuple[int, ...]:
         """Sorted layer indices present in this lens."""
         return tuple(sorted(self._layers))
+
+    @property
+    def base_model(self) -> str:
+        """Deprecated compatibility alias for :attr:`model_id`."""
+        return self.model_id
+
+    @property
+    def base_model_revision(self) -> str:
+        """Deprecated compatibility alias for :attr:`model_revision`."""
+        return self.model_revision
 
     @property
     def hidden_size(self) -> int | None:
@@ -103,9 +118,14 @@ class ICALens:
                 f"{self._hidden_size}"
             )
         components = hidden_size if n_components is None else int(n_components)
-        maximum = min(int(values.shape[0]), hidden_size)
+        maximum = min(int(values.shape[0]) - 1, hidden_size)
+        if maximum <= 0:
+            raise ValueError("at least two activation samples are required after centering")
         if components <= 0 or components > maximum:
-            raise ValueError(f"n_components must be between 1 and {maximum}, got {components}")
+            raise ValueError(
+                f"n_components must be between 1 and {maximum}, got {components}; "
+                "centering limits the data rank to at most n_samples - 1"
+            )
         if max_iter <= 0:
             raise ValueError("max_iter must be positive")
         if batch_size <= 0:
@@ -278,10 +298,12 @@ class ICALens:
         normalization = preprocessing.get("row_normalization")
         if normalization not in ("l2", "none"):
             raise ArtifactError(f"unsupported row_normalization: {normalization!r}")
-        base_model = manifest["base_model"]
+        format_version = int(manifest["format_version"])
+        model = manifest["base_model"] if format_version == 1 else manifest["model"]
         lens = cls(
-            base_model=str(base_model["repo_id"]),
-            base_model_revision=str(base_model.get("revision") or "unknown"),
+            model_id=str(model["repo_id"]),
+            model_revision=str(model.get("revision") or "unknown"),
+            model_type=_validate_model_type(str(model.get("type", "base"))),
             activation_site=str(manifest["activation_site"]),
             layer_indexing=str(manifest.get("layer_indexing", "hidden_states")),
             row_normalize=normalization == "l2",
@@ -341,9 +363,10 @@ class ICALens:
         return {
             "format": FORMAT_NAME,
             "format_version": FORMAT_VERSION,
-            "base_model": {
-                "repo_id": self.base_model,
-                "revision": self.base_model_revision,
+            "model": {
+                "repo_id": self.model_id,
+                "revision": self.model_revision,
+                "type": self.model_type,
             },
             "activation_site": self.activation_site,
             "layer_indexing": self.layer_indexing,
@@ -378,6 +401,25 @@ def _validate_layer(layer: int) -> int:
     if value < 0:
         raise ValueError("layer must be a non-negative integer")
     return value
+
+
+def _resolve_compatibility_argument(
+    name: str, value: str | None, legacy_name: str, legacy_value: str | None
+) -> str:
+    if value is not None and legacy_value is not None:
+        raise ValueError(f"pass {name}, not both {name} and {legacy_name}")
+    resolved = value if value is not None else legacy_value
+    if not isinstance(resolved, str) or not resolved.strip():
+        raise ValueError(f"{name} must be a non-empty string")
+    return resolved.strip()
+
+
+def _validate_model_type(value: str) -> Literal["base", "instruct"]:
+    if value == "base":
+        return "base"
+    if value == "instruct":
+        return "instruct"
+    raise ValueError("model_type must be 'base' or 'instruct'")
 
 
 def _array_offset(reference: Any, offset: NDArray[np.float32]) -> Any:

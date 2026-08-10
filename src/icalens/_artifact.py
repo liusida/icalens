@@ -17,7 +17,8 @@ from safetensors.numpy import load_file, save_file
 from .exceptions import ArtifactError
 
 FORMAT_NAME = "icalens"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
+SUPPORTED_FORMAT_VERSIONS = (1, 2)
 MANIFEST_FILENAME = "icalens.json"
 
 
@@ -43,17 +44,21 @@ def parse_manifest(data: Any) -> dict[str, Any]:
         raise ArtifactError("icalens.json must contain a JSON object")
     if data.get("format") != FORMAT_NAME:
         raise ArtifactError(f"unsupported artifact format: {data.get('format')!r}")
-    if data.get("format_version") != FORMAT_VERSION:
+    format_version = data.get("format_version")
+    if format_version not in SUPPORTED_FORMAT_VERSIONS:
         raise ArtifactError(
-            f"unsupported artifact format version: {data.get('format_version')!r}; "
-            f"this package supports version {FORMAT_VERSION}"
+            f"unsupported artifact format version: {format_version!r}; "
+            f"this package supports versions {SUPPORTED_FORMAT_VERSIONS}"
         )
-    required = ("base_model", "activation_site", "hidden_size", "input_preprocessing", "layers")
+    model_key = "base_model" if format_version == 1 else "model"
+    required = (model_key, "activation_site", "hidden_size", "input_preprocessing", "layers")
     missing = [key for key in required if key not in data]
     if missing:
         raise ArtifactError(f"manifest is missing required fields: {', '.join(missing)}")
-    if not isinstance(data["base_model"], dict) or not data["base_model"].get("repo_id"):
-        raise ArtifactError("manifest base_model.repo_id must be a non-empty string")
+    if not isinstance(data[model_key], dict) or not data[model_key].get("repo_id"):
+        raise ArtifactError(f"manifest {model_key}.repo_id must be a non-empty string")
+    if format_version == 2 and data[model_key].get("type") not in ("base", "instruct"):
+        raise ArtifactError("manifest model.type must be 'base' or 'instruct'")
     if not isinstance(data["layers"], dict):
         raise ArtifactError("manifest layers must be an object")
     return data
@@ -157,7 +162,11 @@ def _tensor(
 
 
 def _model_card(manifest: dict[str, Any]) -> str:
-    model = manifest["base_model"]["repo_id"]
+    model_entry = manifest.get("model", manifest.get("base_model"))
+    if not isinstance(model_entry, dict):
+        raise ArtifactError("manifest model metadata must be an object")
+    model = model_entry["repo_id"]
+    model_type = model_entry.get("type", "base")
     site = manifest["activation_site"]
     layers = ", ".join(str(layer) for layer in sorted(map(int, manifest["layers"])))
     return f"""---
@@ -172,7 +181,7 @@ tags:
 # ICA Lens for {model}
 
 This repository contains an ICA Lens fitted on `{site}` activations from
-`{model}`. Available layers: {layers}.
+the `{model}` {model_type} model. Available layers: {layers}.
 
 ```python
 from icalens import ICALens
@@ -181,6 +190,6 @@ lens = ICALens.from_pretrained(\"REPOSITORY_ID\")
 scores = lens.transform(activations, layer={min(map(int, manifest["layers"]))})
 ```
 
-The caller is responsible for capturing activations from the base-model
+The caller is responsible for capturing activations from the model
 revision and activation site recorded in `icalens.json`.
 """

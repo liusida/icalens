@@ -24,7 +24,7 @@ liusida/icalens-gemma-2-2b
 liusida/icalens-qwen-3.5-2b
 ```
 
-Repository IDs are lowercase and follow `icalens-<base-model-name>`.
+Repository IDs are lowercase and follow `icalens-<model-name>`.
 
 Activation samples, annotations, evaluation examples, and explorer databases
 are data rather than fitted parameters. If published on Hugging Face, they

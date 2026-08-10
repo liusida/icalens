@@ -2,7 +2,7 @@
 
 ## Scope
 
-Version 0.1 uses one Hugging Face Model repository for each base model. A
+Version 0.2 uses one Hugging Face Model repository for each model checkpoint. A
 repository contains a manifest plus fitted ICA tensors for its available
 layers. The format is identical when created with `save()`, stored in a local
 directory, or uploaded with `push_to_hub()`.
@@ -28,7 +28,7 @@ The activation-site directory is retained even when a release contains only
 `icalens.json` is the machine-readable source of truth. It must include:
 
 - The artifact format name and integer format version.
-- The base-model repository ID and exact fitted checkpoint revision.
+- The model repository ID, exact fitted checkpoint revision, and checkpoint type.
 - The activation site and layer-indexing convention.
 - The hidden size and input preprocessing steps.
 - The available layers, tensor filename, and component count for each layer.
@@ -39,10 +39,11 @@ Example:
 ```json
 {
   "format": "icalens",
-  "format_version": 1,
-  "base_model": {
+  "format_version": 2,
+  "model": {
     "repo_id": "openai-community/gpt2",
-    "revision": "FULL_COMMIT_HASH"
+    "revision": "FULL_COMMIT_HASH",
+    "type": "base"
   },
   "activation_site": "resid_post",
   "layer_indexing": "hidden_states",
@@ -64,9 +65,11 @@ Example:
 }
 ```
 
-The precise base-model revision is part of compatibility validation. A model
+The precise model revision is part of compatibility validation. A model
 name alone is not sufficient to identify the checkpoint that produced the
-fitting activations.
+fitting activations. `model.type` is either `base` or `instruct`; it describes
+the checkpoint rather than the input format. Format-version 1 manifests using
+`base_model` remain readable and are interpreted as type `base`.
 
 ## Layer tensors
 
@@ -101,14 +104,14 @@ or a local directory. For a Hub repository, it loads `icalens.json` first and
 may download individual layer files lazily. It accepts a `revision` argument so
 users can pin a release tag or full commit hash.
 
-Artifact releases should receive immutable tags such as `v0.1.0`. Readers must
+Artifact releases should receive immutable tags such as `v0.2.0`. Readers must
 reject unsupported `format_version` values with a clear compatibility error.
 
 ## Fitting and publishing
 
 `ICALens.fit(activations, layer=...)` fits one layer at a time. Repeated calls
 build a model-level collection; fitting an existing layer replaces that layer
-only. All layers in a collection must have compatible base-model identity,
+only. All layers in a collection must have compatible model identity,
 hidden size, activation site, and preprocessing settings.
 
 Fitting must be reproducible when the same input, parameters, and

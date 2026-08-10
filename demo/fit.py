@@ -62,7 +62,7 @@ def parse_args() -> argparse.Namespace:
         "--fit-batch-size",
         type=int,
         default=8192,
-        help="Activation rows processed on CUDA at once (default: 8192).",
+        help="Activation rows processed on CUDA at once; 0 uses all rows (default: 8192).",
     )
     return parser.parse_args()
 
@@ -73,6 +73,8 @@ def main() -> None:
         raise RuntimeError("This GB10 demo requires a CUDA device.")
     if args.max_vram_gb is not None:
         set_cuda_memory_limit(args.max_vram_gb)
+    if args.fit_batch_size < 0:
+        raise ValueError("--fit-batch-size must be non-negative")
     torch.cuda.reset_peak_memory_stats()
 
     log(f"Resolving {MODEL_ID} revision...")
@@ -119,29 +121,44 @@ def main() -> None:
         layers=layers,
     )
     lens = ICALens(
-        base_model=MODEL_ID,
-        base_model_revision=str(revision),
+        model_id=MODEL_ID,
+        model_revision=str(revision),
+        model_type="base",
         activation_site="hidden_states",
         layer_indexing="hidden_states_without_initial_embedding_state",
     )
 
     for layer in layers:
         activations = activations_by_layer[layer]
+        sample_count = int(activations.shape[0])
+        hidden_size = int(activations.shape[1])
+        minimum_samples = hidden_size + 1
+        if sample_count < minimum_samples:
+            raise ValueError(
+                f"Cannot fit a full {hidden_size}-component ICA Lens from only "
+                f"{sample_count} token activations: centering limits the rank to at most "
+                f"{sample_count - 1}. Increase --token-budget to at least {minimum_samples}; "
+                "if --candidate-tokens is set, it must be at least as large."
+            )
+        fit_batch_size = (
+            int(activations.shape[0]) if args.fit_batch_size == 0 else args.fit_batch_size
+        )
         log(
             f"Fitting layer {layer} from {activations.shape[0]} tokens "
-            f"with max_iter={args.max_iter}..."
+            f"with {hidden_size} components, max_iter={args.max_iter}, "
+            f"fit_batch_size={fit_batch_size}..."
         )
         lens.fit(
             activations,
             layer=layer,
-            n_components=activations.shape[-1],
+            n_components=hidden_size,
             algorithm="parallel",
             fun="logcosh",
             max_iter=args.max_iter,
             random_state=args.seed,
             progress=True,
             device="cuda",
-            batch_size=args.fit_batch_size,
+            batch_size=fit_batch_size,
         )
 
     output = lens.save(args.output)

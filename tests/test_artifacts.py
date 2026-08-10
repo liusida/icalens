@@ -10,8 +10,8 @@ from icalens import ArtifactError, ICALens
 
 def make_lens() -> ICALens:
     return ICALens(
-        base_model="example/model",
-        base_model_revision="abc123",
+        model_id="example/model",
+        model_revision="abc123",
         activation_site="resid_post",
     )
 
@@ -27,7 +27,8 @@ def test_save_and_local_load_round_trip(tmp_path, mixed_signals: np.ndarray) -> 
     assert (artifact_dir / "README.md").is_file()
     assert (artifact_dir / "artifacts/resid_post/layer_06.safetensors").is_file()
     assert loaded.available_layers == (6,)
-    assert loaded.metadata["base_model"]["revision"] == "abc123"
+    assert loaded.metadata["model"]["revision"] == "abc123"
+    assert loaded.metadata["model"]["type"] == "base"
     np.testing.assert_allclose(loaded.transform(mixed_signals[:10], layer=6), expected)
 
 
@@ -47,6 +48,26 @@ def test_rejects_unsupported_format_version(tmp_path) -> None:
     )
     with pytest.raises(ArtifactError, match="format version"):
         ICALens.from_pretrained(target)
+
+
+def test_loads_v1_base_model_manifest(tmp_path, mixed_signals: np.ndarray) -> None:
+    artifact_dir = make_lens().fit(mixed_signals, layer=6, n_components=2).save(
+        tmp_path / "artifact"
+    )
+    manifest_path = artifact_dir / "icalens.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["format_version"] = 1
+    manifest["base_model"] = {
+        "repo_id": manifest["model"]["repo_id"],
+        "revision": manifest["model"]["revision"],
+    }
+    del manifest["model"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    loaded = ICALens.from_pretrained(artifact_dir)
+    assert loaded.model_id == "example/model"
+    assert loaded.model_revision == "abc123"
+    assert loaded.model_type == "base"
 
 
 def test_manifest_does_not_expose_mutable_internal_state(mixed_signals: np.ndarray) -> None:

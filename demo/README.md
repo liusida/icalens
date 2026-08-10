@@ -60,6 +60,15 @@ hardware emulator.
 Selected activations are retained in CPU memory. Whitening statistics,
 FastICA updates, and final source scaling are computed in repeated CUDA batches,
 so GPU memory scales with `--fit-batch-size` rather than the total token count.
+Set `--fit-batch-size 0` to disable batching and process all selected activation
+rows at once. This can be faster when sufficient GPU memory is available, but
+memory then scales with the full token budget. Negative values are invalid.
+
+Both demos intentionally fit a full hidden-size set of ICA components. They
+stop with a clear error when `--token-budget` is smaller than the model hidden
+size plus one rather than silently producing a reduced-dimensional lens. The
+extra sample is required because centering limits rank to at most
+`n_samples - 1`.
 
 Fit several layers with a comma-separated list:
 
@@ -73,6 +82,74 @@ use a larger, explicitly sampled token corpus.
 
 The demo requires network access for Hugging Face downloads and a CUDA device.
 
+## Fit an instruct-model lens from conversations
+
+Fit a Qwen2.5-0.5B-Instruct lens on assistant-content tokens from streamed
+UltraChat 200k conversations:
+
+```bash
+uv run python demo/fit_chat.py --layers 12
+```
+
+The script uses the tokenizer's chat template and offset mapping to distinguish
+message content from role markers and other template control tokens. The
+default `--token-scope assistant` therefore fits only assistant-content token
+activations while retaining the complete preceding conversation as context.
+Other supported scopes are `user`, `content` (all message content), and `all`
+(including template tokens).
+
+As in the plain-text demo, `--candidate-tokens` defaults to `--token-budget`.
+For a larger deterministic candidate pool, run:
+
+```bash
+uv run python demo/fit_chat.py \
+  --candidate-tokens 100000 \
+  --token-budget 10000 \
+  --max-iter 100
+```
+
+The model, dataset, split, message-field, context length, output path, fitting
+batch size, and CUDA allocator cap are configurable. For example:
+
+```bash
+uv run python demo/fit_chat.py \
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --dataset HuggingFaceH4/ultrachat_200k \
+  --split train_sft \
+  --messages-field messages \
+  --token-scope assistant \
+  --context-length 1024 \
+  --layers 12 \
+  --max-vram-gb 16
+```
+
+Ask the model to generate a response and apply the resulting instruct lens to
+the generated assistant tokens:
+
+```bash
+uv run python demo/apply_chat.py
+```
+
+The script first generates a response, then performs a full forward pass over
+the completed conversation so each generated token has an activation aligned
+with the same chat formatting used during fitting. The default output shows
+component scores only for generated assistant-content tokens. Pass `--user`
+and optionally `--system` to supply a different prompt. `--token-scope` accepts
+the same `assistant`, `user`, `content`, and `all` choices as the fitting demo:
+
+```bash
+uv run python demo/apply_chat.py \
+  --user "What is an eigenvector?" \
+  --max-new-tokens 128 \
+  --token-scope assistant \
+  --layer 12
+```
+
+The command also writes a self-contained v5-style explorer to
+`demo/output/apply_chat.html` by default. Use `--output-file PATH` to choose a
+different location. The report works directly from disk and does not require
+the v5 server.
+
 ## Apply the saved lens
 
 After fitting layer 6, apply it to fresh text:
@@ -82,7 +159,7 @@ uv run python demo/apply.py
 ```
 
 The script loads the local artifact, captures GPT-2 activations from the exact
-base-model revision recorded in its manifest, and prints the largest signed ICA
+model revision recorded in its manifest, and prints the largest signed ICA
 component scores at each token.
 
 Use custom text or another saved artifact with:
@@ -93,3 +170,8 @@ uv run python demo/apply.py \
   --layer 6 \
   --text "The boat reached the bank before sunset."
 ```
+
+The command writes `demo/output/apply.html` by default. The standalone HTML
+includes responsive token cards, signed component bars, component highlighting,
+card-width control, and an opacity cutoff. Override the path with
+`--output-file PATH`.
