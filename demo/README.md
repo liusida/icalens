@@ -82,6 +82,17 @@ use a larger, explicitly sampled token corpus.
 
 The demo requires network access for Hugging Face downloads and a CUDA device.
 
+Use every token available under the demo's per-document context limit without
+knowing the count in advance:
+
+```bash
+uv run python demo/fit.py --layers 6 --token-budget all
+```
+
+The resolved usable-token count is printed before model loading. Capturing many
+layers simultaneously still retains one float32 activation matrix per layer,
+so `--layers all --token-budget all` may exceed system memory.
+
 ## Fit an instruct-model lens from conversations
 
 Fit a Qwen2.5-0.5B-Instruct lens on assistant-content tokens from streamed

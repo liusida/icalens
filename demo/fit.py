@@ -48,9 +48,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--token-budget",
-        type=int,
+        type=parse_token_budget,
         default=TOKEN_BUDGET,
-        help="Number of sampled token activations used to fit ICA.",
+        help="Number of fitting tokens, or 'all' to use the entire dataset.",
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
@@ -93,11 +93,15 @@ def main() -> None:
         candidate_token_budget=candidate_tokens,
         context_length=CONTEXT_LENGTH,
     )
+    candidate_token_count = sum(int(document.shape[0]) for document in documents)
     selected_positions = sample_positions(
         documents,
         token_budget=args.token_budget,
         seed=args.seed,
     )
+    token_budget = sum(int(positions.shape[0]) for positions in selected_positions.values())
+    if args.token_budget is None:
+        log(f"Resolved --token-budget all to {token_budget} usable tokens.")
 
     log(f"Loading {MODEL_ID}@{revision} on CUDA...")
     model = load_model_to_cuda(
@@ -114,10 +118,7 @@ def main() -> None:
     # Direct block hooks capture resid_post before GPT-2's final ln_f, including
     # the last transformer block.
     layers = parse_layers(args.layers, layer_count=int(model.config.num_hidden_layers))
-    log(
-        f"Capturing {args.token_budget} sampled activations for layers "
-        f"{','.join(map(str, layers))}..."
-    )
+    log(f"Capturing {token_budget} sampled activations for layers {','.join(map(str, layers))}...")
     activations_by_layer = capture_activations(
         model,
         documents=documents,
@@ -170,8 +171,8 @@ def main() -> None:
                     "split": "train",
                 },
                 "token_scope": "all",
-                "candidate_tokens": candidate_tokens,
-                "fitting_tokens": args.token_budget,
+                "candidate_tokens": candidate_token_count,
+                "fitting_tokens": token_budget,
                 "sampling_seed": args.seed,
                 "context_length": CONTEXT_LENGTH,
             },
@@ -188,11 +189,11 @@ def load_pile_documents(
     tokenizer: Any,
     *,
     dataset_revision: str | None = None,
-    candidate_token_budget: int,
+    candidate_token_budget: int | None,
     context_length: int,
 ) -> list[torch.Tensor]:
     """Tokenize Pile documents until the requested candidate pool is full."""
-    if candidate_token_budget <= 0:
+    if candidate_token_budget is not None and candidate_token_budget <= 0:
         raise ValueError("--candidate-tokens must be positive")
     dataset = load_dataset(DATASET_ID, split="train", revision=dataset_revision, streaming=True)
     documents: list[torch.Tensor] = []
@@ -208,7 +209,11 @@ def load_pile_documents(
             text = row.get("text") if isinstance(row, dict) else None
             if not isinstance(text, str) or not text.strip():
                 continue
-            remaining = candidate_token_budget - captured_tokens
+            remaining = (
+                context_length
+                if candidate_token_budget is None
+                else candidate_token_budget - captured_tokens
+            )
             encoded = tokenizer(
                 text,
                 add_special_tokens=False,
@@ -222,12 +227,12 @@ def load_pile_documents(
                 captured_tokens += token_count
                 progress.update(token_count)
                 progress.set_postfix(documents=len(documents), refresh=False)
-            if captured_tokens >= candidate_token_budget:
+            if candidate_token_budget is not None and captured_tokens >= candidate_token_budget:
                 break
     finally:
         progress.close()
 
-    if captured_tokens < candidate_token_budget:
+    if candidate_token_budget is not None and captured_tokens < candidate_token_budget:
         raise RuntimeError(
             f"Pile-10k yielded only {captured_tokens} candidate tokens; "
             f"expected {candidate_token_budget}."
@@ -239,11 +244,16 @@ def load_pile_documents(
 def sample_positions(
     documents: list[torch.Tensor],
     *,
-    token_budget: int,
+    token_budget: int | None,
     seed: int,
 ) -> dict[int, torch.Tensor]:
     """Sample token positions uniformly without replacement across documents."""
     total_tokens = sum(int(document.shape[0]) for document in documents)
+    if token_budget is None:
+        return {
+            index: torch.arange(document.shape[0], dtype=torch.long)
+            for index, document in enumerate(documents)
+        }
     if token_budget <= 0:
         raise ValueError("--token-budget must be positive")
     if token_budget > total_tokens:
@@ -267,6 +277,19 @@ def sample_positions(
         document_index: torch.tensor(positions, dtype=torch.long)
         for document_index, positions in selected.items()
     }
+
+
+def parse_token_budget(value: str) -> int | None:
+    """Parse a positive token count or the sentinel 'all'."""
+    if value.strip().lower() == "all":
+        return None
+    try:
+        budget = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be a positive integer or 'all'") from error
+    if budget <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer or 'all'")
+    return budget
 
 
 def capture_activations(
