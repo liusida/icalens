@@ -119,17 +119,6 @@ def fit_fastica(
         )
 
     components = unmixing @ whitening
-    source_std = _source_std(
-        values,
-        center=center,
-        components=components,
-        device=fit_device,
-        dtype=fit_dtype,
-        batch_size=batch_size,
-        row_normalize=row_normalize,
-        norm_eps=norm_eps,
-    )
-    components = components / source_std[:, None]
     mixing = torch.linalg.pinv(components)
     return FastICAResult(center=center, components=components, mixing=mixing, n_iter=n_iter)
 

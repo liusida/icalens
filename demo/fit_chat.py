@@ -64,6 +64,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument(
+        "--push-to-hub",
+        default=None,
+        metavar="OWNER/REPO",
+        help="Upload the saved lens to a Hugging Face Model repository.",
+    )
+    parser.add_argument("--private", action="store_true", help="Create a private Hub repository.")
+    parser.add_argument("--hub-revision", default="main")
+    parser.add_argument("--commit-message", default="Upload ICA Lens artifacts")
+    parser.add_argument(
         "--context-length",
         type=int,
         default=CONTEXT_LENGTH,
@@ -207,6 +216,19 @@ def main() -> None:
             progress=True,
             device="cuda",
             batch_size=fit_batch_size,
+            provenance={
+                "dataset": {
+                    "repo_id": args.dataset,
+                    "revision": str(dataset_revision),
+                    "split": args.split,
+                },
+                "messages_field": args.messages_field,
+                "token_scope": args.token_scope,
+                "candidate_tokens": candidate_tokens,
+                "fitting_tokens": args.token_budget,
+                "sampling_seed": args.seed,
+                "context_length": args.context_length,
+            },
         )
 
     output = lens.save(args.output)
@@ -214,6 +236,23 @@ def main() -> None:
     log(f"Available layers: {lens.available_layers}")
     log(f"Dataset: {args.dataset}@{dataset_revision} ({args.split})")
     log(f"Token scope: {args.token_scope}")
+    if args.push_to_hub is not None:
+        log(f"Uploading to Hugging Face Model repository {args.push_to_hub}...")
+        uploaded = lens.push_to_hub(
+            args.push_to_hub,
+            private=args.private,
+            revision=args.hub_revision,
+            commit_message=args.commit_message,
+        )
+        cloud = ICALens.from_pretrained(
+            args.push_to_hub, revision=args.hub_revision, force_download=True
+        )
+        for layer in layers:
+            probe = activations_by_layer[layer][:8]
+            torch.testing.assert_close(
+                cloud.transform(probe, layer=layer), lens.transform(probe, layer=layer)
+            )
+        log(f"Verified cloud round-trip: {uploaded}")
     peak_gib = torch.cuda.max_memory_reserved() / 1024**3
     log(f"Peak PyTorch CUDA memory reserved: {peak_gib:.2f} GiB")
 
@@ -327,9 +366,7 @@ def format_conversation(
     else:
         spans = content_spans(rendered, normalized, token_scope=token_scope)
         candidate_positions = [
-            index
-            for index, offset in enumerate(offsets)
-            if token_overlaps_spans(offset, spans)
+            index for index, offset in enumerate(offsets) if token_overlaps_spans(offset, spans)
         ]
     if not candidate_positions:
         return None

@@ -6,7 +6,6 @@ import argparse
 from pathlib import Path
 
 import torch
-from fit_chat import format_conversation
 from gb10_load_llm import load_model_to_cuda
 from html_explorer import write_explorer_html
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -122,35 +121,19 @@ def main() -> None:
         raise RuntimeError("Model generated an empty assistant response.")
 
     messages = [*prompt_messages, {"role": "assistant", "content": assistant_response}]
-    document = format_conversation(
-        tokenizer,
+    result = lens.analyze(
         messages,
+        layer=args.layer,
+        model=model,
+        tokenizer=tokenizer,
         token_scope=args.token_scope,
         context_length=args.context_length,
     )
-    if document is None:
-        raise ValueError(
-            f"the completed conversation has no {args.token_scope} tokens within "
-            f"the {args.context_length}-token context"
-        )
-
-    input_ids = document.input_ids.unsqueeze(0).to("cuda")
-    positions = document.candidate_positions.to("cuda")
-    with torch.inference_mode():
-        outputs = model(
-            input_ids=input_ids,
-            output_hidden_states=True,
-            use_cache=False,
-        )
-    if outputs.hidden_states is None:
-        raise RuntimeError("Model did not return hidden states.")
-
-    activations = outputs.hidden_states[args.layer + 1][0].index_select(0, positions)
-    scores = lens.transform(activations.to(dtype=torch.float32), layer=args.layer)
+    scores = result.scores
     top_k = min(args.top_k, scores.shape[-1])
     top_indices = torch.topk(scores.abs(), k=top_k, dim=-1).indices
-    token_ids = document.input_ids.tolist()
-    tokens = tokenizer.convert_ids_to_tokens(token_ids)
+    token_ids = result.token_ids.tolist()
+    tokens = result.tokens
 
     print(f"Lens: {args.lens}")
     print(f"Model: {lens.model_id}@{lens.model_revision} ({lens.model_type})")
@@ -158,19 +141,19 @@ def main() -> None:
     print(f"Token scope: {args.token_scope}")
     print(f"Assistant: {assistant_response}")
     print()
-    for row, position_tensor in enumerate(document.candidate_positions):
+    for row, position_tensor in enumerate(result.positions):
         position = int(position_tensor)
         entries = [
             f"C{component.item()}={scores[row, component].item():+.3f}"
             for component in top_indices[row]
         ]
-        print(f"{position:>4} {tokens[position]!r:<20} {'  '.join(entries)}")
+        print(f"{position:>4} {tokens[row]!r:<20} {'  '.join(entries)}")
 
     html_tokens = [
         {
             "position": int(position),
-            "token": tokens[int(position)],
-            "token_text": tokenizer.decode([token_ids[int(position)]]),
+            "token": tokens[row],
+            "token_text": tokenizer.decode([token_ids[row]]),
             "top": [
                 {
                     "component": int(component),
@@ -179,7 +162,7 @@ def main() -> None:
                 for component in top_indices[row]
             ],
         }
-        for row, position in enumerate(document.candidate_positions)
+        for row, position in enumerate(result.positions)
     ]
     conversation_text = "\n".join(
         f"{message['role'].title()}: {message['content']}" for message in messages

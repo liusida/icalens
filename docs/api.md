@@ -115,10 +115,11 @@ The v0.1 interface should support:
 - Loading the same artifact format from either the Hugging Face Hub or a local
   directory.
 
-The caller is responsible for loading the language model and capturing the correct activations. The following are intentionally deferred:
+The low-level fitting API remains activation-only and cannot verify that the
+caller captured the declared model, layer, or site. The optional
+`icalens[analyze]` integration handles model loading and capture for analysis.
+The following are intentionally deferred:
 
-- `lens.analyze(text, ...)` and `AnalysisResult`.
-- Automatic model loading, tokenization, and activation capture.
 - Visualization and explorer integration.
 - In-model interventions and paper-reproduction workflows.
 
@@ -130,7 +131,7 @@ Fitting uses the package's internal PyTorch FastICA implementation. NumPy
 inputs fit on CPU, while PyTorch inputs fit on their current device. ICA Lens
 does not depend on scikit-learn or SciPy.
 
-Future versions can build the high-level API on the same foundation:
+The optional high-level API builds on the same artifact:
 
 ```python
 result = lens.analyze(
@@ -138,3 +139,10 @@ result = lens.analyze(
     layer=6,
 )
 ```
+
+In v0.2, install `icalens[analyze]` to use this high-level interface. The
+result contains aligned tokens, token IDs, positions, activations, signed ICA
+scores, and per-token energy shares. Energy is `score² / sum(score²)` across
+components. New v0.2 fits use direct FastICA coordinates without post-ICA
+source scaling. `fit(..., provenance={{...}})` records JSON-compatible dataset
+and sampling metadata in each layer artifact.

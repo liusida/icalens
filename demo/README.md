@@ -175,3 +175,17 @@ The command writes `demo/output/apply.html` by default. The standalone HTML
 includes responsive token cards, signed component bars, component highlighting,
 card-width control, and an opacity cutoff. Override the path with
 `--output-file PATH`.
+
+## Publish and verify a chat lens
+
+The fitting demo records exact dataset and sampling provenance. Upload through
+the public cloud API with an explicit opt-in:
+
+```bash
+uv run python demo/fit_chat.py \
+  --layers 12 \
+  --push-to-hub username/icalens-qwen2.5-0.5b-instruct
+```
+
+Add `--private` for a private Hugging Face Model repository. The demo reloads
+the uploaded lens and verifies its scores against the local artifact.

@@ -16,6 +16,7 @@ from icalens import ICALens
 lens = ICALens.from_pretrained("liusida/icalens-gpt2-small")
 scores = lens.transform(activations, layer=6)
 reconstructed = lens.inverse_transform(scores, layer=6)
+energy = lens.energy(scores)  # per-token component fractions summing to 1
 ```
 
 Fit and publish your own:
@@ -46,8 +47,9 @@ lens = ICALens(
 ```
 
 `model_type` describes the checkpoint and accepts `"base"` or `"instruct"`.
-Conversation formatting and assistant-token selection are separate concerns;
-high-level chat capture helpers are planned for v0.2.
+Install `icalens[analyze]` to capture and analyze text or completed chat
+conversations directly. `result = lens.analyze(text, layer=6)` returns aligned
+tokens, activations, signed scores, and per-token component energy shares.
 
 Inputs may be NumPy arrays or PyTorch tensors. Leading dimensions are treated
 as sample dimensions and the final dimension must be the model hidden size.

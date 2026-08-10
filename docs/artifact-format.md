@@ -33,6 +33,8 @@ The activation-site directory is retained even when a release contains only
 - The hidden size and input preprocessing steps.
 - The available layers, tensor filename, and component count for each layer.
 - Essential fitting provenance, including algorithm, dtype, and random seed.
+- Dataset/token sampling provenance supplied by the fitter.
+- The package version and post-ICA source-scaling policy.
 
 Example:
 
@@ -127,6 +129,10 @@ covariance, fixed-point updates, and source variance are accumulated in
 repeated batches, so the complete activation matrix need not be placed on the
 GPU. The effective batch size, fitting device, and
 `blockwise_multi_pass` memory strategy are recorded per layer.
+
+New v0.2 fits store direct FastICA coordinates without a separate post-ICA
+source-standard-deviation pass (`source_scaling: "none"`). For each token,
+component energy share is `score² / sum(score²)`.
 
 `save(path)` writes the manifest and layer files locally. It must use an atomic
 or staging-directory strategy so an interrupted save does not leave an

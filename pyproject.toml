@@ -26,6 +26,12 @@ dependencies = [
     "tqdm>=4.66",
 ]
 
+[project.optional-dependencies]
+analyze = [
+    "gb10-load-llm>=0.1.2",
+    "transformers>=5.0",
+]
+
 [project.urls]
 Homepage = "https://liusida.github.io/ica-lens-paper/"
 Repository = "https://github.com/liusida/icalens"

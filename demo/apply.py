@@ -55,30 +55,18 @@ def main() -> None:
     )
     model.eval()
 
-    encoded = tokenizer(
+    result = lens.analyze(
         args.text,
-        return_tensors="pt",
-        truncation=True,
-        max_length=tokenizer.model_max_length,
+        layer=args.layer,
+        model=model,
+        tokenizer=tokenizer,
+        context_length=tokenizer.model_max_length,
     )
-    input_ids = encoded["input_ids"].to("cuda")
-    attention_mask = encoded["attention_mask"].to("cuda")
-    with torch.inference_mode():
-        outputs = model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            output_hidden_states=True,
-            use_cache=False,
-        )
-    if outputs.hidden_states is None:
-        raise RuntimeError("GPT-2 did not return hidden states.")
-
-    activations = outputs.hidden_states[args.layer + 1][0].to(dtype=torch.float32)
-    scores = lens.transform(activations, layer=args.layer)
+    scores = result.scores
     top_k = min(args.top_k, scores.shape[-1])
     top_indices = torch.topk(scores.abs(), k=top_k, dim=-1).indices
-    token_ids = input_ids[0].to("cpu").tolist()
-    tokens = tokenizer.convert_ids_to_tokens(token_ids)
+    token_ids = result.token_ids.tolist()
+    tokens = result.tokens
 
     print(f"Lens: {args.lens}")
     print(f"Model: {lens.model_id}@{lens.model_revision} ({lens.model_type})")

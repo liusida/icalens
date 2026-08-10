@@ -78,14 +78,17 @@ def main() -> None:
     torch.cuda.reset_peak_memory_stats()
 
     log(f"Resolving {MODEL_ID} revision...")
-    revision = HfApi().model_info(MODEL_ID).sha
-    if revision is None:
-        raise RuntimeError(f"Could not resolve an exact revision for {MODEL_ID}.")
+    api = HfApi()
+    revision = api.model_info(MODEL_ID).sha
+    dataset_revision = api.dataset_info(DATASET_ID).sha
+    if revision is None or dataset_revision is None:
+        raise RuntimeError("Could not resolve exact model and dataset revisions.")
     log("Loading tokenizer and Pile-10k candidate tokens...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=revision)
     candidate_tokens = args.token_budget if args.candidate_tokens is None else args.candidate_tokens
     documents = load_pile_documents(
         tokenizer,
+        dataset_revision=str(dataset_revision),
         candidate_token_budget=candidate_tokens,
         context_length=CONTEXT_LENGTH,
     )
@@ -159,6 +162,18 @@ def main() -> None:
             progress=True,
             device="cuda",
             batch_size=fit_batch_size,
+            provenance={
+                "dataset": {
+                    "repo_id": DATASET_ID,
+                    "revision": str(dataset_revision),
+                    "split": "train",
+                },
+                "token_scope": "all",
+                "candidate_tokens": candidate_tokens,
+                "fitting_tokens": args.token_budget,
+                "sampling_seed": args.seed,
+                "context_length": CONTEXT_LENGTH,
+            },
         )
 
     output = lens.save(args.output)
@@ -171,13 +186,14 @@ def main() -> None:
 def load_pile_documents(
     tokenizer: Any,
     *,
+    dataset_revision: str | None = None,
     candidate_token_budget: int,
     context_length: int,
 ) -> list[torch.Tensor]:
     """Tokenize Pile documents until the requested candidate pool is full."""
     if candidate_token_budget <= 0:
         raise ValueError("--candidate-tokens must be positive")
-    dataset = load_dataset(DATASET_ID, split="train", streaming=True)
+    dataset = load_dataset(DATASET_ID, split="train", revision=dataset_revision, streaming=True)
     documents: list[torch.Tensor] = []
     captured_tokens = 0
     progress = tqdm(

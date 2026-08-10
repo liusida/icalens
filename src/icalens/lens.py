@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import copy
+import json
 import re
 import tempfile
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Literal
 
@@ -107,6 +109,7 @@ class ICALens:
         progress: bool = False,
         device: str | torch.device | None = None,
         batch_size: int = 8192,
+        provenance: dict[str, Any] | None = None,
     ) -> ICALens:
         """Fit or replace the ICA transformation for one layer."""
         layer = _validate_layer(layer)
@@ -130,6 +133,7 @@ class ICALens:
             raise ValueError("max_iter must be positive")
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
+        provenance = _validate_provenance(provenance)
 
         result = fit_fastica(
             values,
@@ -162,6 +166,7 @@ class ICALens:
                 "fun": fun,
                 "whiten": "unit-variance",
                 "whiten_solver": "eigh",
+                "source_scaling": "none",
                 "max_iter": int(max_iter),
                 "stopping_criterion": "fixed_iterations",
                 "random_state": random_state,
@@ -175,6 +180,7 @@ class ICALens:
                 "component_id_convention": (
                     "row index; no post-fit sorting, sign canonicalization, or renumbering"
                 ),
+                "provenance": provenance,
             },
             center=center,
             reading_matrix=reading,
@@ -197,6 +203,39 @@ class ICALens:
             normalize=self.row_normalize,
             norm_eps=self.norm_eps,
         )
+
+    @staticmethod
+    def energy(scores: Any) -> Any:
+        """Return each component's fraction of per-position squared score energy."""
+        if isinstance(scores, torch.Tensor):
+            if scores.ndim < 1 or not scores.is_floating_point():
+                raise TypeError("scores must be a floating-point array")
+            squared = scores.square()
+            denominator = squared.sum(dim=-1, keepdim=True)
+            return torch.where(denominator > 0, squared / denominator, torch.zeros_like(squared))
+        array = np.asarray(scores)
+        if array.ndim < 1 or not np.issubdtype(array.dtype, np.floating):
+            raise TypeError("scores must be a floating-point array")
+        squared_array = np.square(array)
+        denominator_array = squared_array.sum(axis=-1, keepdims=True)
+        return np.divide(
+            squared_array,
+            denominator_array,
+            out=np.zeros_like(squared_array),
+            where=denominator_array > 0,
+        )
+
+    def capture(self, inputs: Any, *, layer: int, **kwargs: Any) -> Any:
+        """Capture model activations aligned to text or conversation tokens."""
+        from .analysis import capture
+
+        return capture(self, inputs, layer=layer, **kwargs)
+
+    def analyze(self, inputs: Any, *, layer: int, **kwargs: Any) -> Any:
+        """Capture activations and return tokens, ICA scores, and energy shares."""
+        from .analysis import analyze
+
+        return analyze(self, inputs, layer=layer, **kwargs)
 
     def inverse_transform(self, scores: Any, *, layer: int) -> Any:
         """Approximately reconstruct preprocessed activations from scores."""
@@ -363,6 +402,7 @@ class ICALens:
         return {
             "format": FORMAT_NAME,
             "format_version": FORMAT_VERSION,
+            "package_version": _package_version(),
             "model": {
                 "repo_id": self.model_id,
                 "revision": self.model_revision,
@@ -452,3 +492,25 @@ def _as_fit_tensor(values: Any) -> torch.Tensor:
 
 def _to_numpy(value: torch.Tensor) -> NDArray[np.float32]:
     return np.ascontiguousarray(value.detach().to(device="cpu", dtype=torch.float32).numpy())
+
+
+def _validate_provenance(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise TypeError("provenance must be a dictionary or None")
+    try:
+        encoded = json.dumps(value, allow_nan=False)
+        decoded = json.loads(encoded)
+    except (TypeError, ValueError) as error:
+        raise ValueError("provenance must contain only finite JSON-compatible values") from error
+    if not isinstance(decoded, dict):
+        raise ValueError("provenance must encode a JSON object")
+    return decoded
+
+
+def _package_version() -> str:
+    try:
+        return version("icalens")
+    except PackageNotFoundError:
+        return "unknown"

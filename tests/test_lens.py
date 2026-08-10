@@ -66,6 +66,23 @@ def test_leading_dimensions_are_preserved(mixed_signals: np.ndarray) -> None:
     assert lens.transform(values, layer=2).shape == (3, 10, 2)
 
 
+def test_energy_is_per_position_fraction(mixed_signals: np.ndarray) -> None:
+    lens = make_lens().fit(mixed_signals, layer=2)
+    scores = lens.transform(mixed_signals[:10], layer=2)
+    energy = lens.energy(scores)
+    np.testing.assert_allclose(energy.sum(axis=-1), 1.0, atol=1e-6)
+    np.testing.assert_allclose(energy, scores**2 / np.sum(scores**2, axis=-1, keepdims=True))
+
+
+def test_fit_records_detached_json_provenance(mixed_signals: np.ndarray) -> None:
+    provenance = {"dataset": {"repo_id": "example/data", "revision": "abc"}}
+    lens = make_lens().fit(mixed_signals, layer=2, provenance=provenance)
+    provenance["dataset"]["repo_id"] = "changed"
+    fitting = lens.metadata["layers"]["2"]["fitting"]
+    assert fitting["source_scaling"] == "none"
+    assert fitting["provenance"]["dataset"]["repo_id"] == "example/data"
+
+
 def test_torch_transform_preserves_tensor_properties(mixed_signals: np.ndarray) -> None:
     values = torch.from_numpy(mixed_signals)
     lens = make_lens().fit(values, layer=2, n_components=2)

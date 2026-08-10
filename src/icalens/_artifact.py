@@ -169,6 +169,22 @@ def _model_card(manifest: dict[str, Any]) -> str:
     model_type = model_entry.get("type", "base")
     site = manifest["activation_site"]
     layers = ", ".join(str(layer) for layer in sorted(map(int, manifest["layers"])))
+    package_version = manifest.get("package_version", "unknown")
+    preprocessing = manifest.get("input_preprocessing", {})
+    normalization = preprocessing.get("row_normalization", "unknown")
+    layer_details = []
+    for layer, entry in sorted(manifest["layers"].items(), key=lambda item: int(item[0])):
+        fitting = entry.get("fitting", {})
+        provenance = fitting.get("provenance")
+        detail = (
+            f"- Layer {layer}: {entry['n_components']} components, "
+            f"{fitting.get('n_samples', 'unknown')} fitting samples, "
+            f"source scaling `{fitting.get('source_scaling', 'legacy-unit-variance')}`"
+        )
+        if provenance:
+            detail += f"; provenance: `{json.dumps(provenance, sort_keys=True)}`"
+        layer_details.append(detail)
+    fitting_summary = "\n".join(layer_details)
     return f"""---
 library_name: icalens
 base_model: {model}
@@ -182,6 +198,18 @@ tags:
 
 This repository contains an ICA Lens fitted on `{site}` activations from
 the `{model}` {model_type} model. Available layers: {layers}.
+
+Package version: `{package_version}`. Per-token row normalization: `{normalization}`.
+
+## Score definition
+
+Signed scores are the centered, whitened activations followed by the learned
+orthogonal ICA rotation. No post-ICA source scaling is applied to v0.2 fits.
+For a token, component energy share is `score² / sum(all component scores²)`.
+
+## Fitting
+
+{fitting_summary}
 
 ```python
 from icalens import ICALens
