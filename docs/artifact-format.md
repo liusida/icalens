@@ -141,7 +141,7 @@ apparently valid partial artifact.
 `push_to_hub(repo_id, ...)` is the explicit network operation for publishing
 the saved representation to a Hugging Face Model repository. It should support
 at least `private`, `token`, `revision`, and `commit_message` options. It must
-not overwrite unrelated remote files silently. Official `liusida/icalens-*`
+not overwrite unrelated remote files silently. Official `sida/icalens-*`
 artifacts are generated with this same public fitting and publishing API rather
 than a private exporter.
 

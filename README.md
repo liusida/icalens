@@ -13,7 +13,7 @@ Load a published lens:
 ```python
 from icalens import ICALens
 
-lens = ICALens.from_pretrained("liusida/icalens-gpt2-small")
+lens = ICALens.from_pretrained("sida/icalens-gpt2-small-pile10k")
 scores = lens.transform(activations, layer=6)
 reconstructed = lens.inverse_transform(scores, layer=6)
 energy = lens.energy(scores)  # per-token component fractions summing to 1
@@ -32,6 +32,21 @@ lens = ICALens(
 lens.fit(activations, layer=6, random_state=0)
 lens.save("./my-icalens")
 lens.push_to_hub("username/icalens-gpt2-small")
+```
+
+For the standalone publishing demo, create a project-root `.env` file containing
+a Hugging Face token with write permission:
+
+```dotenv
+HF_TOKEN=hf_...
+```
+
+The `.env` file is ignored by Git. Publish a saved lens with:
+
+```bash
+uv run python demo/publish.py \
+  --lens ./my-icalens \
+  username/icalens-model-name
 ```
 
 Instruction-tuned checkpoints use the same activation-level API and are
@@ -56,7 +71,7 @@ the input tensor's device. NumPy inputs are fitted on CPU. ICA Lens does not
 depend on scikit-learn or SciPy.
 
 See [`docs/api.md`](docs/api.md) and
-[`docs/artifact-format.md`](docs/artifact-format.md) for the initial API and
+[`docs/artifact-format.md`](docs/artifact-format.md) for the public API and
 portable artifact format.
 
 For the 1,000-token GPT-2/Pile-10k fitting demo, run:

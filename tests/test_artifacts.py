@@ -29,6 +29,10 @@ def test_save_and_local_load_round_trip(tmp_path, mixed_signals: np.ndarray) -> 
     assert loaded.available_layers == (6,)
     assert loaded.metadata["model"]["revision"] == "abc123"
     assert loaded.metadata["model"]["type"] == "base"
+    model_card = (artifact_dir / "README.md").read_text(encoding="utf-8")
+    front_matter = model_card.split("---", maxsplit=2)[1]
+    assert "base_model:" not in front_matter
+    assert "layer-wise ICA transformations" in model_card
     np.testing.assert_allclose(loaded.transform(mixed_signals[:10], layer=6), expected)
 
 
@@ -38,6 +42,32 @@ def test_save_replaces_existing_artifact(tmp_path, mixed_signals: np.ndarray) ->
     make_lens().fit(mixed_signals, layer=3, n_components=2).save(target)
     loaded = ICALens.from_pretrained(target)
     assert loaded.available_layers == (3,)
+
+
+def test_model_card_promotes_common_fitting_dataset(
+    tmp_path, mixed_signals: np.ndarray
+) -> None:
+    provenance = {
+        "dataset": {
+            "repo_id": "example/fitting-data",
+            "revision": "data123",
+            "split": "train",
+        },
+        "token_scope": "all",
+        "candidate_tokens": 1000,
+        "fitting_tokens": 800,
+    }
+    artifact_dir = make_lens().fit(
+        mixed_signals, layer=6, n_components=2, provenance=provenance
+    ).save(tmp_path / "artifact")
+    model_card = (artifact_dir / "README.md").read_text(encoding="utf-8")
+    front_matter = model_card.split("---", maxsplit=2)[1]
+
+    assert "datasets:\n- example/fitting-data" in front_matter
+    dataset_link = "[example/fitting-data](https://huggingface.co/datasets/example/fitting-data)"
+    assert dataset_link in model_card
+    assert "| Dataset revision | `data123` |" in model_card
+    assert "| Fitting tokens | 800 |" in model_card
 
 
 def test_rejects_unsupported_format_version(tmp_path) -> None:

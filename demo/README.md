@@ -57,8 +57,8 @@ allocations managed by PyTorch, but not CUDA context memory or allocations made
 directly by non-PyTorch libraries, so it is a close OOM test rather than a full
 hardware emulator.
 
-Selected activations are retained in CPU memory. Whitening statistics,
-FastICA updates, and final source scaling are computed in repeated CUDA batches,
+Selected activations are retained in CPU memory in the model's activation
+dtype. Whitening statistics and FastICA updates are computed in repeated CUDA batches,
 so GPU memory scales with `--fit-batch-size` rather than the total token count.
 Set `--fit-batch-size 0` to disable batching and process all selected activation
 rows at once. This can be faster when sufficient GPU memory is available, but
@@ -80,6 +80,21 @@ Use `--layers all` to fit all 12 GPT-2 transformer blocks. The default single
 layer is intended as a quick end-to-end check; a full published artifact should
 use a larger, explicitly sampled token corpus.
 
+Limit CPU activation memory by capturing and fitting only a few layers per
+model pass:
+
+```bash
+uv run python demo/fit.py \
+  --layers all \
+  --token-budget all \
+  --capture-layers-at-once 2
+```
+
+This captures layers 0–1, fits them, releases their activations, and then
+repeats for layers 2–3. Smaller groups use less memory but require more complete
+passes over the tokenized dataset. The default `0` captures all requested
+layers in one pass.
+
 The demo requires network access for Hugging Face downloads and a CUDA device.
 
 Use every token available under the demo's per-document context limit without
@@ -90,8 +105,10 @@ uv run python demo/fit.py --layers 6 --token-budget all
 ```
 
 The resolved usable-token count is printed before model loading. Capturing many
-layers simultaneously still retains one float32 activation matrix per layer,
-so `--layers all --token-budget all` may exceed system memory.
+layers simultaneously retains one BF16 activation matrix per layer for the
+default model, so use `--capture-layers-at-once` when the full set would exceed
+system memory. Both fitting demos report peak process RSS and peak PyTorch CUDA
+reserved memory at the end.
 
 ## Fit an instruct-model lens from conversations
 
@@ -208,7 +225,9 @@ uv run python demo/publish.py sida/icalens-gpt2-small \
   --lens demo/output/icalens-gpt2-small
 ```
 
-Authentication uses Hugging Face Hub's standard credentials. Run
-`hf auth login` once, or provide the `HF_TOKEN` environment variable. The
-script never accepts or prints the token itself; it only reports the account
-name returned by Hugging Face.
+By default, the publishing demo reads `HF_TOKEN` from the project-root `.env`
+file. That file is ignored by Git. If it is absent or does not define
+`HF_TOKEN`, Hugging Face Hub's standard environment variable or saved `hf auth
+login` credential is used instead. Pass `--env-file PATH` to select another
+dotenv file. The script never accepts or prints the token itself; it only
+reports the account name returned by Hugging Face.

@@ -166,6 +166,7 @@ def _model_card(manifest: dict[str, Any]) -> str:
     if not isinstance(model_entry, dict):
         raise ArtifactError("manifest model metadata must be an object")
     model = model_entry["repo_id"]
+    revision = model_entry.get("revision")
     model_type = model_entry.get("type", "base")
     site = manifest["activation_site"]
     layers = ", ".join(str(layer) for layer in sorted(map(int, manifest["layers"])))
@@ -173,33 +174,108 @@ def _model_card(manifest: dict[str, Any]) -> str:
     preprocessing = manifest.get("input_preprocessing", {})
     normalization = preprocessing.get("row_normalization", "unknown")
     layer_details = []
+    provenances = []
     for layer, entry in sorted(manifest["layers"].items(), key=lambda item: int(item[0])):
         fitting = entry.get("fitting", {})
-        provenance = fitting.get("provenance")
-        detail = (
-            f"- Layer {layer}: {entry['n_components']} components, "
-            f"{fitting.get('n_samples', 'unknown')} fitting samples, "
-            f"source scaling `{fitting.get('source_scaling', 'legacy-unit-variance')}`"
+        provenances.append(fitting.get("provenance"))
+        layer_details.append(
+            f"| {layer} | {entry['n_components']} | "
+            f"{fitting.get('n_samples', 'unknown')} | {fitting.get('max_iter', 'unknown')} |"
         )
-        if provenance:
-            detail += f"; provenance: `{json.dumps(provenance, sort_keys=True)}`"
-        layer_details.append(detail)
     fitting_summary = "\n".join(layer_details)
+    common_provenance = (
+        provenances[0]
+        if provenances and all(provenance == provenances[0] for provenance in provenances)
+        else None
+    )
+    dataset_entry = (
+        common_provenance.get("dataset") if isinstance(common_provenance, dict) else None
+    )
+    dataset_id = dataset_entry.get("repo_id") if isinstance(dataset_entry, dict) else None
+    dataset_metadata = f"datasets:\n- {dataset_id}\n" if dataset_id else ""
+    if (
+        isinstance(dataset_id, str)
+        and isinstance(dataset_entry, dict)
+        and isinstance(common_provenance, dict)
+    ):
+        dataset_link = f"https://huggingface.co/datasets/{dataset_id}"
+        dataset_revision = dataset_entry.get("revision", "not pinned")
+        dataset_split = dataset_entry.get("split", "not recorded")
+        fitting_data_rows = (
+            f"| Fitting dataset | [{dataset_id}]({dataset_link}) |\n"
+            f"| Dataset revision | `{dataset_revision}` |\n"
+            f"| Dataset split | `{dataset_split}` |\n"
+            f"| Fitting token scope | `{common_provenance.get('token_scope', 'not recorded')}` |\n"
+            f"| Candidate tokens | {common_provenance.get('candidate_tokens', 'not recorded')} |\n"
+            f"| Fitting tokens | {common_provenance.get('fitting_tokens', 'not recorded')} |"
+        )
+    else:
+        fitting_data_rows = "| Fitting dataset | See per-layer provenance in `icalens.json` |"
+    provenance_summary = (
+        f"```json\n{json.dumps(common_provenance, indent=2, sort_keys=True)}\n```"
+        if common_provenance is not None
+        else "See the per-layer fitting metadata in `icalens.json`."
+    )
+    revision_text = f"`{revision}`" if revision is not None else "not pinned"
+    model_link = f"https://huggingface.co/{model}"
+    example_layer = min(map(int, manifest["layers"]))
     return f"""---
 library_name: icalens
-base_model: {model}
+{dataset_metadata}\
 tags:
 - interpretability
 - independent-component-analysis
 - activations
+- arxiv:2606.11722
 ---
 
 # ICA Lens for {model}
 
-This repository contains an ICA Lens fitted on `{site}` activations from
-the `{model}` {model_type} model. Available layers: {layers}.
+This repository contains a fitted **ICA Lens** for analyzing internal activations
+of [{model}]({model_link}). It provides layer-wise ICA transformations for mapping
+residual-stream activations to independent-component scores and energy shares.
 
-Package version: `{package_version}`. Per-token row normalization: `{normalization}`.
+## Artifact summary
+
+| Field | Value |
+|---|---|
+| Analyzed model | [{model}]({model_link}) |
+| Analyzed model revision | {revision_text} |
+| Model kind | `{model_type}` |
+| Activation site | `{site}` |
+| Layer indexing | `{manifest.get('layer_indexing', 'unknown')}` |
+| Available layers | {layers} |
+| Hidden size | {manifest.get('hidden_size', 'unknown')} |
+| Input row normalization | `{normalization}` |
+| ICALens package version | `{package_version}` |
+{fitting_data_rows}
+
+The analyzed model identity and revision are stored authoritatively in
+`icalens.json`; model-card metadata is not used when loading the lens.
+
+## Usage
+
+Analyze text end to end:
+
+```python
+from icalens import ICALens
+
+lens = ICALens.from_pretrained(\"REPOSITORY_ID\")
+result = lens.analyze(\"She deposited the check at the bank.\", layer={example_layer})
+
+print(result.tokens)
+print(result.scores)  # signed standard ICA scores
+print(result.energy)  # per-token squared-score fractions
+```
+
+Or transform activations captured separately:
+
+```python
+scores = lens.transform(activations, layer={example_layer})
+```
+
+Externally captured activations must use the model revision, activation site,
+layer indexing, and preprocessing recorded in `icalens.json`.
 
 ## Score definition
 
@@ -209,15 +285,31 @@ For a token, component energy share is `score² / sum(all component scores²)`.
 
 ## Fitting
 
+| Layer | Components | Fitting tokens | FastICA iterations |
+|---:|---:|---:|---:|
 {fitting_summary}
 
-```python
-from icalens import ICALens
+### Fitting provenance
 
-lens = ICALens.from_pretrained(\"REPOSITORY_ID\")
-scores = lens.transform(activations, layer={min(map(int, manifest["layers"]))})
+{provenance_summary}
+
+## Limitations
+
+- Component IDs are specific to a layer and fitted artifact.
+- Standard ICA scores are signed and are not probabilities.
+
+## Paper
+
+[ICA Lens: Interpreting Language Models Without Training Another Dictionary](https://arxiv.org/abs/2606.11722)
+
+## Citation
+
+```bibtex
+@article{{liu2026icalens,
+  title={{ICA Lens: Interpreting Language Models Without Training Another Dictionary}},
+  author={{Liu, Sida and Han, Feijiang}},
+  journal={{arXiv preprint arXiv:2606.11722}},
+  year={{2026}}
+}}
 ```
-
-The caller is responsible for capturing activations from the model
-revision and activation site recorded in `icalens.json`.
 """

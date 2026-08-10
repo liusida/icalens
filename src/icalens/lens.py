@@ -496,10 +496,8 @@ def _as_fit_tensor(values: Any) -> torch.Tensor:
     if not tensor.is_floating_point():
         raise TypeError("activations must have a floating-point dtype")
     tensor = tensor.reshape(-1, tensor.shape[-1])
-    if not bool(torch.isfinite(tensor).all()):
-        raise ValueError("activations must contain only finite values")
-    if tensor.dtype not in (torch.float32, torch.float64):
-        tensor = tensor.float()
+    # Preserve compact input storage (for example captured bfloat16 activations).
+    # FastICA validates and converts one bounded batch at a time.
     return tensor
 
 

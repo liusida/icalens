@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from dotenv import dotenv_values
 from huggingface_hub import HfApi
 
 from icalens import ICALens
 
 DEFAULT_LENS = Path(__file__).parent / "output" / "icalens-gpt2-small"
+DEFAULT_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,6 +20,12 @@ def parse_args() -> argparse.Namespace:
         "repo_id", help="Destination Model repository, for example sida/icalens-gpt2-small."
     )
     parser.add_argument("--lens", type=Path, default=DEFAULT_LENS)
+    parser.add_argument(
+        "--env-file",
+        type=Path,
+        default=DEFAULT_ENV_FILE,
+        help="File containing HF_TOKEN (default: project-root .env).",
+    )
     parser.add_argument("--private", action="store_true", help="Create a private repository.")
     parser.add_argument("--revision", default="main", help="Destination branch (default: main).")
     parser.add_argument(
@@ -32,8 +40,9 @@ def main() -> None:
     args = parse_args()
     lens_path = args.lens.expanduser().resolve()
     lens = ICALens.from_pretrained(lens_path)
+    token = load_hf_token(args.env_file)
 
-    api = HfApi()
+    api = HfApi(token=token)
     try:
         account = api.whoami()
     except Exception as error:
@@ -47,18 +56,34 @@ def main() -> None:
     result = lens.push_to_hub(
         args.repo_id,
         private=True if args.private else None,
+        token=token,
         revision=args.revision,
         commit_message=args.commit_message,
     )
     cloud = ICALens.from_pretrained(
         args.repo_id,
         revision=args.revision,
+        token=token,
         force_download=True,
     )
     if cloud.metadata != lens.metadata:
         raise RuntimeError("Uploaded manifest does not match the local artifact manifest.")
     print(f"Verified uploaded manifest and available layers {cloud.available_layers}.")
     print(result)
+
+
+def load_hf_token(env_file: Path) -> str | None:
+    """Read HF_TOKEN from a dotenv file, falling back to standard Hub auth."""
+    path = env_file.expanduser().resolve()
+    if not path.is_file():
+        return None
+    token = dotenv_values(path).get("HF_TOKEN")
+    if token is None:
+        return None
+    token = token.strip()
+    if not token:
+        raise ValueError(f"HF_TOKEN is empty in {path}")
+    return token
 
 
 if __name__ == "__main__":

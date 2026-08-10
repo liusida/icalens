@@ -133,6 +133,16 @@ def test_blockwise_fit_matches_single_batch(mixed_signals: np.ndarray) -> None:
     assert fitting["memory_strategy"] == "blockwise_multi_pass"
 
 
+def test_fit_accepts_compact_bfloat16_storage(mixed_signals: np.ndarray) -> None:
+    values = torch.from_numpy(mixed_signals).to(torch.bfloat16)
+    lens = make_lens().fit(values, layer=2, n_components=3, max_iter=2, batch_size=37)
+
+    fitting = lens.metadata["layers"]["2"]["fitting"]
+    assert values.dtype == torch.bfloat16
+    assert fitting["input_dtype"] == "bfloat16"
+    assert lens.transform(values[:10], layer=2).dtype == torch.bfloat16
+
+
 def test_repeated_fit_builds_collection(mixed_signals: np.ndarray) -> None:
     lens = make_lens().fit(mixed_signals, layer=1, n_components=2)
     returned = lens.fit(mixed_signals, layer=4, n_components=3)

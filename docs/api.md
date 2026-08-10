@@ -1,6 +1,6 @@
 # ICA Lens API notes
 
-## v0.2 development scope
+## v0.2 interface
 
 Version 0.2 adds explicit base-versus-instruct checkpoint metadata while
 retaining the activation-level fitting and transformation interface.
@@ -12,7 +12,7 @@ pip install icalens
 ```python
 from icalens import ICALens
 
-lens = ICALens.from_pretrained("liusida/icalens-gpt2-small")
+lens = ICALens.from_pretrained("sida/icalens-gpt2-small-pile10k")
 
 scores = lens.transform(
     activations,
@@ -79,13 +79,12 @@ FastICA calculations run, while the activation tensor may remain in CPU
 memory. `batch_size` bounds the number of activation rows moved to the fitting
 device at once. GPU memory therefore scales primarily with batch size rather
 than the total token count. The input must remain available for repeated passes
-through mean estimation, covariance accumulation, fixed-point iterations, and
-source scaling.
+through mean estimation, covariance accumulation, and fixed-point iterations.
 
 `save()` writes the standard artifact layout to a local directory. Network
 upload is a separate, explicit operation: `push_to_hub()` creates or updates a
 Hugging Face Model repository using that same layout. The official
-`liusida/icalens-*` artifacts should be produced through these public methods.
+`sida/icalens-*` artifacts should be produced through these public methods.
 
 The argument to `ICALens.from_pretrained()` is a Hugging Face Model repository
 ID. Each repository contains the fitted ICA artifacts for one model and
@@ -100,8 +99,8 @@ A `revision` argument should allow callers to pin a Hub tag or commit:
 
 ```python
 lens = ICALens.from_pretrained(
-    "liusida/icalens-gpt2-small",
-    revision="v0.1.0",
+    "sida/icalens-gpt2-small-pile10k",
+    revision="COMMIT_OR_TAG",
 )
 ```
 

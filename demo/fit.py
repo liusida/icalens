@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import resource
+import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -65,6 +67,12 @@ def parse_args() -> argparse.Namespace:
         default=8192,
         help="Activation rows processed on CUDA at once; 0 uses all rows (default: 8192).",
     )
+    parser.add_argument(
+        "--capture-layers-at-once",
+        type=int,
+        default=0,
+        help="Capture and fit this many layers per model pass; 0 uses all requested layers.",
+    )
     return parser.parse_args()
 
 
@@ -76,6 +84,8 @@ def main() -> None:
         set_cuda_memory_limit(args.max_vram_gb)
     if args.fit_batch_size < 0:
         raise ValueError("--fit-batch-size must be non-negative")
+    if args.capture_layers_at_once < 0:
+        raise ValueError("--capture-layers-at-once must be non-negative")
     torch.cuda.reset_peak_memory_stats()
 
     log(f"Resolving {MODEL_ID} revision...")
@@ -118,13 +128,6 @@ def main() -> None:
     # Direct block hooks capture resid_post before GPT-2's final ln_f, including
     # the last transformer block.
     layers = parse_layers(args.layers, layer_count=int(model.config.num_hidden_layers))
-    log(f"Capturing {token_budget} sampled activations for layers {','.join(map(str, layers))}...")
-    activations_by_layer = capture_activations(
-        model,
-        documents=documents,
-        selected_positions=selected_positions,
-        layers=layers,
-    )
     lens = ICALens(
         model_id=MODEL_ID,
         model_revision=str(revision),
@@ -133,56 +136,70 @@ def main() -> None:
         layer_indexing="transformer_blocks_zero_based",
     )
 
-    for layer in layers:
-        activations = activations_by_layer[layer]
-        sample_count = int(activations.shape[0])
-        hidden_size = int(activations.shape[1])
-        minimum_samples = hidden_size + 1
-        if sample_count < minimum_samples:
-            raise ValueError(
-                f"Cannot fit a full {hidden_size}-component ICA Lens from only "
-                f"{sample_count} token activations: centering limits the rank to at most "
-                f"{sample_count - 1}. Increase --token-budget to at least {minimum_samples}; "
-                "if --candidate-tokens is set, it must be at least as large."
-            )
-        fit_batch_size = (
-            int(activations.shape[0]) if args.fit_batch_size == 0 else args.fit_batch_size
-        )
+    capture_group_size = args.capture_layers_at_once or len(layers)
+    for group_start in range(0, len(layers), capture_group_size):
+        layer_group = layers[group_start : group_start + capture_group_size]
         log(
-            f"Fitting layer {layer} from {activations.shape[0]} tokens "
-            f"with {hidden_size} components, max_iter={args.max_iter}, "
-            f"fit_batch_size={fit_batch_size}..."
+            f"Capturing {token_budget} sampled activations for layers "
+            f"{','.join(map(str, layer_group))}..."
         )
-        lens.fit(
-            activations,
-            layer=layer,
-            n_components=hidden_size,
-            algorithm="parallel",
-            fun="logcosh",
-            max_iter=args.max_iter,
-            random_state=args.seed,
-            progress=True,
-            device="cuda",
-            batch_size=fit_batch_size,
-            provenance={
-                "dataset": {
-                    "repo_id": DATASET_ID,
-                    "revision": str(dataset_revision),
-                    "split": "train",
+        activations_by_layer = capture_activations(
+            model,
+            documents=documents,
+            selected_positions=selected_positions,
+            layers=layer_group,
+        )
+        for layer in layer_group:
+            activations = activations_by_layer[layer]
+            sample_count = int(activations.shape[0])
+            hidden_size = int(activations.shape[1])
+            minimum_samples = hidden_size + 1
+            if sample_count < minimum_samples:
+                raise ValueError(
+                    f"Cannot fit a full {hidden_size}-component ICA Lens from only "
+                    f"{sample_count} token activations: centering limits the rank to at most "
+                    f"{sample_count - 1}. Increase --token-budget to at least "
+                    f"{minimum_samples}; if --candidate-tokens is set, it must be at least "
+                    "as large."
+                )
+            fit_batch_size = sample_count if args.fit_batch_size == 0 else args.fit_batch_size
+            log(
+                f"Fitting layer {layer} from {sample_count} tokens "
+                f"with {hidden_size} components, max_iter={args.max_iter}, "
+                f"fit_batch_size={fit_batch_size}..."
+            )
+            lens.fit(
+                activations,
+                layer=layer,
+                n_components=hidden_size,
+                algorithm="parallel",
+                fun="logcosh",
+                max_iter=args.max_iter,
+                random_state=args.seed,
+                progress=True,
+                device="cuda",
+                batch_size=fit_batch_size,
+                provenance={
+                    "dataset": {
+                        "repo_id": DATASET_ID,
+                        "revision": str(dataset_revision),
+                        "split": "train",
+                    },
+                    "token_scope": "all",
+                    "candidate_tokens": candidate_token_count,
+                    "fitting_tokens": token_budget,
+                    "sampling_seed": args.seed,
+                    "context_length": CONTEXT_LENGTH,
                 },
-                "token_scope": "all",
-                "candidate_tokens": candidate_token_count,
-                "fitting_tokens": token_budget,
-                "sampling_seed": args.seed,
-                "context_length": CONTEXT_LENGTH,
-            },
-        )
+            )
+        del activations, activations_by_layer
 
     output = lens.save(args.output)
     log(f"Saved {len(layers)} layer(s) to {output}")
     log(f"Available layers: {lens.available_layers}")
     peak_gib = torch.cuda.max_memory_reserved() / 1024**3
     log(f"Peak PyTorch CUDA memory reserved: {peak_gib:.2f} GiB")
+    log(f"Peak process resident memory (RSS): {peak_rss_gib():.2f} GiB")
 
 
 def load_pile_documents(
@@ -300,8 +317,9 @@ def capture_activations(
     layers: tuple[int, ...],
 ) -> dict[int, torch.Tensor]:
     """Capture selected positions while preserving each document's left context."""
-    buffers: dict[int, list[torch.Tensor]] = {layer: [] for layer in layers}
     selected_count = sum(int(positions.shape[0]) for positions in selected_positions.values())
+    buffers: dict[int, torch.Tensor] | None = None
+    offset = 0
     progress = tqdm(
         total=selected_count,
         desc="Capture activations",
@@ -318,14 +336,26 @@ def capture_activations(
                 layers=layers,
                 positions=positions,
             )
+            if buffers is None:
+                buffers = {
+                    layer: torch.empty(
+                        (selected_count, int(selected_by_layer[layer].shape[-1])),
+                        dtype=selected_by_layer[layer].dtype,
+                        device="cpu",
+                    )
+                    for layer in layers
+                }
+            count = int(positions.shape[0])
             for layer in layers:
-                selected = selected_by_layer[layer]
-                buffers[layer].append(selected.to(device="cpu", dtype=torch.float32))
-            progress.update(int(positions.shape[0]))
+                buffers[layer][offset : offset + count].copy_(selected_by_layer[layer])
+            offset += count
+            progress.update(count)
             progress.set_postfix(document=document_index, refresh=False)
     finally:
         progress.close()
-    return {layer: torch.cat(chunks, dim=0) for layer, chunks in buffers.items()}
+    if buffers is None or offset != selected_count:
+        raise RuntimeError(f"captured {offset} activations; expected {selected_count}")
+    return buffers
 
 
 def parse_layers(value: str, *, layer_count: int) -> tuple[int, ...]:
@@ -347,6 +377,13 @@ def log(message: str) -> None:
     """Print a timestamped demo progress message immediately."""
     timestamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
     print(f"[{timestamp}] {message}", flush=True)
+
+
+def peak_rss_gib() -> float:
+    """Return this process's lifetime peak resident-set size in GiB."""
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    # Linux reports KiB; macOS reports bytes.
+    return peak / (1024**3 if sys.platform == "darwin" else 1024**2)
 
 
 def set_cuda_memory_limit(limit_gb: float) -> None:
