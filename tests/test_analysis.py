@@ -37,6 +37,7 @@ def test_analyze_raw_text_returns_scores_and_energy(mixed_signals: np.ndarray) -
     lens = ICALens(
         model_id="example/model",
         model_revision="abc",
+        activation_site="hidden_states",
         layer_indexing="hidden_states",
     ).fit(mixed_signals, layer=0)
     result = lens.analyze(

@@ -14,8 +14,8 @@ By default, the demo:
 3. Uses all 1,000 positions for fitting by default.
 4. Preserves each sampled token's original left context during activation capture.
 5. Loads `openai-community/gpt2` on CUDA through `gb10-load-llm`.
-6. Captures `outputs.hidden_states[7]`, recorded as ICA Lens layer 6 after
-   excluding the initial embedding state.
+6. Captures transformer block 6's direct output (`resid_post`) with a forward
+   hook, before any model-level final normalization.
 7. Fits a full 768-component ICA Lens.
 8. Saves it under `demo/output/icalens-gpt2-small-1k`.
 

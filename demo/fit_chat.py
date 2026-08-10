@@ -18,6 +18,7 @@ from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from icalens import ICALens
+from icalens._capture import capture_resid_post
 
 MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -181,8 +182,8 @@ def main() -> None:
         model_id=args.model,
         model_revision=str(model_revision),
         model_type="instruct",
-        activation_site="hidden_states",
-        layer_indexing="hidden_states_without_initial_embedding_state",
+        activation_site="resid_post",
+        layer_indexing="transformer_blocks_zero_based",
     )
 
     for layer in layers:
@@ -481,16 +482,14 @@ def capture_activations(
         for document_index, positions_cpu in selected_positions.items():
             input_ids = documents[document_index].input_ids.unsqueeze(0).to("cuda")
             positions = positions_cpu.to("cuda")
-            with torch.inference_mode():
-                outputs = model(
-                    input_ids=input_ids,
-                    output_hidden_states=True,
-                    use_cache=False,
-                )
-            if outputs.hidden_states is None:
-                raise RuntimeError("Model did not return hidden states.")
+            selected_by_layer = capture_resid_post(
+                model,
+                model_inputs={"input_ids": input_ids},
+                layers=layers,
+                positions=positions,
+            )
             for layer in layers:
-                selected = outputs.hidden_states[layer + 1][0].index_select(0, positions)
+                selected = selected_by_layer[layer]
                 buffers[layer].append(selected.to(device="cpu", dtype=torch.float32))
             progress.update(int(positions.shape[0]))
             progress.set_postfix(conversation=document_index, refresh=False)

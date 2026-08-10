@@ -48,7 +48,7 @@ Example:
     "type": "base"
   },
   "activation_site": "resid_post",
-  "layer_indexing": "hidden_states",
+  "layer_indexing": "transformer_blocks_zero_based",
   "hidden_size": 768,
   "input_preprocessing": {
     "row_normalization": "l2"

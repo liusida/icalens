@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 import torch
 
+from ._capture import capture_resid_post
+
 
 @dataclass(frozen=True)
 class CaptureResult:
@@ -55,22 +57,30 @@ def capture(
     model_device = next(model.parameters()).device
     input_ids = encoded["input_ids"].to(model_device)
     attention_mask = encoded.get("attention_mask")
-    kwargs = {"input_ids": input_ids, "output_hidden_states": True, "use_cache": False}
+    kwargs = {"input_ids": input_ids}
     if attention_mask is not None:
         kwargs["attention_mask"] = attention_mask.to(model_device)
-    with torch.inference_mode():
-        outputs = model(**kwargs)
-    if outputs.hidden_states is None:
-        raise RuntimeError("model did not return hidden states")
-    hidden_index = (
-        layer + 1
-        if lens.layer_indexing == "hidden_states_without_initial_embedding_state"
-        else layer
-    )
-    if hidden_index < 0 or hidden_index >= len(outputs.hidden_states):
-        raise ValueError(f"layer {layer} is unavailable in model hidden states")
     selected = positions.to(model_device)
-    activations = outputs.hidden_states[hidden_index][0].index_select(0, selected).float()
+    if lens.activation_site == "resid_post":
+        activations = capture_resid_post(
+            model,
+            model_inputs=kwargs,
+            layers=(layer,),
+            positions=selected,
+        )[layer].float()
+    else:
+        with torch.inference_mode():
+            outputs = model(**kwargs, output_hidden_states=True, use_cache=False)
+        if outputs.hidden_states is None:
+            raise RuntimeError("model did not return hidden states")
+        hidden_index = (
+            layer + 1
+            if lens.layer_indexing == "hidden_states_without_initial_embedding_state"
+            else layer
+        )
+        if hidden_index < 0 or hidden_index >= len(outputs.hidden_states):
+            raise ValueError(f"layer {layer} is unavailable in model hidden states")
+        activations = outputs.hidden_states[hidden_index][0].index_select(0, selected).float()
     ids = input_ids[0].index_select(0, selected).detach().cpu()
     tokens = tuple(tokenizer.convert_ids_to_tokens(ids.tolist()))
     return CaptureResult(tokens=tokens, token_ids=ids, positions=positions, activations=activations)

@@ -17,6 +17,7 @@ from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from icalens import ICALens
+from icalens._capture import capture_resid_post
 
 MODEL_ID = "openai-community/gpt2"
 DATASET_ID = "NeelNanda/pile-10k"
@@ -110,8 +111,8 @@ def main() -> None:
     )
     model.eval()
 
-    # hidden_states[0] is the embedding state. ICALens layer 0 is the output of
-    # transformer block 0, so layer N maps to hidden_states[N + 1].
+    # Direct block hooks capture resid_post before GPT-2's final ln_f, including
+    # the last transformer block.
     layers = parse_layers(args.layers, layer_count=int(model.config.num_hidden_layers))
     log(
         f"Capturing {args.token_budget} sampled activations for layers "
@@ -127,8 +128,8 @@ def main() -> None:
         model_id=MODEL_ID,
         model_revision=str(revision),
         model_type="base",
-        activation_site="hidden_states",
-        layer_indexing="hidden_states_without_initial_embedding_state",
+        activation_site="resid_post",
+        layer_indexing="transformer_blocks_zero_based",
     )
 
     for layer in layers:
@@ -288,16 +289,14 @@ def capture_activations(
         for document_index, positions_cpu in selected_positions.items():
             input_ids = documents[document_index].unsqueeze(0).to("cuda")
             positions = positions_cpu.to("cuda")
-            with torch.inference_mode():
-                outputs = model(
-                    input_ids=input_ids,
-                    output_hidden_states=True,
-                    use_cache=False,
-                )
-            if outputs.hidden_states is None:
-                raise RuntimeError("GPT-2 did not return hidden states.")
+            selected_by_layer = capture_resid_post(
+                model,
+                model_inputs={"input_ids": input_ids},
+                layers=layers,
+                positions=positions,
+            )
             for layer in layers:
-                selected = outputs.hidden_states[layer + 1][0].index_select(0, positions)
+                selected = selected_by_layer[layer]
                 buffers[layer].append(selected.to(device="cpu", dtype=torch.float32))
             progress.update(int(positions.shape[0]))
             progress.set_postfix(document=document_index, refresh=False)
