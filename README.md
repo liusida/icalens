@@ -60,8 +60,8 @@ lens = ICALens(
 ```
 
 `model_type` describes the checkpoint and accepts `"base"` or `"instruct"`.
-Install `icalens[analyze]` to capture and analyze text or completed chat
-conversations directly. `result = lens.analyze(text, layer=6)` returns aligned
+The standard `icalens` installation can capture and analyze text or completed
+chat conversations directly. `result = lens.analyze(text, layer=6)` returns aligned
 tokens, activations, signed scores, and per-token component energy shares.
 
 Inputs may be NumPy arrays or PyTorch tensors. Leading dimensions are treated
