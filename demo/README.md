@@ -189,3 +189,15 @@ uv run python demo/fit_chat.py \
 
 Add `--private` for a private Hugging Face Model repository. The demo reloads
 the uploaded lens and verifies its scores against the local artifact.
+
+Any saved lens can also be published independently:
+
+```bash
+uv run python demo/publish.py sida/icalens-gpt2-small \
+  --lens demo/output/icalens-gpt2-small
+```
+
+Authentication uses Hugging Face Hub's standard credentials. Run
+`hf auth login` once, or provide the `HF_TOKEN` environment variable. The
+script never accepts or prints the token itself; it only reports the account
+name returned by Hugging Face.
