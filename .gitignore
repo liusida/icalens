@@ -14,3 +14,4 @@ htmlcov/
 demo/output/
 experiments/output/
 experiments/
+.worktrees/

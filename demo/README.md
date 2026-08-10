@@ -38,6 +38,26 @@ as diagnostic-only because it is not an appropriate stopping rule in the LLM
 activation regime. The displayed objective uses the selected FastICA contrast:
 `log(cosh(x))`, `-exp(-x²/2)`, or `x⁴/4`.
 
+For parallel FastICA, every saved layer also records an objective curve in
+`icalens.json` under `layers.<layer>.fitting.objective_history`. At each
+recorded iteration, the contrast is averaged over fitting tokens for each
+component, then summarized across components at the minimum, 10th, 20th, ...,
+90th percentile, and maximum. Its `iterations`, `percentiles`, and `values`
+arrays can be plotted directly as percentile curves or nested colored bands.
+Use `--objective-every N` to record every Nth iteration; the final iteration is
+always included. The default is `1`.
+
+Plot the first four available layers from a local, progressively written lens:
+
+```bash
+uv run python demo/plot_objective.py \
+  demo/output/icalens-qwen3.5-2b-ultrachat-10m
+```
+
+Use `--layers 0,1,2`, `--first 6`, or `--output path/to/curves.png` to customize
+the selection and output. Nested colored bands show min–max, p10–p90, ...,
+p40–p60, with the median drawn as a line.
+
 The demo also displays token-rate progress bars while building the Pile-10k
 candidate pool and capturing the sampled GPT-2 activations.
 
@@ -92,8 +112,15 @@ uv run python demo/fit.py \
 
 This captures layers 0–1, fits them, releases their activations, and then
 repeats for layers 2–3. Smaller groups use less memory but require more complete
-passes over the tokenized dataset. The default `0` captures all requested
+passes over the tokenized dataset. Each capture pass stops immediately after
+its highest requested transformer block, so an early-layer group does not run
+the unused remainder of the model. The default `0` captures all requested
 layers in one pass.
+
+After each layer finishes fitting, the demos atomically checkpoint the growing
+lens to `--output`, including that layer's objective history. If a later layer
+fails or the run is interrupted, every previously completed layer remains
+loadable from the output directory.
 
 The demo requires network access for Hugging Face downloads and a CUDA device.
 
@@ -112,19 +139,34 @@ reserved memory at the end.
 
 ## Fit an instruct-model lens from conversations
 
-Fit a Qwen2.5-0.5B-Instruct lens on assistant-content tokens from streamed
+Fit a Qwen2.5-0.5B-Instruct lens on all formatted tokens from streamed
 UltraChat 200k conversations:
 
 ```bash
 uv run python demo/fit_chat.py --layers 12
 ```
 
+Qwen3.5 multimodal checkpoints can be fitted as text-only language models. The
+loader selects the language backbone, while chat templating and assistant-token
+selection use the same interface:
+
+```bash
+uv run python demo/fit_chat.py \
+  --model Qwen/Qwen3.5-2B \
+  --layers 12 \
+  --token-budget 100000 \
+  --max-iter 20 \
+  --output demo/output/icalens-qwen3.5-2b-ultrachat-100k
+```
+
+Qwen3.5-2B has 24 language layers indexed from 0 through 23 and hidden size
+2048. Use at least 2049 fitting tokens for a full-component lens.
+
 The script uses the tokenizer's chat template and offset mapping to distinguish
 message content from role markers and other template control tokens. The
-default `--token-scope assistant` therefore fits only assistant-content token
-activations while retaining the complete preceding conversation as context.
-Other supported scopes are `user`, `content` (all message content), and `all`
-(including template tokens).
+default `--token-scope all` fits every formatted position, including template
+tokens. Other supported scopes are `assistant`, `user`, and `content` (all
+message content but no template markers).
 
 As in the plain-text demo, `--candidate-tokens` defaults to `--token-budget`.
 For a larger deterministic candidate pool, run:
@@ -152,18 +194,18 @@ uv run python demo/fit_chat.py \
 ```
 
 Ask the model to generate a response and apply the resulting instruct lens to
-the generated assistant tokens:
+the complete formatted conversation:
 
 ```bash
 uv run python demo/apply_chat.py
 ```
 
 The script first generates a response, then performs a full forward pass over
-the completed conversation so each generated token has an activation aligned
+the completed conversation so each formatted token has an activation aligned
 with the same chat formatting used during fitting. The default output shows
-component scores only for generated assistant-content tokens. Pass `--user`
-and optionally `--system` to supply a different prompt. `--token-scope` accepts
-the same `assistant`, `user`, `content`, and `all` choices as the fitting demo:
+component scores for all formatted tokens. Pass `--user` and optionally
+`--system` to supply a different prompt. `--token-scope` accepts the same
+`assistant`, `user`, `content`, and `all` choices as the fitting demo:
 
 ```bash
 uv run python demo/apply_chat.py \

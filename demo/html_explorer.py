@@ -18,6 +18,7 @@ def write_explorer_html(
     input_text: str,
     token_scope: str,
     tokens: list[dict[str, Any]],
+    token_groups: list[dict[str, Any]] | None = None,
 ) -> Path:
     """Write an interactive standalone HTML report and return its absolute path."""
     destination = output_file.expanduser().resolve()
@@ -30,6 +31,7 @@ def write_explorer_html(
             "input_text": input_text,
             "token_scope": token_scope,
             "tokens": tokens,
+            "token_groups": token_groups or [],
         },
         ensure_ascii=False,
         separators=(",", ":"),
@@ -66,6 +68,8 @@ def _document(payload: str) -> str:
     .input {{ margin: 10px 0 0; padding: 9px; overflow-wrap: anywhere; white-space: pre-wrap;
       border: 1px solid #dde3ec; border-radius: 6px; background: #f8fafc;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
+    details > summary {{ cursor: pointer; font-weight: 800; }}
+    details .results {{ margin-top: 12px; }}
     .controls {{ display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }}
     label {{ display: flex; align-items: center; gap: 7px; color: #435066;
       font-size: 12px; font-weight: 700; }}
@@ -110,6 +114,7 @@ def _document(payload: str) -> str:
       <button id="clear" type="button">Clear selection</button>
       <span class="selection" id="selection">Click a component to highlight it.</span>
     </section>
+    <div id="tokenGroups"></div>
     <section class="results" id="results"></section>
   </main>
   <script>
@@ -128,22 +133,41 @@ def _document(payload: str) -> str:
     document.getElementById("scope").textContent = data.token_scope;
     document.getElementById("count").textContent = `${{data.tokens.length}} tokens`;
     document.getElementById("input").textContent = data.input_text;
+    const tokenGroups = document.getElementById("tokenGroups");
+    const groupResults = [];
+    data.token_groups.forEach(group => {{
+      const details = document.createElement("details");
+      details.className = "panel";
+      details.open = Boolean(group.open);
+      const summary = document.createElement("summary");
+      summary.textContent = `${{group.title}} (${{group.tokens.length}} tokens)`;
+      const cards = document.createElement("section");
+      cards.className = "results";
+      details.append(summary, cards);
+      tokenGroups.append(details);
+      groupResults.push({{ cards, tokens: group.tokens }});
+    }});
+
+    function tokenCard(token, threshold) {{
+      const peak = Math.max(0, ...token.top.map(item => Math.abs(Number(item.score))));
+      const badges = token.top.map(item => {{
+        const component = Number(item.component);
+        const score = Number(item.score);
+        const ratio = peak ? Math.abs(score) / peak : 0;
+        const selected = state.selected === component;
+        const bar = selected ? color(component) : "#e7ebf1";
+        return `<div class="score-row"><button class="badge ${{ratio < threshold ? "weak" : ""}} ${{selected ? "selected" : ""}}" data-component="${{component}}" style="--width:${{(ratio*100).toFixed(1)}}%;--bar:${{bar}};--color:${{color(component)}}"><span class="component">C${{component}}</span><span class="score">${{score >= 0 ? "+" : ""}}${{score.toFixed(3)}}</span></button></div>`;
+      }}).join("");
+      return `<article class="token-card"><div class="token-position">${{token.position}}</div><div class="token-text" title="${{esc(token.token)}}">${{esc(token.token_text || token.token)}}</div>${{badges}}</article>`;
+    }}
 
     function render() {{
       const threshold = Math.max(0, Math.min(1, Number(cutoff.value || .5)));
-      results.innerHTML = data.tokens.map(token => {{
-        const peak = Math.max(0, ...token.top.map(item => Math.abs(Number(item.score))));
-        const badges = token.top.map(item => {{
-          const component = Number(item.component);
-          const score = Number(item.score);
-          const ratio = peak ? Math.abs(score) / peak : 0;
-          const selected = state.selected === component;
-          const bar = selected ? color(component) : "#e7ebf1";
-          return `<div class="score-row"><button class="badge ${{ratio < threshold ? "weak" : ""}} ${{selected ? "selected" : ""}}" data-component="${{component}}" style="--width:${{(ratio*100).toFixed(1)}}%;--bar:${{bar}};--color:${{color(component)}}"><span class="component">C${{component}}</span><span class="score">${{score >= 0 ? "+" : ""}}${{score.toFixed(3)}}</span></button></div>`;
-        }}).join("");
-        return `<article class="token-card"><div class="token-position">${{token.position}}</div><div class="token-text" title="${{esc(token.token)}}">${{esc(token.token_text || token.token)}}</div>${{badges}}</article>`;
-      }}).join("");
-      results.querySelectorAll(".badge").forEach(node => node.addEventListener("click", () => {{
+      results.innerHTML = data.tokens.map(token => tokenCard(token, threshold)).join("");
+      groupResults.forEach(group => {{
+        group.cards.innerHTML = group.tokens.map(token => tokenCard(token, threshold)).join("");
+      }});
+      document.querySelectorAll(".badge").forEach(node => node.addEventListener("click", () => {{
         const component = Number(node.dataset.component);
         state.selected = state.selected === component ? null : component;
         document.getElementById("selection").textContent = state.selected === null

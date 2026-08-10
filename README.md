@@ -1,8 +1,8 @@
 # ICA Lens
 
 ICA Lens fits, shares, and applies Independent Component Analysis bases for
-language-model activations. The core API operates on activations supplied by
-the caller; it does not load language models or capture activations.
+language-model activations. It can capture activations directly from text or
+operate on activation tensors supplied by the caller.
 
 ```bash
 uv add icalens
@@ -14,9 +14,10 @@ Load a published lens:
 from icalens import ICALens
 
 lens = ICALens.from_pretrained("sida/icalens-gpt2-small-pile10k")
-scores = lens.transform(activations, layer=6)
-reconstructed = lens.inverse_transform(scores, layer=6)
-energy = lens.energy(scores)  # per-token component fractions summing to 1
+result = lens.analyze("She deposited the check at the bank.", layer=6)
+
+print(result.tokens)
+print(result.scores)
 ```
 
 Fit and publish your own:
@@ -60,8 +61,8 @@ lens = ICALens(
 ```
 
 `model_type` describes the checkpoint and accepts `"base"` or `"instruct"`.
-Install `icalens[analyze]` to capture and analyze text or completed chat
-conversations directly. `result = lens.analyze(text, layer=6)` returns aligned
+The standard `icalens` installation can capture and analyze text or completed
+chat conversations directly. `result = lens.analyze(text, layer=6)` returns aligned
 tokens, activations, signed scores, and per-token component energy shares.
 
 Inputs may be NumPy arrays or PyTorch tensors. Leading dimensions are treated
@@ -81,8 +82,8 @@ uv sync
 uv run python demo/fit.py
 ```
 
-For the corresponding instruct-model demo using assistant tokens from
-UltraChat conversations, run:
+For the corresponding instruct-model demo using all formatted UltraChat
+conversation tokens, including template markers, run:
 
 ```bash
 uv run python demo/fit_chat.py --layers 12

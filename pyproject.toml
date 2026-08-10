@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "icalens"
-version = "0.2.0"
+version = "0.3.0.dev0"
 description = "Fit, share, and apply ICA lenses for language-model activations."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,16 +19,12 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
 ]
 dependencies = [
+    "gb10-load-llm>=0.1.2",
     "huggingface-hub>=0.25",
     "numpy>=1.24",
     "safetensors>=0.4",
     "torch>=2.1",
     "tqdm>=4.66",
-]
-
-[project.optional-dependencies]
-analyze = [
-    "gb10-load-llm>=0.1.2",
     "transformers>=5.0",
 ]
 

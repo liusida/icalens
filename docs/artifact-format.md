@@ -33,6 +33,8 @@ The activation-site directory is retained even when a release contains only
 - The hidden size and input preprocessing steps.
 - The available layers, tensor filename, and component count for each layer.
 - Essential fitting provenance, including algorithm, dtype, and random seed.
+- Per-iteration objective percentiles for parallel FastICA, from minimum through
+  deciles to maximum.
 - Dataset/token sampling provenance supplied by the fitter.
 - The package version and post-ICA source-scaling policy.
 
@@ -148,7 +150,7 @@ than a private exporter.
 ## Model card
 
 The repository `README.md` is its Hugging Face model card. Its YAML metadata
-should identify `icalens` as the library, name the base model and license, and
+should identify `icalens` as the library, name the analyzed model and license, and
 include interpretability and ICA tags. The body should document the activation
 site, layer convention, fitting data and method, intended use, limitations,
 package version, and paper citation.

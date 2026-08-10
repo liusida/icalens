@@ -26,7 +26,7 @@ from ._artifact import (
     read_manifest,
     save_directory,
 )
-from ._fastica import fit_fastica
+from ._fastica import OBJECTIVE_PERCENTILES, fit_fastica
 from .exceptions import ArtifactError, NotFittedError
 
 
@@ -109,6 +109,7 @@ class ICALens:
         progress: bool = False,
         device: str | torch.device | None = None,
         batch_size: int = 8192,
+        objective_every: int = 1,
         provenance: dict[str, Any] | None = None,
     ) -> ICALens:
         """Fit or replace the ICA transformation for one layer."""
@@ -133,6 +134,8 @@ class ICALens:
             raise ValueError("max_iter must be positive")
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
+        if objective_every <= 0:
+            raise ValueError("objective_every must be positive")
         provenance = _validate_provenance(provenance)
 
         result = fit_fastica(
@@ -147,6 +150,7 @@ class ICALens:
             batch_size=batch_size,
             row_normalize=self.row_normalize,
             norm_eps=self.norm_eps,
+            objective_every=objective_every,
         )
 
         center = _to_numpy(result.center)
@@ -171,6 +175,18 @@ class ICALens:
                 "stopping_criterion": "fixed_iterations",
                 "random_state": random_state,
                 "n_iter": result.n_iter,
+                "objective_every": int(objective_every),
+                "objective_history": (
+                    {
+                        "contrast": fun,
+                        "aggregation": "mean_over_tokens_then_percentiles_over_components",
+                        "iterations": result.objective_iterations,
+                        "percentiles": list(OBJECTIVE_PERCENTILES),
+                        "values": result.objective_history,
+                    }
+                    if result.objective_history is not None
+                    else None
+                ),
                 "n_samples": int(values.shape[0]),
                 "input_dtype": str(values.dtype).removeprefix("torch."),
                 "fit_device": str(result.center.device),

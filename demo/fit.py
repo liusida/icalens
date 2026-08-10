@@ -43,6 +43,12 @@ def parse_args() -> argparse.Namespace:
         help="Fixed number of FastICA iterations (default: 20).",
     )
     parser.add_argument(
+        "--objective-every",
+        type=int,
+        default=1,
+        help="Record objective percentiles every N iterations (default: 1).",
+    )
+    parser.add_argument(
         "--candidate-tokens",
         type=int,
         default=None,
@@ -84,6 +90,8 @@ def main() -> None:
         set_cuda_memory_limit(args.max_vram_gb)
     if args.fit_batch_size < 0:
         raise ValueError("--fit-batch-size must be non-negative")
+    if args.objective_every <= 0:
+        raise ValueError("--objective-every must be positive")
     if args.capture_layers_at_once < 0:
         raise ValueError("--capture-layers-at-once must be non-negative")
     torch.cuda.reset_peak_memory_stats()
@@ -135,6 +143,7 @@ def main() -> None:
         activation_site="resid_post",
         layer_indexing="transformer_blocks_zero_based",
     )
+    output = args.output.expanduser().resolve()
 
     capture_group_size = args.capture_layers_at_once or len(layers)
     for group_start in range(0, len(layers), capture_group_size):
@@ -179,6 +188,7 @@ def main() -> None:
                 progress=True,
                 device="cuda",
                 batch_size=fit_batch_size,
+                objective_every=args.objective_every,
                 provenance={
                     "dataset": {
                         "repo_id": DATASET_ID,
@@ -192,9 +202,13 @@ def main() -> None:
                     "context_length": CONTEXT_LENGTH,
                 },
             )
+            output = lens.save(output)
+            log(
+                f"Checkpointed layer {layer} to {output}; "
+                f"available layers: {lens.available_layers}"
+            )
         del activations, activations_by_layer
 
-    output = lens.save(args.output)
     log(f"Saved {len(layers)} layer(s) to {output}")
     log(f"Available layers: {lens.available_layers}")
     peak_gib = torch.cuda.max_memory_reserved() / 1024**3

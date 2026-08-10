@@ -111,7 +111,7 @@ def _resolve_model_and_tokenizer(
         from transformers import AutoModelForCausalLM, AutoTokenizer
     except ImportError as error:
         raise ImportError(
-            "capture/analyze requires optional dependencies; install 'icalens[analyze]'"
+            "ICA Lens analysis dependencies are missing; reinstall or upgrade 'icalens'"
         ) from error
     if lens.model_revision is None:
         from huggingface_hub import HfApi
@@ -128,7 +128,9 @@ def _resolve_model_and_tokenizer(
         try:
             from gb10_load_llm import load_model_to_cuda  # type: ignore[import-untyped]
         except ImportError as error:
-            raise ImportError("automatic model loading requires 'icalens[analyze]'") from error
+            raise ImportError(
+                "ICA Lens model-loading dependencies are missing; reinstall or upgrade 'icalens'"
+            ) from error
         target = "cuda" if device is None else str(device)
         if not target.startswith("cuda"):
             model = AutoModelForCausalLM.from_pretrained(

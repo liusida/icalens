@@ -89,6 +89,26 @@ def test_fit_records_detached_json_provenance(mixed_signals: np.ndarray) -> None
     assert fitting["provenance"]["dataset"]["repo_id"] == "example/data"
 
 
+def test_fit_records_objective_percentile_history(mixed_signals: np.ndarray) -> None:
+    lens = make_lens().fit(
+        mixed_signals,
+        layer=2,
+        n_components=3,
+        max_iter=8,
+        batch_size=37,
+        objective_every=3,
+    )
+
+    history = lens.metadata["layers"]["2"]["fitting"]["objective_history"]
+    assert history["contrast"] == "logcosh"
+    assert history["iterations"] == [3, 6, 8]
+    assert history["percentiles"] == list(range(0, 101, 10))
+    assert len(history["values"]) == 3
+    assert all(len(row) == 11 for row in history["values"])
+    assert all(row == sorted(row) for row in history["values"])
+    assert any(row[0] < row[-1] for row in history["values"])
+
+
 def test_torch_transform_preserves_tensor_properties(mixed_signals: np.ndarray) -> None:
     values = torch.from_numpy(mixed_signals)
     lens = make_lens().fit(values, layer=2, n_components=2)

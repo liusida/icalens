@@ -1164,9 +1164,10 @@ wheels = [
 
 [[package]]
 name = "icalens"
-version = "0.2.0"
+version = "0.3.0.dev0"
 source = { editable = "." }
 dependencies = [
+    { name = "gb10-load-llm" },
     { name = "huggingface-hub" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
@@ -1174,11 +1175,6 @@ dependencies = [
     { name = "safetensors" },
     { name = "torch" },
     { name = "tqdm" },
-]
-
-[package.optional-dependencies]
-analyze = [
-    { name = "gb10-load-llm" },
     { name = "transformers" },
 ]
 
@@ -1201,15 +1197,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "gb10-load-llm", marker = "extra == 'analyze'", specifier = ">=0.1.2" },
+    { name = "gb10-load-llm", specifier = ">=0.1.2" },
     { name = "huggingface-hub", specifier = ">=0.25" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "safetensors", specifier = ">=0.4" },
     { name = "torch", specifier = ">=2.1" },
     { name = "tqdm", specifier = ">=4.66" },
-    { name = "transformers", marker = "extra == 'analyze'", specifier = ">=5.0" },
+    { name = "transformers", specifier = ">=5.0" },
 ]
-provides-extras = ["analyze"]
 
 [package.metadata.requires-dev]
 dev = [

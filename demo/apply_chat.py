@@ -11,6 +11,7 @@ from html_explorer import write_explorer_html
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from icalens import ICALens
+from icalens._capture import capture_resid_post
 
 DEFAULT_LENS = Path(__file__).parent / "output" / "icalens-qwen2.5-0.5b-instruct"
 DEFAULT_USER = "Explain why the sky appears blue in one sentence."
@@ -32,8 +33,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--token-scope",
         choices=("assistant", "user", "content", "all"),
-        default="assistant",
-        help="Formatted tokens to display (default: assistant).",
+        default="all",
+        help="Formatted tokens to display (default: all, including template tokens).",
     )
     parser.add_argument("--context-length", type=int, default=CONTEXT_LENGTH)
     parser.add_argument("--layer", type=int, default=12)
@@ -102,6 +103,7 @@ def main() -> None:
         return_tensors="pt",
     )
     prompt_length = int(prompt["input_ids"].shape[1])
+    prompt_token_ids = prompt["input_ids"][0].tolist()
     if prompt_length + args.max_new_tokens > args.context_length:
         raise ValueError(
             f"prompt has {prompt_length} tokens, leaving fewer than "
@@ -115,6 +117,16 @@ def main() -> None:
             max_new_tokens=args.max_new_tokens,
             do_sample=False,
         )
+    prompt_positions = torch.arange(prompt_length, device="cuda")
+    prompt_activations = capture_resid_post(
+        model,
+        model_inputs=prompt,
+        layers=(args.layer,),
+        positions=prompt_positions,
+    )[args.layer]
+    prompt_scores = lens.transform(prompt_activations, layer=args.layer)
+    prompt_top_k = min(args.top_k, prompt_scores.shape[-1])
+    prompt_top_indices = torch.topk(prompt_scores.abs(), k=prompt_top_k, dim=-1).indices
     response_ids = generated[0, prompt_length:].to("cpu")
     assistant_response = tokenizer.decode(response_ids, skip_special_tokens=True).strip()
     if not assistant_response:
@@ -163,6 +175,7 @@ def main() -> None:
             ],
         }
         for row, position in enumerate(result.positions)
+        if int(position) >= prompt_length
     ]
     conversation_text = "\n".join(
         f"{message['role'].title()}: {message['content']}" for message in messages
@@ -175,6 +188,29 @@ def main() -> None:
         input_text=conversation_text,
         token_scope=args.token_scope,
         tokens=html_tokens,
+        token_groups=[
+            {
+                "title": "Prompt template",
+                "open": True,
+                "tokens": [
+                    {
+                        "position": position,
+                        "token": token,
+                        "token_text": tokenizer.decode([prompt_token_ids[position]]),
+                        "top": [
+                            {
+                                "component": int(component),
+                                "score": float(prompt_scores[position, component]),
+                            }
+                            for component in prompt_top_indices[position]
+                        ],
+                    }
+                    for position, token in enumerate(
+                        tokenizer.convert_ids_to_tokens(prompt_token_ids)
+                    )
+                ],
+            },
+        ],
     )
     print()
     print(f"HTML explorer: {output_file}")

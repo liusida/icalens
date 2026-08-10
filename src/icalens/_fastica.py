@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from time import perf_counter
 from typing import cast
 
 import torch
@@ -22,6 +23,11 @@ class FastICAResult:
     components: torch.Tensor
     mixing: torch.Tensor
     n_iter: int
+    objective_history: list[list[float]] | None
+    objective_iterations: list[int] | None
+
+
+OBJECTIVE_PERCENTILES = tuple(range(0, 101, 10))
 
 
 def fit_fastica(
@@ -37,6 +43,7 @@ def fit_fastica(
     batch_size: int = 8192,
     row_normalize: bool = True,
     norm_eps: float = 1e-12,
+    objective_every: int = 1,
 ) -> FastICAResult:
     """Fit unit-variance-whitened FastICA without moving all samples to CUDA."""
     if values.ndim != 2:
@@ -50,6 +57,8 @@ def fit_fastica(
         raise ValueError("fun must be 'logcosh', 'exp', or 'cube'")
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
+    if objective_every <= 0:
+        raise ValueError("objective_every must be positive")
 
     fit_device = values.device if device is None else torch.device(device)
     fit_dtype = torch.float64 if values.dtype == torch.float64 else torch.float32
@@ -60,6 +69,7 @@ def fit_fastica(
         batch_size=batch_size,
         row_normalize=row_normalize,
         norm_eps=norm_eps,
+        progress=progress,
     )
     covariance = _covariance(
         values,
@@ -69,13 +79,19 @@ def fit_fastica(
         batch_size=batch_size,
         row_normalize=row_normalize,
         norm_eps=norm_eps,
+        progress=progress,
     )
+    if progress:
+        tqdm.write(f"FastICA whitening: eigh on {n_features}x{n_features} covariance...")
+    whitening_start = perf_counter()
     whitening = _whitening_matrix(
         covariance,
         n_samples=n_samples,
         n_components=n_components,
         dtype=fit_dtype,
     )
+    if progress:
+        tqdm.write(f"FastICA whitening: eigh completed in {perf_counter() - whitening_start:.1f}s")
 
     generator = torch.Generator(device=fit_device)
     if random_state is not None:
@@ -87,7 +103,7 @@ def fit_fastica(
         generator=generator,
     )
     nonlinearity = _nonlinearity(fun)
-    objective = _contrast(fun) if progress else None
+    objective = _contrast(fun)
     batch_kwargs = {
         "center": center,
         "whitening": whitening,
@@ -98,12 +114,13 @@ def fit_fastica(
         "norm_eps": norm_eps,
     }
     if algorithm == "parallel":
-        unmixing, n_iter = _fit_parallel(
+        unmixing, n_iter, objective_iterations, objective_history = _fit_parallel(
             values,
             initial,
             nonlinearity,
             objective,
             max_iter=max_iter,
+            objective_every=objective_every,
             progress=progress,
             batch_kwargs=batch_kwargs,
         )
@@ -117,10 +134,26 @@ def fit_fastica(
             progress=progress,
             batch_kwargs=batch_kwargs,
         )
+        objective_history = None
+        objective_iterations = None
 
+    if progress:
+        tqdm.write("FastICA finalization: computing reading and writing matrices...")
+    finalization_start = perf_counter()
     components = unmixing @ whitening
     mixing = torch.linalg.pinv(components)
-    return FastICAResult(center=center, components=components, mixing=mixing, n_iter=n_iter)
+    if progress:
+        tqdm.write(
+            f"FastICA finalization: completed in {perf_counter() - finalization_start:.1f}s"
+        )
+    return FastICAResult(
+        center=center,
+        components=components,
+        mixing=mixing,
+        n_iter=n_iter,
+        objective_history=objective_history,
+        objective_iterations=objective_iterations,
+    )
 
 
 def _mean(
@@ -131,19 +164,33 @@ def _mean(
     batch_size: int,
     row_normalize: bool,
     norm_eps: float,
+    progress: bool,
 ) -> torch.Tensor:
     total = torch.zeros(values.shape[1], dtype=torch.float64, device=device)
     count = 0
-    for batch in _preprocessed_batches(
-        values,
-        device=device,
-        dtype=dtype,
-        batch_size=batch_size,
-        row_normalize=row_normalize,
-        norm_eps=norm_eps,
-    ):
-        total += batch.to(torch.float64).sum(dim=0)
-        count += int(batch.shape[0])
+    progress_bar = tqdm(
+        total=int(values.shape[0]),
+        desc="FastICA mean",
+        unit="sample",
+        unit_scale=True,
+        dynamic_ncols=True,
+        disable=not progress,
+    )
+    try:
+        for batch in _preprocessed_batches(
+            values,
+            device=device,
+            dtype=dtype,
+            batch_size=batch_size,
+            row_normalize=row_normalize,
+            norm_eps=norm_eps,
+        ):
+            total += batch.to(torch.float64).sum(dim=0)
+            batch_count = int(batch.shape[0])
+            count += batch_count
+            progress_bar.update(batch_count)
+    finally:
+        progress_bar.close()
     return (total / count).to(dtype)
 
 
@@ -156,19 +203,32 @@ def _covariance(
     batch_size: int,
     row_normalize: bool,
     norm_eps: float,
+    progress: bool,
 ) -> torch.Tensor:
     feature_count = int(values.shape[1])
     covariance = torch.zeros((feature_count, feature_count), dtype=torch.float64, device=device)
-    for batch in _preprocessed_batches(
-        values,
-        device=device,
-        dtype=dtype,
-        batch_size=batch_size,
-        row_normalize=row_normalize,
-        norm_eps=norm_eps,
-    ):
-        centered64 = (batch - center).to(torch.float64)
-        covariance.addmm_(centered64.T, centered64)
+    progress_bar = tqdm(
+        total=int(values.shape[0]),
+        desc="FastICA covariance",
+        unit="sample",
+        unit_scale=True,
+        dynamic_ncols=True,
+        disable=not progress,
+    )
+    try:
+        for batch in _preprocessed_batches(
+            values,
+            device=device,
+            dtype=dtype,
+            batch_size=batch_size,
+            row_normalize=row_normalize,
+            norm_eps=norm_eps,
+        ):
+            centered64 = (batch - center).to(torch.float64)
+            covariance.addmm_(centered64.T, centered64)
+            progress_bar.update(int(batch.shape[0]))
+    finally:
+        progress_bar.close()
     return covariance
 
 
@@ -195,12 +255,13 @@ def _fit_parallel(
     source: torch.Tensor,
     initial: torch.Tensor,
     nonlinearity: Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]],
-    objective: Callable[[torch.Tensor], torch.Tensor] | None,
+    objective: Callable[[torch.Tensor], torch.Tensor],
     *,
     max_iter: int,
+    objective_every: int,
     progress: bool,
     batch_kwargs: dict[str, object],
-) -> tuple[torch.Tensor, int]:
+) -> tuple[torch.Tensor, int, list[int], list[list[float]]]:
     weights = _symmetric_decorrelation(initial)
     n_samples = int(source.shape[0])
     iterations = tqdm(
@@ -210,27 +271,42 @@ def _fit_parallel(
         dynamic_ncols=True,
         disable=not progress,
     )
-    for _ in iterations:
+    objective_iterations: list[int] = []
+    objective_history: list[list[float]] = []
+    for iteration_index in iterations:
+        iteration = iteration_index + 1
+        record_objective = iteration % objective_every == 0 or iteration == max_iter
         term_sum = torch.zeros_like(weights)
         derivative_sum = torch.zeros(weights.shape[0], dtype=weights.dtype, device=weights.device)
-        objective_sum = torch.zeros((), dtype=weights.dtype, device=weights.device)
+        objective_sum = (
+            torch.zeros(weights.shape[0], dtype=weights.dtype, device=weights.device)
+            if record_objective
+            else None
+        )
         for whitened in _whitened_batches(source, **batch_kwargs):
             projected = weights @ whitened
             transformed, derivative_mean = nonlinearity(projected)
             batch_count = int(whitened.shape[1])
             term_sum.addmm_(transformed, whitened.T)
             derivative_sum += derivative_mean * batch_count
-            if objective is not None:
+            if objective_sum is not None:
                 objective_sum += objective(projected) * batch_count
         updated = term_sum / n_samples - (derivative_sum / n_samples)[:, None] * weights
         updated = _symmetric_decorrelation(updated)
         limit = torch.max(torch.abs(torch.abs(torch.sum(updated * weights, dim=1)) - 1.0))
         postfix = {"limit": f"{float(limit):.2e}"}
-        if objective is not None:
-            postfix["obj"] = f"{float(objective_sum / n_samples):.2f}"
+        if objective_sum is not None:
+            component_objectives = objective_sum / n_samples
+            quantiles = torch.quantile(
+                component_objectives,
+                torch.linspace(0, 1, len(OBJECTIVE_PERCENTILES), device=weights.device),
+            )
+            objective_iterations.append(iteration)
+            objective_history.append([float(value) for value in quantiles])
+            postfix["obj"] = f"{float(component_objectives.mean()):.2f}"
         iterations.set_postfix(postfix)
         weights = updated
-    return weights, max_iter
+    return weights, max_iter, objective_iterations, objective_history
 
 
 def _fit_deflation(
@@ -267,7 +343,7 @@ def _fit_deflation(
                 term_sum += whitened @ transformed[0]
                 derivative_sum += derivative_mean[0] * batch_count
                 if objective is not None:
-                    objective_value += objective(projected[None, :]) * batch_count
+                    objective_value += objective(projected[None, :])[0] * batch_count
             updated = term_sum / n_samples - (derivative_sum / n_samples) * weight
             if component:
                 updated -= (updated @ weights[:component].T) @ weights[:component]
@@ -393,17 +469,17 @@ def _contrast(name: str) -> Callable[[torch.Tensor], torch.Tensor]:
     if name == "logcosh":
 
         def logcosh(values: torch.Tensor) -> torch.Tensor:
-            return (torch.logaddexp(values, -values) - 0.6931471805599453).mean()
+            return (torch.logaddexp(values, -values) - 0.6931471805599453).mean(dim=1)
 
         return logcosh
     if name == "exp":
 
         def exp(values: torch.Tensor) -> torch.Tensor:
-            return -torch.exp(-values.square() / 2.0).mean()
+            return -torch.exp(-values.square() / 2.0).mean(dim=1)
 
         return exp
 
     def cube(values: torch.Tensor) -> torch.Tensor:
-        return values.pow(4).mean() / 4.0
+        return values.pow(4).mean(dim=1) / 4.0
 
     return cube

@@ -119,7 +119,8 @@ The v0.1 interface should support:
 
 The low-level fitting API remains activation-only and cannot verify that the
 caller captured the declared model, layer, or site. The optional
-`icalens[analyze]` integration handles model loading and capture for analysis.
+The high-level integration included with `icalens` handles model loading and
+capture for analysis.
 The following are intentionally deferred:
 
 - Visualization and explorer integration.
@@ -142,9 +143,15 @@ result = lens.analyze(
 )
 ```
 
-In v0.2, install `icalens[analyze]` to use this high-level interface. The
-result contains aligned tokens, token IDs, positions, activations, signed ICA
+The standard installation includes this high-level interface. The result
+contains aligned tokens, token IDs, positions, activations, signed ICA
 scores, and per-token energy shares. Energy is `score² / sum(score²)` across
 components. New v0.2 fits use direct FastICA coordinates without post-ICA
 source scaling. `fit(..., provenance={{...}})` records JSON-compatible dataset
 and sampling metadata in each layer artifact.
+
+Starting in v0.3, Qwen3.5 multimodal checkpoints are supported for text and conversation
+analysis. Automatic loading through `AutoModelForCausalLM` selects the language
+backbone and avoids materializing the vision encoder. When a caller supplies a
+full conditional-generation model, ICA Lens locates transformer blocks under
+`model.language_model.layers` and captures the same language `resid_post` site.
