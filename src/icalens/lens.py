@@ -164,7 +164,7 @@ class ICALens:
             fitting={
                 "algorithm": "fastica",
                 "implementation": "icalens.torch",
-                "implementation_version": "1",
+                "implementation_version": "2",
                 "torch_version": torch.__version__,
                 "ica_algorithm": algorithm,
                 "fun": fun,
@@ -187,6 +187,9 @@ class ICALens:
                     if result.objective_history is not None
                     else None
                 ),
+                "gaussian_objective": result.gaussian_objective,
+                "component_objectives": result.component_objectives,
+                "component_strengths": result.component_strengths,
                 "n_samples": int(values.shape[0]),
                 "input_dtype": str(values.dtype).removeprefix("torch."),
                 "fit_device": str(result.center.device),
@@ -194,7 +197,8 @@ class ICALens:
                 "memory_strategy": "blockwise_multi_pass",
                 "stored_dtype": "float32",
                 "component_id_convention": (
-                    "row index; no post-fit sorting, sign canonicalization, or renumbering"
+                    "descending absolute contrast deviation from Gaussian; "
+                    "C0 is strongest; no sign canonicalization"
                 ),
                 "provenance": provenance,
             },

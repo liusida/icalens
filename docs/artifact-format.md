@@ -35,8 +35,17 @@ The activation-site directory is retained even when a release contains only
 - Essential fitting provenance, including algorithm, dtype, and random seed.
 - Per-iteration objective percentiles for parallel FastICA, from minimum through
   deciles to maximum.
+- Final per-component contrast objectives and absolute deviations from the
+  contrast's standard-Gaussian baseline.
 - Dataset/token sampling provenance supplied by the fitter.
 - The package version and post-ICA source-scaling policy.
+
+New v0.3 fits order component IDs by descending absolute contrast deviation
+from the standard-Gaussian baseline. Thus `C0` is the most non-Gaussian
+component under the fitted contrast. The manifest stores the Gaussian baseline
+plus aligned `component_objectives` and `component_strengths`. This ranking is
+local to one fitted layer and does not imply correspondence across layers or
+artifacts. Older artifacts retain their recorded component-ID convention.
 
 Example:
 

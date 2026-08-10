@@ -23,8 +23,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--text", default=DEFAULT_TEXT)
     parser.add_argument("--layer", type=int, default=6)
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument(
+        "--metric",
+        choices=("score", "energy"),
+        default="score",
+        help="Rank and display signed ICA scores or per-token energy shares.",
+    )
     parser.add_argument("--output-file", type=Path, default=DEFAULT_OUTPUT_FILE)
     return parser.parse_args()
+
+
+def format_value(value: float, metric: str) -> str:
+    return f"{value:+.3f}" if metric == "score" else f"{value:.2%}"
 
 
 def main() -> None:
@@ -62,19 +72,21 @@ def main() -> None:
         tokenizer=tokenizer,
         context_length=tokenizer.model_max_length,
     )
-    scores = result.scores
-    top_k = min(args.top_k, scores.shape[-1])
-    top_indices = torch.topk(scores.abs(), k=top_k, dim=-1).indices
+    values = result.scores if args.metric == "score" else result.energy
+    ranking_values = values.abs() if args.metric == "score" else values
+    top_k = min(args.top_k, values.shape[-1])
+    top_indices = torch.topk(ranking_values, k=top_k, dim=-1).indices
     token_ids = result.token_ids.tolist()
     tokens = result.tokens
 
     print(f"Lens: {args.lens}")
     print(f"Model: {lens.model_id}@{lens.model_revision} ({lens.model_type})")
     print(f"Layer: {args.layer}")
+    print(f"Metric: {args.metric}")
     print()
     for position, token in enumerate(tokens):
         entries = [
-            f"C{component.item()}={scores[position, component].item():+.3f}"
+            f"C{component.item()}={format_value(values[position, component].item(), args.metric)}"
             for component in top_indices[position]
         ]
         print(f"{position:>3} {token!r:<18} {'  '.join(entries)}")
@@ -87,7 +99,7 @@ def main() -> None:
             "top": [
                 {
                     "component": int(component),
-                    "score": float(scores[position, component]),
+                    "score": float(values[position, component]),
                 }
                 for component in top_indices[position]
             ],
@@ -102,6 +114,8 @@ def main() -> None:
         input_text=args.text,
         token_scope="all text tokens",
         tokens=html_tokens,
+        metric=args.metric,
+        result_group_title="Text",
     )
     print()
     print(f"HTML explorer: {output_file}")

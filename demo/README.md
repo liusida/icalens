@@ -47,6 +47,12 @@ arrays can be plotted directly as percentile curves or nested colored bands.
 Use `--objective-every N` to record every Nth iteration; the final iteration is
 always included. The default is `1`.
 
+After the fixed-point iterations, ICA Lens makes one final blockwise objective
+pass and renumbers components by descending absolute contrast deviation from
+the standard-Gaussian baseline. `C0` is therefore the strongest non-Gaussian
+component within that layer. The manifest retains every component's raw
+objective and baseline-relative strength.
+
 Plot the first four available layers from a local, progressively written lens:
 
 ```bash
@@ -220,6 +226,25 @@ The command also writes a self-contained v5-style explorer to
 different location. The report works directly from disk and does not require
 the v5 server.
 
+For a predetermined multi-turn conversation, pass a quoted JSON list. The
+model generates an assistant response after each entry; the next user entry is
+then appended regardless of what the model said:
+
+```bash
+uv run python demo/apply_chat.py \
+  --user '["Hi, how are you?", "Nothing."]' \
+  --layer 7
+```
+
+Repeating the flag is equivalent and is often easier to type:
+
+```bash
+uv run python demo/apply_chat.py \
+  --user "Hi, how are you?" \
+  --user "Nothing." \
+  --layer 7
+```
+
 ## Apply the saved lens
 
 After fitting layer 6, apply it to fresh text:
@@ -245,6 +270,11 @@ The command writes `demo/output/apply.html` by default. The standalone HTML
 includes responsive token cards, signed component bars, component highlighting,
 card-width control, and an opacity cutoff. Override the path with
 `--output-file PATH`.
+
+Pass `--metric score` (the default) for signed ICA coordinates or
+`--metric energy` for nonnegative per-token squared-score fractions displayed
+as percentages. The selected metric controls ranking, terminal output, and the
+HTML explorer for both `apply.py` and `apply_chat.py`.
 
 ## Publish and verify a chat lens
 

@@ -89,6 +89,22 @@ def test_fit_records_detached_json_provenance(mixed_signals: np.ndarray) -> None
     assert fitting["provenance"]["dataset"]["repo_id"] == "example/data"
 
 
+def test_components_are_ranked_by_final_non_gaussianity(mixed_signals: np.ndarray) -> None:
+    lens = make_lens().fit(mixed_signals, layer=2, n_components=3, max_iter=20)
+    fitting = lens.metadata["layers"]["2"]["fitting"]
+
+    objectives = np.asarray(fitting["component_objectives"])
+    strengths = np.asarray(fitting["component_strengths"])
+    baseline = float(fitting["gaussian_objective"])
+
+    assert fitting["implementation_version"] == "2"
+    assert fitting["component_id_convention"].startswith(
+        "descending absolute contrast deviation from Gaussian"
+    )
+    np.testing.assert_allclose(strengths, np.abs(objectives - baseline), atol=1e-7)
+    assert np.all(strengths[:-1] >= strengths[1:])
+
+
 def test_fit_records_objective_percentile_history(mixed_signals: np.ndarray) -> None:
     lens = make_lens().fit(
         mixed_signals,

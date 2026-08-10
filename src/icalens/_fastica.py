@@ -25,9 +25,17 @@ class FastICAResult:
     n_iter: int
     objective_history: list[list[float]] | None
     objective_iterations: list[int] | None
+    component_objectives: list[float]
+    component_strengths: list[float]
+    gaussian_objective: float
 
 
 OBJECTIVE_PERCENTILES = tuple(range(0, 101, 10))
+GAUSSIAN_OBJECTIVES = {
+    "logcosh": 0.374567207491457,
+    "exp": -0.7071067811865476,
+    "cube": 0.75,
+}
 
 
 def fit_fastica(
@@ -137,8 +145,22 @@ def fit_fastica(
         objective_history = None
         objective_iterations = None
 
+    final_objectives = _component_objectives(
+        values,
+        unmixing=unmixing,
+        objective=objective,
+        progress=progress,
+        batch_kwargs=batch_kwargs,
+    )
+    gaussian_objective = GAUSSIAN_OBJECTIVES[fun]
+    strengths = torch.abs(final_objectives - gaussian_objective)
+    order = torch.argsort(strengths, descending=True, stable=True)
+    unmixing = unmixing.index_select(0, order)
+    final_objectives = final_objectives.index_select(0, order)
+    strengths = strengths.index_select(0, order)
+
     if progress:
-        tqdm.write("FastICA finalization: computing reading and writing matrices...")
+        tqdm.write("FastICA finalization: ordering components and computing matrices...")
     finalization_start = perf_counter()
     components = unmixing @ whitening
     mixing = torch.linalg.pinv(components)
@@ -153,7 +175,42 @@ def fit_fastica(
         n_iter=n_iter,
         objective_history=objective_history,
         objective_iterations=objective_iterations,
+        component_objectives=[
+            float(value) for value in final_objectives.detach().cpu().tolist()
+        ],
+        component_strengths=[float(value) for value in strengths.detach().cpu().tolist()],
+        gaussian_objective=gaussian_objective,
     )
+
+
+def _component_objectives(
+    source: torch.Tensor,
+    *,
+    unmixing: torch.Tensor,
+    objective: Callable[[torch.Tensor], torch.Tensor],
+    progress: bool,
+    batch_kwargs: dict[str, object],
+) -> torch.Tensor:
+    """Evaluate the final contrast of every component in a blockwise pass."""
+    objective_sum = torch.zeros(
+        unmixing.shape[0], dtype=unmixing.dtype, device=unmixing.device
+    )
+    progress_bar = tqdm(
+        total=int(source.shape[0]),
+        desc="FastICA component objectives",
+        unit="sample",
+        unit_scale=True,
+        dynamic_ncols=True,
+        disable=not progress,
+    )
+    try:
+        for whitened in _whitened_batches(source, **batch_kwargs):
+            batch_count = int(whitened.shape[1])
+            objective_sum += objective(unmixing @ whitened) * batch_count
+            progress_bar.update(batch_count)
+    finally:
+        progress_bar.close()
+    return objective_sum / int(source.shape[0])
 
 
 def _mean(
@@ -299,7 +356,13 @@ def _fit_parallel(
             component_objectives = objective_sum / n_samples
             quantiles = torch.quantile(
                 component_objectives,
-                torch.linspace(0, 1, len(OBJECTIVE_PERCENTILES), device=weights.device),
+                torch.linspace(
+                    0,
+                    1,
+                    len(OBJECTIVE_PERCENTILES),
+                    dtype=component_objectives.dtype,
+                    device=weights.device,
+                ),
             )
             objective_iterations.append(iteration)
             objective_history.append([float(value) for value in quantiles])
