@@ -27,6 +27,12 @@ def test_instruct_model_metadata() -> None:
     assert lens.metadata["model"]["type"] == "instruct"
 
 
+def test_model_revision_is_optional() -> None:
+    lens = ICALens(model_id="example/model")
+    assert lens.model_revision is None
+    assert lens.metadata["model"]["revision"] is None
+
+
 def test_legacy_constructor_names_remain_compatible() -> None:
     lens = ICALens(base_model="example/model", base_model_revision="abc123")
     assert lens.model_id == "example/model"

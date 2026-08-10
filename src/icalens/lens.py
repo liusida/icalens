@@ -47,7 +47,7 @@ class ICALens:
         norm_eps: float = 1e-12,
     ) -> None:
         model_id = _resolve_compatibility_argument("model_id", model_id, "base_model", base_model)
-        model_revision = _resolve_compatibility_argument(
+        model_revision = _resolve_optional_compatibility_argument(
             "model_revision", model_revision, "base_model_revision", base_model_revision
         )
         model_type = _validate_model_type(model_type)
@@ -82,7 +82,7 @@ class ICALens:
         return self.model_id
 
     @property
-    def base_model_revision(self) -> str:
+    def base_model_revision(self) -> str | None:
         """Deprecated compatibility alias for :attr:`model_revision`."""
         return self.model_revision
 
@@ -460,6 +460,19 @@ def _validate_model_type(value: str) -> Literal["base", "instruct"]:
     if value == "instruct":
         return "instruct"
     raise ValueError("model_type must be 'base' or 'instruct'")
+
+
+def _resolve_optional_compatibility_argument(
+    name: str, value: str | None, legacy_name: str, legacy_value: str | None
+) -> str | None:
+    if value is not None and legacy_value is not None:
+        raise ValueError(f"pass {name}, not both {name} and {legacy_name}")
+    resolved = value if value is not None else legacy_value
+    if resolved is None:
+        return None
+    if not isinstance(resolved, str) or not resolved.strip():
+        raise ValueError(f"{name} must be a non-empty string or None")
+    return resolved.strip()
 
 
 def _array_offset(reference: Any, offset: NDArray[np.float32]) -> Any:

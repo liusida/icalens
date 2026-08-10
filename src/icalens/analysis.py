@@ -103,6 +103,13 @@ def _resolve_model_and_tokenizer(
         raise ImportError(
             "capture/analyze requires optional dependencies; install 'icalens[analyze]'"
         ) from error
+    if lens.model_revision is None:
+        from huggingface_hub import HfApi
+
+        resolved = HfApi().model_info(lens.model_id).sha
+        if resolved is None:
+            raise RuntimeError(f"could not resolve an exact revision for {lens.model_id}")
+        lens.model_revision = str(resolved)
     if tokenizer is None:
         tokenizer = AutoTokenizer.from_pretrained(
             lens.model_id, revision=lens.model_revision, use_fast=True

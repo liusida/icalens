@@ -32,7 +32,6 @@ from icalens import ICALens
 
 lens = ICALens(
     model_id="openai-community/gpt2",
-    model_revision="FULL_COMMIT_HASH",
     model_type="base",
     activation_site="resid_post",
 )
@@ -50,6 +49,11 @@ lens.save("./icalens-gpt2-small")
 lens.push_to_hub("username/icalens-gpt2-small")
 ```
 
+`model_revision` is optional. Pass an exact commit when fitting activations
+captured outside ICA Lens and checkpoint provenance matters. When `capture()`
+or `analyze()` loads a model, ICA Lens resolves and records its current commit
+automatically.
+
 Calling `fit()` again with another layer adds or replaces that layer in the
 same model-level collection. `fit()` returns `self`. The input is an activation
 array whose final dimension is the model's hidden size; leading dimensions
@@ -60,7 +64,6 @@ Instruction-tuned checkpoints are declared explicitly:
 ```python
 lens = ICALens(
     model_id="Qwen/Qwen2.5-0.5B-Instruct",
-    model_revision="FULL_COMMIT_HASH",
     model_type="instruct",
 )
 ```

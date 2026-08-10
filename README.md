@@ -26,7 +26,6 @@ from icalens import ICALens
 
 lens = ICALens(
     model_id="openai-community/gpt2",
-    model_revision="FULL_COMMIT_HASH",
     model_type="base",
     activation_site="resid_post",
 )
@@ -41,7 +40,6 @@ identified explicitly in their portable metadata:
 ```python
 lens = ICALens(
     model_id="Qwen/Qwen2.5-0.5B-Instruct",
-    model_revision="FULL_COMMIT_HASH",
     model_type="instruct",
 )
 ```
