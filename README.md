@@ -1,28 +1,93 @@
 # ICA Lens
 
-ICA Lens fits, shares, and applies Independent Component Analysis bases for
-language-model activations. It can capture activations directly from text or
-operate on activation tensors supplied by the caller.
+ICA Lens interprets language-model activations with Independent Component
+Analysis. It is substantially more compute-efficient to fit than an SAE
+dictionary and supports base and instruction-tuned language models.
 
-By [Sida Liu](https://liusida.com/) and
-[Feijiang Han](https://feijianghan.com/).
+**[Documentation](https://icalens.readthedocs.io/en/latest/)** ·
+**[中文文档](https://icalens-zh.readthedocs.io/zh_CN/latest/)** ·
+**[Paper](https://arxiv.org/abs/2606.11722)** ·
+**[Model collection](https://huggingface.co/sida)**
+
+## Get started
 
 ```bash
-uv add icalens
+pip install icalens
 ```
 
-Load a published lens:
+Load a published Lens and analyze text:
 
 ```python
 from icalens import ICALens
 
 lens = ICALens.from_pretrained("sida/icalens-gpt2-small-pile10k")
 result = lens.analyze("She deposited the check at the bank.", layer=6)
-
 result
 ```
 
-Fit and publish your own:
+In Jupyter or Colab, the final `result` expression displays an interactive
+token-level analysis:
+
+![ICA Lens token-level analysis in Jupyter](https://raw.githubusercontent.com/liusida/icalens/main/docs/assets/text-analysis-notebook.png)
+
+Use signed ICA scores or switch the explorer to per-token component energy.
+Save the same view as a standalone HTML file with:
+
+```python
+result.to_html("analysis.html")
+```
+
+The first analysis loads the language model and requested Lens layer. Later
+calls on the same `lens` reuse the model in memory. `device="auto"` uses CUDA
+when available and otherwise uses the CPU.
+
+## Analyze conversations
+
+Instruction-tuned models accept completed conversations using the standard
+`{role, content}` format:
+
+```python
+lens = ICALens.from_pretrained("sida/icalens-qwen3.5-2b-ultrachat-1m")
+result = lens.analyze(
+    [
+        {"role": "user", "content": "What is the most interesting science?"},
+        {"role": "assistant", "content": "Physics."},
+    ],
+    layer=16,
+)
+result
+```
+
+Chat templates are applied automatically, and template tokens and message
+turns are grouped in the interactive result.
+
+## Steering
+
+Generate normally or clamp a signed ICA coordinate during generation:
+
+```python
+messages = [{
+    "role": "user",
+    "content": "If you had to pick one, what is the most interesting science? Be brief.",
+}]
+
+baseline = lens.generate(messages, max_new_tokens=16)
+steered = lens.generate(
+    messages,
+    layer=5,
+    clamp=(188, -20.0),
+    max_new_tokens=16,
+)
+```
+
+Component labels, signs, and suitable targets must be established empirically
+for the exact Lens and layer. See the
+**[steering tutorial](https://icalens.readthedocs.io/en/latest/steering/)** for
+the reproducible inspection and calibration workflow.
+
+## Fit a Lens
+
+Run a small GPT-2/Pile-10k example with the installed CLI:
 
 ```bash
 icalens fit text \
@@ -30,98 +95,73 @@ icalens fit text \
   --dataset NeelNanda/pile-10k \
   --layers 6 \
   --token-budget 1000 \
-  --output ./my-icalens
+  --max-iter 20 \
+  --output icalens-output/gpt2-demo
 ```
 
-To publish from the command line, authenticate with `hf auth login`, set
-`HF_TOKEN`, or create a `.env` file in the current directory containing a
-Hugging Face token with write permission:
+Fit an instruction-tuned model from UltraChat conversations:
+
+```bash
+icalens fit chat \
+  --model Qwen/Qwen3.5-2B \
+  --dataset HuggingFaceH4/ultrachat_200k \
+  --layers 12 \
+  --token-budget 100000 \
+  --output icalens-output/qwen-demo
+```
+
+ICA Lens includes a PyTorch FastICA implementation and does not depend on
+SciPy or scikit-learn. Blockwise fitting and layer-at-a-time capture support
+larger token collections while bounding memory use.
+
+## Publish to Hugging Face
+
+Authenticate with `hf auth login`, set `HF_TOKEN`, or add a `.env` file in the
+current directory containing a write-enabled token:
 
 ```dotenv
 HF_TOKEN=hf_...
 ```
 
-Publish a saved lens with:
+Then publish the saved Lens as a Hugging Face model repository:
 
 ```bash
 icalens publish \
-  --lens ./my-icalens \
-  username/icalens-model-name
+  --lens icalens-output/gpt2-demo \
+  username/icalens-gpt2-demo
 ```
 
-Instruction-tuned checkpoints use the same activation-level API and are
-identified explicitly in their portable metadata:
+The artifact records the analyzed model, activation site, fitted layers,
+preprocessing, and fitting provenance. Individual layer files are downloaded
+lazily when a published Lens is used.
 
-```python
-lens = ICALens(
-    model_id="Qwen/Qwen2.5-0.5B-Instruct",
-    model_type="instruct",
-)
+## Learn more
+
+The documentation covers:
+
+- [Getting started](https://icalens.readthedocs.io/en/latest/getting-started/)
+- [Text and chat](https://icalens.readthedocs.io/en/latest/text-and-chat/)
+- [Scores and energy](https://icalens.readthedocs.io/en/latest/scores-and-energy/)
+- [Steering](https://icalens.readthedocs.io/en/latest/steering/)
+- [Reconstruction](https://icalens.readthedocs.io/en/latest/reconstruction/)
+- [Fitting and publishing](https://icalens.readthedocs.io/en/latest/fit-and-publish/)
+- [Python API](https://icalens.readthedocs.io/en/latest/api/)
+
+The repository also contains compact notebooks in [`demo/`](demo/) covering
+text analysis, conversations, reconstruction, fitting, and steering.
+
+## Authors
+
+- [Sida Liu](https://liusida.com/)
+- [Feijiang Han](https://feijianghan.com/)
+
+## Citation
+
+```bibtex
+@article{liu2026icalens,
+  title={ICA Lens: Interpreting Language Models Without Training Another Dictionary},
+  author={Liu, Sida and Han, Feijiang},
+  journal={arXiv preprint arXiv:2606.11722},
+  year={2026}
+}
 ```
-
-`model_type` describes the checkpoint and accepts `"base"` or `"instruct"`.
-The standard `icalens` installation can capture and analyze text or completed
-chat conversations directly. `result = lens.analyze(text, layer=6)` returns aligned
-tokens, activations, signed scores, and per-token component energy shares.
-`result.to_html("analysis.html")` writes a self-contained interactive explorer;
-pass `metric="energy"` to visualize component energy shares instead of scores.
-
-Inputs may be NumPy arrays or PyTorch tensors. Leading dimensions are treated
-as sample dimensions and the final dimension must be the model hidden size.
-Fitting uses ICA Lens's built-in PyTorch FastICA implementation and can run on
-the input tensor's device. NumPy inputs are fitted on CPU. ICA Lens does not
-depend on scikit-learn or SciPy.
-
-See the [documentation](https://icalens.readthedocs.io/) for the complete text,
-conversation, fitting, publishing, and HTML-export workflows.
-
-Run a small GPT-2/Pile-10k fitting check with the installed text command:
-
-```bash
-icalens fit text \
-  --model openai-community/gpt2 \
-  --dataset NeelNanda/pile-10k \
-  --split train \
-  --text-field text \
-  --layers 6 \
-  --token-budget 1000 \
-  --max-iter 20
-```
-
-Fit an instruction-tuned model from UltraChat conversations with:
-
-```bash
-icalens fit chat \
-  --model Qwen/Qwen3.5-2B \
-  --layers 12 \
-  --token-budget 100000
-```
-
-The source repository retains thin `demo/` wrappers for contributors, but they
-are not required when using the installed package.
-
-## Installed-package smoke test
-
-After installing a wheel or PyPI release in a clean project, run the bundled
-end-to-end check:
-
-```bash
-uv run icalens smoke-test
-```
-
-By default, the suite checks both public input paths: raw text through the
-published GPT-2 lens and a formatted conversation through the published
-Qwen3.5-2B instruct lens. Each case lazily downloads one ICA layer, verifies
-finite scores and normalized energy, checks reconstruction shape, and writes
-`icalens-smoke-text.html` or `icalens-smoke-chat.html`.
-
-Run only one path when iterating locally:
-
-```bash
-uv run icalens smoke-test text
-uv run icalens smoke-test chat
-```
-
-Use `--text-lens`, `--text-layer`, `--text-input`, `--chat-lens`,
-`--chat-layer`, `--chat-input`, `--chat-response`, `--device`, and
-`--output-dir` to override the defaults.
