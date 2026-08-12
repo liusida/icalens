@@ -182,6 +182,33 @@ def save_directory(path: Path, manifest: dict[str, Any], layers: dict[int, Layer
         raise
 
 
+def save_profile_checkpoint(
+    path: Path, manifest: dict[str, Any], artifact: LayerArtifact
+) -> None:
+    """Atomically add or replace one profile in an existing artifact directory."""
+    path = path.expanduser().resolve()
+    if not (path / MANIFEST_FILENAME).is_file():
+        raise ArtifactError(f"profile checkpoint destination is not an ICA Lens: {path}")
+    if artifact.profile_file is None or artifact.profile is None:
+        raise ArtifactError(f"layer {artifact.layer} has no component profile to checkpoint")
+    profile_path = path / artifact.profile_file
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_json(profile_path, artifact.profile)
+    _atomic_write_json(path / MANIFEST_FILENAME, manifest)
+    (path / "README.md").write_text(_model_card(manifest), encoding="utf-8")
+
+
+def _atomic_write_json(path: Path, value: dict[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _tensor(
     tensors: dict[str, NDArray[Any]], name: str, shape: tuple[int, ...]
 ) -> NDArray[np.float32]:

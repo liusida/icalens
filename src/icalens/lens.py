@@ -26,6 +26,7 @@ from ._artifact import (
     load_profile,
     read_manifest,
     save_directory,
+    save_profile_checkpoint,
 )
 from ._fastica import OBJECTIVE_PERCENTILES, fit_fastica
 from .exceptions import ArtifactError, NotFittedError
@@ -309,6 +310,17 @@ class ICALens:
                 f"component must be between 0 and {artifact.n_components - 1}, got {index}"
             )
         return copy.deepcopy(profile["components"][index])
+
+    def checkpoint_component_profile(self, path: str | Path, *, layer: int) -> Path:
+        """Write one completed profile into an existing local lens artifact."""
+        artifact = self._get_layer(layer)
+        if artifact.profile is None:
+            raise NotFittedError(
+                f"layer {layer} has no in-memory component profile to checkpoint"
+            )
+        destination = Path(path).expanduser().resolve()
+        save_profile_checkpoint(destination, self._manifest(), artifact)
+        return destination
 
     def generate(self, prompt: Any, **kwargs: Any) -> str:
         """Generate a continuation, optionally clamping one ICA coordinate."""

@@ -87,7 +87,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             device=args.device,
             progress=not args.no_progress,
         )
-        output = lens.save(args.output)
+        if (args.output.expanduser() / "icalens.json").is_file():
+            output = lens.checkpoint_component_profile(args.output, layer=layer)
+        else:
+            output = lens.save(args.output)
         print(
             f"Profiled layer {layer}: {len(profile['components'])} components from "
             f"{profile['n_tokens']} tokens."
