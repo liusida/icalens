@@ -178,6 +178,8 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert "Show fewer" not in html
     assert "background: #f59e0b" in html
     assert "background: #1e3a8a" in html
+    assert 'lines.push(`#${index + 1} ${JSON.stringify(item.text)}`)' in html
+    assert '<span class="profile-value">#${index + 1}</span>' in html
     assert "profilePanel.hidden = true" in html
     assert "panel.hidden = false" in html
     assert 'class="profile-target"' in html

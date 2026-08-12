@@ -432,7 +432,7 @@ def _document(payload: str) -> str:
       }});
       lines.push("Top logit-lens tokens:");
       profile.logit_tokens.slice(0, 3).forEach((item, index) => {{
-        lines.push(`${{index + 1}}. ${{JSON.stringify(item.text)}} · ${{Number(item.logit) >= 0 ? "+" : ""}}${{Number(item.logit).toFixed(2)}}`);
+        lines.push(`#${{index + 1}} ${{JSON.stringify(item.text)}}`);
       }});
       return lines.join("\\n");
     }}
@@ -494,9 +494,9 @@ def _document(payload: str) -> str:
         `<span class="profile-value">score ${{Number(item.score) >= 0 ? "+" : ""}}${{Number(item.score).toFixed(2)}} · ${{percentage(item.energy)}} energy</span>` +
         `<span class="profile-context">${{highlightedContext(item)}}</span></li>`
       ).join("");
-      const tokenItems = items => items.map(item =>
-        `<span class="profile-token-chip"><strong>${{esc(JSON.stringify(String(item.text || "")))}}</strong>` +
-        `<span class="profile-value">${{Number(item.logit) >= 0 ? "+" : ""}}${{Number(item.logit).toFixed(2)}}</span></span>`
+      const tokenItems = items => items.map((item, index) =>
+        `<span class="profile-token-chip"><span class="profile-value">#${{index + 1}}</span>` +
+        `<strong>${{esc(JSON.stringify(String(item.text || "")))}}</strong></span>`
       ).join("");
       const positionPositive = percentage(stats.positive_fraction);
       const positionNegative = percentage(stats.negative_fraction);
