@@ -41,7 +41,6 @@ def analysis_result() -> AnalysisResult:
                     }
                 ],
                 "logit_tokens": [{"text": " biology", "logit": 6.5}],
-                "bottom_logit_tokens": [{"text": " physics", "logit": -4.0}],
             }
         },
     )
@@ -169,8 +168,8 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert '<details class="panel" id="componentProfile" hidden>' in html
     assert "Component profile — C${component} · dominant ${profile.dominant_sign}" in html
     assert "High-energy occurrences · ${profile.dominant_sign}" in html
-    assert "Promoted logit-lens tokens" in html
-    assert "Suppressed logit-lens tokens" in html
+    assert "Logit-lens tokens · ${profile.dominant_sign}" in html
+    assert "Suppressed logit-lens tokens" not in html
     assert "profilePanel.hidden = true" in html
     assert "panel.hidden = false" in html
     assert 'class="profile-target"' in html

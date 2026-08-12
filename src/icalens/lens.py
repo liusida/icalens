@@ -552,10 +552,6 @@ class ICALens:
                     {"text": token["text"], "logit": token["logit"]}
                     for token in component["logit_lens"]["dominant"]["top_tokens"][:10]
                 ],
-                "bottom_logit_tokens": [
-                    {"text": token["text"], "logit": token["logit"]}
-                    for token in component["logit_lens"]["dominant"]["bottom_tokens"][:10]
-                ],
             }
         return summaries
 

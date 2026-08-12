@@ -494,8 +494,7 @@ def _document(payload: str) -> str:
           <span>Negative energy</span><strong>${{percentage(stats.negative_energy_fraction)}}</strong>
         </div></section>
         <section class="profile-section"><h3>High-energy occurrences · ${{profile.dominant_sign}}</h3><ol class="profile-list">${{occurrenceItems}}</ol></section>
-        <section class="profile-section"><h3>Promoted logit-lens tokens</h3><ol class="profile-list">${{tokenItems(profile.logit_tokens)}}</ol></section>
-        <section class="profile-section"><h3>Suppressed logit-lens tokens</h3><ol class="profile-list">${{tokenItems(profile.bottom_logit_tokens)}}</ol></section>`;
+        <section class="profile-section"><h3>Logit-lens tokens · ${{profile.dominant_sign}}</h3><ol class="profile-list">${{tokenItems(profile.logit_tokens)}}</ol></section>`;
     }}
 
     function resizeFrame() {{
