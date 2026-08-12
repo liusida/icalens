@@ -262,6 +262,8 @@ def _document(payload: str) -> str:
     .profile-token-chip {{ display: inline-flex; gap: 6px; padding: 4px 7px;
       border: 1px solid #d5dce7; border-radius: 999px; background: #f8fafc; font-size: 11px; }}
     .profile-value {{ color: var(--muted); font-variant-numeric: tabular-nums; }}
+    .profile-metric {{ white-space: nowrap; }}
+    .profile-metric-icon {{ color: #435066; font-weight: 800; }}
     .profile-context {{ display: block; color: var(--muted); font-size: 11px; }}
     .profile-target {{ padding: 0 1px; border-radius: 2px; background: #fff1a8;
       color: #273244; font-weight: 750; text-decoration: underline;
@@ -494,7 +496,8 @@ def _document(payload: str) -> str:
       }};
       const occurrenceItems = profile.occurrences.map(item =>
         `<li><strong>${{esc(JSON.stringify(String(item.text || "")))}}</strong> ` +
-        `<span class="profile-value">score ${{Number(item.score) >= 0 ? "+" : ""}}${{Number(item.score).toFixed(2)}} · ${{percentage(item.energy)}} energy</span>` +
+        `<span class="profile-value"><span class="profile-metric" title="Signed ICA score" aria-label="Signed ICA score"><span class="profile-metric-icon">↕</span> ${{Number(item.score) >= 0 ? "+" : ""}}${{Number(item.score).toFixed(2)}}</span> · ` +
+        `<span class="profile-metric" title="Component energy" aria-label="Component energy"><span class="profile-metric-icon">⚡</span> ${{percentage(item.energy)}}</span></span>` +
         `<span class="profile-context">${{highlightedContext(item)}}</span></li>`
       ).join("");
       const tokenItems = items => items.map((item, index) =>

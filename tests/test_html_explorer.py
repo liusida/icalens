@@ -183,6 +183,10 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert 'profile-stat-row profile-stat-primary"><strong>Energy</strong>' in html
     assert 'profile-stat-row profile-stat-secondary"><strong>Positions</strong>' in html
     assert ".profile-stat-primary .profile-bar { height: 14px; }" in html
+    assert 'title="Signed ICA score"' in html
+    assert 'title="Component energy"' in html
+    assert '<span class="profile-metric-icon">↕</span>' in html
+    assert '<span class="profile-metric-icon">⚡</span>' in html
     assert "profilePanel.hidden = true" in html
     assert "panel.hidden = false" in html
     assert 'class="profile-target"' in html
