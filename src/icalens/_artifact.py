@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import shutil
@@ -110,7 +111,11 @@ def layer_from_manifest(layer_key: str, data: Any) -> LayerArtifact:
 def load_profile(path: Path) -> dict[str, Any]:
     """Load one component-profile JSON file."""
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        if path.suffix == ".gz":
+            with gzip.open(path, "rt", encoding="utf-8") as handle:
+                value = json.load(handle)
+        else:
+            value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ArtifactError(f"could not read component profile {path}: {error}") from error
     if not isinstance(value, dict) or not isinstance(value.get("components"), list):
@@ -160,10 +165,7 @@ def save_directory(path: Path, manifest: dict[str, Any], layers: dict[int, Layer
             if artifact.profile_file is not None and artifact.profile is not None:
                 profile_path = stage / artifact.profile_file
                 profile_path.parent.mkdir(parents=True, exist_ok=True)
-                profile_path.write_text(
-                    json.dumps(artifact.profile, indent=2, sort_keys=True) + "\n",
-                    encoding="utf-8",
-                )
+                _write_profile(profile_path, artifact.profile)
         (stage / MANIFEST_FILENAME).write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
@@ -193,7 +195,7 @@ def save_profile_checkpoint(
         raise ArtifactError(f"layer {artifact.layer} has no component profile to checkpoint")
     profile_path = path / artifact.profile_file
     profile_path.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write_json(profile_path, artifact.profile)
+    _atomic_write_profile(profile_path, artifact.profile)
     _atomic_write_json(path / MANIFEST_FILENAME, manifest)
     (path / "README.md").write_text(_model_card(manifest), encoding="utf-8")
 
@@ -207,6 +209,28 @@ def _atomic_write_json(path: Path, value: dict[str, Any]) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _atomic_write_profile(path: Path, value: dict[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.tmp")
+    try:
+        _write_profile(temporary, value, compressed=path.suffix == ".gz")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _write_profile(
+    path: Path, value: dict[str, Any], *, compressed: bool | None = None
+) -> None:
+    use_gzip = path.suffix == ".gz" if compressed is None else compressed
+    if use_gzip:
+        with gzip.open(path, "wt", encoding="utf-8", compresslevel=6) as handle:
+            json.dump(value, handle, separators=(",", ":"), sort_keys=True)
+    else:
+        path.write_text(
+            json.dumps(value, separators=(",", ":"), sort_keys=True), encoding="utf-8"
+        )
 
 
 def _tensor(

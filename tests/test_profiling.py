@@ -57,7 +57,7 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
         {"text": " alpha", "count": 1}
     ]
     artifact = lens.save(tmp_path / "profiled")
-    assert (artifact / "component_profiles/resid_post/layer_01.json").is_file()
+    assert (artifact / "component_profiles/resid_post/layer_01.json.gz").is_file()
     lens.checkpoint_component_profile(artifact, layer=1)
 
     loaded = ICALens.from_pretrained(artifact)

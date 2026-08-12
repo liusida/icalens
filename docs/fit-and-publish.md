@@ -217,7 +217,7 @@ icalens profile \
 
 Each completed layer is checkpointed to the output directory. The profiling
 dataset and exact revision are recorded separately from fitting
-provenance. Profiles are optional files under `component_profiles/`; the fitted
+provenance. Profiles are optional compressed JSON files under `component_profiles/`; the fitted
 center and matrices are unchanged. Consequently, an already published or local
 lens can be profiled later without refitting it.
 

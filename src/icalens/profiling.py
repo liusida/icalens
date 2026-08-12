@@ -185,7 +185,9 @@ def profile_components(
         "provenance": provenance,
         "components": components,
     }
-    artifact.profile_file = f"component_profiles/{lens.activation_site}/layer_{layer:02d}.json"
+    artifact.profile_file = (
+        f"component_profiles/{lens.activation_site}/layer_{layer:02d}.json.gz"
+    )
     artifact.profile = profile
     return profile
 
