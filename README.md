@@ -5,7 +5,7 @@ Analysis. It is substantially more compute-efficient to fit than an SAE
 dictionary and supports base and instruction-tuned language models.
 
 **[Documentation](https://icalens.readthedocs.io/en/latest/)** ·
-**[中文文档](https://icalens-zh.readthedocs.io/zh_CN/latest/)** ·
+**[中文文档](https://icalens.readthedocs.io/zh_CN/latest/)** ·
 **[Paper](https://arxiv.org/abs/2606.11722)** ·
 **[Model collection](https://huggingface.co/sida)**
 
