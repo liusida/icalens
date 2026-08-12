@@ -240,6 +240,15 @@ def _document(payload: str) -> str:
     .badge.selected {{ outline: 2px solid var(--color); border-color: var(--color); opacity: 1; }}
     .component {{ font-weight: 850; }}
     .score {{ font-variant-numeric: tabular-nums; }}
+    .profile-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px; margin-top: 12px; }}
+    .profile-section h3 {{ margin: 0 0 7px; font-size: 13px; }}
+    .profile-stats {{ display: grid; grid-template-columns: 1fr auto; gap: 5px 14px;
+      color: #435066; font-size: 12px; }}
+    .profile-list {{ margin: 0; padding-left: 20px; }}
+    .profile-list li {{ margin: 5px 0; overflow-wrap: anywhere; }}
+    .profile-value {{ color: var(--muted); font-variant-numeric: tabular-nums; }}
+    .profile-context {{ display: block; color: var(--muted); font-size: 11px; }}
     @media (max-width: 700px) {{ main {{ padding: 10px; }} .selection {{ flex-basis: 100%; }} }}
   </style>
 </head>
@@ -269,6 +278,10 @@ def _document(payload: str) -> str:
     <details class="panel" id="resultGroup" open>
       <summary id="resultSummary"></summary>
       <section class="results" id="results"></section>
+    </details>
+    <details class="panel" id="componentProfile" hidden>
+      <summary id="componentProfileSummary">Component profile</summary>
+      <div class="profile-grid" id="componentProfileBody"></div>
     </details>
   </main>
   <script>
@@ -415,8 +428,10 @@ def _document(payload: str) -> str:
 
     function updateSelection() {{
       const selection = document.getElementById("selection");
+      const profilePanel = document.getElementById("componentProfile");
       if (state.selected === null) {{
         selection.textContent = "Click a component to highlight it.";
+        profilePanel.hidden = true;
         return;
       }}
       const tokens = allTokens();
@@ -433,6 +448,42 @@ def _document(payload: str) -> str:
         : `${{strongest.value >= 0 ? "+" : ""}}${{strongest.value.toFixed(3)}}`;
       const token = strongest === null ? "" : ` at “${{strongest.token.token_text || strongest.token.token}}” (${{value}})`;
       selection.textContent = `C${{state.selected}} · strongest${{token}} · visible in ${{visible}}/${{tokens.length}} tokens`;
+      updateComponentProfile(state.selected);
+    }}
+
+    function updateComponentProfile(component) {{
+      const panel = document.getElementById("componentProfile");
+      const summary = document.getElementById("componentProfileSummary");
+      const body = document.getElementById("componentProfileBody");
+      const profile = data.component_profiles[String(component)] || data.component_profiles[component];
+      panel.hidden = false;
+      if (!profile) {{
+        summary.textContent = `Component profile — C${{component}}`;
+        body.innerHTML = '<div class="profile-section">No component profile is available.</div>';
+        return;
+      }}
+      summary.textContent = `Component profile — C${{component}} · dominant ${{profile.dominant_sign}}`;
+      const stats = profile.sign_statistics;
+      const percentage = value => `${{(Number(value) * 100).toFixed(1)}}%`;
+      const occurrenceItems = profile.occurrences.map(item =>
+        `<li><strong>${{esc(JSON.stringify(String(item.text || "")))}}</strong> ` +
+        `<span class="profile-value">score ${{Number(item.score) >= 0 ? "+" : ""}}${{Number(item.score).toFixed(2)}} · ${{percentage(item.energy)}} energy</span>` +
+        `<span class="profile-context">${{esc(String(item.context || "").replace(/\\r\\n|\\r|\\n/g, "↵"))}}</span></li>`
+      ).join("");
+      const tokenItems = items => items.map(item =>
+        `<li><strong>${{esc(JSON.stringify(String(item.text || "")))}}</strong> ` +
+        `<span class="profile-value">${{Number(item.logit) >= 0 ? "+" : ""}}${{Number(item.logit).toFixed(2)}}</span></li>`
+      ).join("");
+      body.innerHTML = `
+        <section class="profile-section"><h3>Sign distribution</h3><div class="profile-stats">
+          <span>Positive positions</span><strong>${{percentage(stats.positive_fraction)}}</strong>
+          <span>Negative positions</span><strong>${{percentage(stats.negative_fraction)}}</strong>
+          <span>Positive energy</span><strong>${{percentage(stats.positive_energy_fraction)}}</strong>
+          <span>Negative energy</span><strong>${{percentage(stats.negative_energy_fraction)}}</strong>
+        </div></section>
+        <section class="profile-section"><h3>High-energy occurrences · ${{profile.dominant_sign}}</h3><ol class="profile-list">${{occurrenceItems}}</ol></section>
+        <section class="profile-section"><h3>Promoted logit-lens tokens</h3><ol class="profile-list">${{tokenItems(profile.logit_tokens)}}</ol></section>
+        <section class="profile-section"><h3>Suppressed logit-lens tokens</h3><ol class="profile-list">${{tokenItems(profile.bottom_logit_tokens)}}</ol></section>`;
     }}
 
     function resizeFrame() {{

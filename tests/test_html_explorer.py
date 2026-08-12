@@ -26,6 +26,12 @@ def analysis_result() -> AnalysisResult:
         component_profiles={
             0: {
                 "dominant_sign": "negative",
+                "sign_statistics": {
+                    "positive_fraction": 0.4,
+                    "negative_fraction": 0.6,
+                    "positive_energy_fraction": 0.2,
+                    "negative_energy_fraction": 0.8,
+                },
                 "occurrences": [
                     {
                         "text": " biology",
@@ -35,6 +41,7 @@ def analysis_result() -> AnalysisResult:
                     }
                 ],
                 "logit_tokens": [{"text": " biology", "logit": 6.5}],
+                "bottom_logit_tokens": [{"text": " physics", "logit": -4.0}],
             }
         },
     )
@@ -159,6 +166,13 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert 'title="${esc(tooltip)}"' in html
     assert 'replace(/\\r\\n|\\r|\\n/g, "↵")' in html
     assert 'return lines.join("\\n")' in html
+    assert '<details class="panel" id="componentProfile" hidden>' in html
+    assert "Component profile — C${component} · dominant ${profile.dominant_sign}" in html
+    assert "High-energy occurrences · ${profile.dominant_sign}" in html
+    assert "Promoted logit-lens tokens" in html
+    assert "Suppressed logit-lens tokens" in html
+    assert "profilePanel.hidden = true" in html
+    assert "panel.hidden = false" in html
 
 
 def test_analysis_result_has_notebook_representation() -> None:

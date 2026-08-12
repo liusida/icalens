@@ -536,10 +536,9 @@ class ICALens:
         summaries: dict[int, dict[str, Any]] = {}
         for component in profile["components"]:
             sign = str(component["dominant_sign"])
-            occurrences = component["examples"][sign]["occurrences"][:3]
-            logit_tokens = component["logit_lens"]["dominant"]["top_tokens"][:3]
             summaries[int(component["component"])] = {
                 "dominant_sign": sign,
+                "sign_statistics": component["sign_statistics"],
                 "occurrences": [
                     {
                         "text": occurrence["text"],
@@ -547,11 +546,15 @@ class ICALens:
                         "score": occurrence["score"],
                         "energy": occurrence["energy"],
                     }
-                    for occurrence in occurrences
+                    for occurrence in component["examples"][sign]["occurrences"]
                 ],
                 "logit_tokens": [
                     {"text": token["text"], "logit": token["logit"]}
-                    for token in logit_tokens
+                    for token in component["logit_lens"]["dominant"]["top_tokens"][:10]
+                ],
+                "bottom_logit_tokens": [
+                    {"text": token["text"], "logit": token["logit"]}
+                    for token in component["logit_lens"]["dominant"]["bottom_tokens"][:10]
                 ],
             }
         return summaries
