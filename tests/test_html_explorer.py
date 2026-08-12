@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from demo.html_explorer import write_explorer_html
+import torch
+
+from icalens import AnalysisResult
+from icalens.html import write_explorer_html
 
 
 def test_write_explorer_html_is_self_contained_and_escapes_payload(tmp_path) -> None:
@@ -79,3 +82,27 @@ def test_write_explorer_html_accepts_energy_metric(tmp_path) -> None:
     )
 
     assert '"metric":"energy"' in destination.read_text(encoding="utf-8")
+
+
+def test_analysis_result_writes_html(tmp_path) -> None:
+    result = AnalysisResult(
+        tokens=("Ġhello",),
+        token_texts=(" hello",),
+        token_ids=torch.tensor([1]),
+        positions=torch.tensor([3]),
+        activations=torch.tensor([[1.0, 2.0]]),
+        scores=torch.tensor([[-2.0, 1.0]]),
+        energy=torch.tensor([[0.8, 0.2]]),
+        model="example/model@abc",
+        layer=6,
+        input_text="hello",
+        token_scope="all text tokens",
+        messages=(),
+    )
+
+    destination = result.to_html(tmp_path / "analysis.html", metric="energy", top_k=1)
+    html = destination.read_text(encoding="utf-8")
+    assert '"model":"example/model@abc"' in html
+    assert '"metric":"energy"' in html
+    assert '"token_text":" hello"' in html
+    assert '"component":0' in html

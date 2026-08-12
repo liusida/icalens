@@ -1,4 +1,4 @@
-"""Write a self-contained, v5-style token/component explorer."""
+"""Write self-contained interactive ICA Lens HTML reports."""
 
 # ruff: noqa: E501 -- Long lines keep the embedded HTML/JavaScript template readable.
 
@@ -8,9 +8,57 @@ import json
 from pathlib import Path
 from typing import Any
 
+import torch
+
+
+def write_analysis_html(
+    result: Any,
+    output_file: str | Path,
+    *,
+    metric: str = "score",
+    top_k: int = 5,
+    title: str = "ICA Lens Explorer",
+) -> Path:
+    """Write an interactive report from an :class:`AnalysisResult`."""
+    if metric not in {"score", "energy"}:
+        raise ValueError("metric must be 'score' or 'energy'")
+    if top_k <= 0:
+        raise ValueError("top_k must be positive")
+    values = result.scores if metric == "score" else result.energy
+    ranking_values = values.abs() if metric == "score" else values
+    count = min(top_k, int(values.shape[-1]))
+    top_indices = torch.topk(ranking_values, k=count, dim=-1).indices
+    tokens = [
+        {
+            "position": int(result.positions[row]),
+            "token": result.tokens[row],
+            "token_text": result.token_texts[row],
+            "top": [
+                {
+                    "component": int(component),
+                    "score": float(values[row, component]),
+                }
+                for component in top_indices[row]
+            ],
+        }
+        for row in range(len(result.tokens))
+    ]
+    return write_explorer_html(
+        Path(output_file),
+        title=title,
+        model=result.model,
+        layer=result.layer,
+        input_text=result.input_text,
+        token_scope=result.token_scope,
+        tokens=tokens,
+        metric=metric,
+        result_group_title="Tokens",
+        messages=list(result.messages),
+    )
+
 
 def write_explorer_html(
-    output_file: Path,
+    output_file: str | Path,
     *,
     title: str,
     model: str,
@@ -26,7 +74,7 @@ def write_explorer_html(
     """Write an interactive standalone HTML report and return its absolute path."""
     if metric not in {"score", "energy"}:
         raise ValueError("metric must be 'score' or 'energy'")
-    destination = output_file.expanduser().resolve()
+    destination = Path(output_file).expanduser().resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(
         {

@@ -11,6 +11,7 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+site/
 demo/output/
 experiments/output/
 experiments/

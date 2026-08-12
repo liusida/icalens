@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 import torch
@@ -15,6 +16,7 @@ class CaptureResult:
     """Tokens and aligned activations captured from one model input."""
 
     tokens: tuple[str, ...]
+    token_texts: tuple[str, ...]
     token_ids: torch.Tensor
     positions: torch.Tensor
     activations: torch.Tensor
@@ -26,6 +28,26 @@ class AnalysisResult(CaptureResult):
 
     scores: torch.Tensor
     energy: torch.Tensor
+    model: str
+    layer: int
+    input_text: str
+    token_scope: str
+    messages: tuple[dict[str, str], ...]
+
+    def to_html(
+        self,
+        output_file: str | Path,
+        *,
+        metric: Literal["score", "energy"] = "score",
+        top_k: int = 5,
+        title: str = "ICA Lens Explorer",
+    ) -> Path:
+        """Write a self-contained interactive report and return its path."""
+        from .html import write_analysis_html
+
+        return write_analysis_html(
+            self, output_file, metric=metric, top_k=top_k, title=title
+        )
 
 
 def capture(
@@ -37,7 +59,7 @@ def capture(
     tokenizer: Any = None,
     token_scope: Literal["assistant", "user", "content", "all"] = "all",
     context_length: int | None = None,
-    device: str | torch.device | None = None,
+    device: str | torch.device | None = "auto",
 ) -> CaptureResult:
     """Capture activations for raw text or a completed chat conversation."""
     model, tokenizer = _resolve_model_and_tokenizer(lens, model, tokenizer, device)
@@ -83,7 +105,14 @@ def capture(
         activations = outputs.hidden_states[hidden_index][0].index_select(0, selected).float()
     ids = input_ids[0].index_select(0, selected).detach().cpu()
     tokens = tuple(tokenizer.convert_ids_to_tokens(ids.tolist()))
-    return CaptureResult(tokens=tokens, token_ids=ids, positions=positions, activations=activations)
+    token_texts = tuple(tokenizer.decode([token_id]) for token_id in ids.tolist())
+    return CaptureResult(
+        tokens=tokens,
+        token_texts=token_texts,
+        token_ids=ids,
+        positions=positions,
+        activations=activations,
+    )
 
 
 def analyze(lens: Any, inputs: Any, *, layer: int, **kwargs: Any) -> AnalysisResult:
@@ -93,11 +122,27 @@ def analyze(lens: Any, inputs: Any, *, layer: int, **kwargs: Any) -> AnalysisRes
     energy = lens.energy(scores)
     return AnalysisResult(
         tokens=captured.tokens,
+        token_texts=captured.token_texts,
         token_ids=captured.token_ids,
         positions=captured.positions,
         activations=captured.activations,
         scores=scores,
         energy=energy,
+        model=f"{lens.model_id}@{lens.model_revision}",
+        layer=layer,
+        input_text=(
+            inputs
+            if isinstance(inputs, str)
+            else "\n".join(
+                f"{message['role'].title()}: {message['content']}" for message in inputs
+            )
+        ),
+        token_scope=(
+            "all text tokens"
+            if isinstance(inputs, str)
+            else kwargs.get("token_scope", "all")
+        ),
+        messages=() if isinstance(inputs, str) else tuple(dict(message) for message in inputs),
     )
 
 
@@ -125,18 +170,19 @@ def _resolve_model_and_tokenizer(
             lens.model_id, revision=lens.model_revision, use_fast=True
         )
     if model is None:
-        try:
-            from gb10_load_llm import load_model_to_cuda  # type: ignore[import-untyped]
-        except ImportError as error:
-            raise ImportError(
-                "ICA Lens model-loading dependencies are missing; reinstall or upgrade 'icalens'"
-            ) from error
-        target = "cuda" if device is None else str(device)
+        target = _resolve_device(device)
         if not target.startswith("cuda"):
             model = AutoModelForCausalLM.from_pretrained(
                 lens.model_id, revision=lens.model_revision
             ).to(target)  # type: ignore[arg-type]
         else:
+            try:
+                from gb10_load_llm import load_model_to_cuda  # type: ignore[import-untyped]
+            except ImportError as error:
+                raise ImportError(
+                    "ICA Lens CUDA model-loading dependencies are missing; "
+                    "reinstall or upgrade 'icalens'"
+                ) from error
             model = load_model_to_cuda(
                 AutoModelForCausalLM,
                 lens.model_id,
@@ -148,6 +194,13 @@ def _resolve_model_and_tokenizer(
             )
         model.eval()
     return model, tokenizer
+
+
+def _resolve_device(device: str | torch.device | None) -> str:
+    """Resolve the public automatic-device setting to a concrete target."""
+    if device is None or str(device) == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    return str(device)
 
 
 def _encode_chat(

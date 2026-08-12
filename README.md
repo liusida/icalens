@@ -18,6 +18,7 @@ result = lens.analyze("She deposited the check at the bank.", layer=6)
 
 print(result.tokens)
 print(result.scores)
+result.to_html("analysis.html")
 ```
 
 Fit and publish your own:
@@ -64,6 +65,8 @@ lens = ICALens(
 The standard `icalens` installation can capture and analyze text or completed
 chat conversations directly. `result = lens.analyze(text, layer=6)` returns aligned
 tokens, activations, signed scores, and per-token component energy shares.
+`result.to_html("analysis.html")` writes a self-contained interactive explorer;
+pass `metric="energy"` to visualize component energy shares instead of scores.
 
 Inputs may be NumPy arrays or PyTorch tensors. Leading dimensions are treated
 as sample dimensions and the final dimension must be the model hidden size.
@@ -71,9 +74,8 @@ Fitting uses ICA Lens's built-in PyTorch FastICA implementation and can run on
 the input tensor's device. NumPy inputs are fitted on CPU. ICA Lens does not
 depend on scikit-learn or SciPy.
 
-See [`docs/api.md`](docs/api.md) and
-[`docs/artifact-format.md`](docs/artifact-format.md) for the public API and
-portable artifact format.
+See the [documentation](https://icalens.readthedocs.io/) for the complete text,
+conversation, fitting, publishing, and HTML-export workflows.
 
 For the 1,000-token GPT-2/Pile-10k fitting demo, run:
 
@@ -97,3 +99,29 @@ uv run python demo/apply_chat.py
 
 Both `apply.py` and `apply_chat.py` also write standalone interactive HTML
 explorers under `demo/output/`; pass `--output-file` to choose another path.
+
+## Installed-package smoke test
+
+After installing a wheel or PyPI release in a clean project, run the bundled
+end-to-end check:
+
+```bash
+uv run icalens-smoke-test
+```
+
+By default, the suite checks both public input paths: raw text through the
+published GPT-2 lens and a formatted conversation through the published
+Qwen3.5-2B instruct lens. Each case lazily downloads one ICA layer, verifies
+finite scores and normalized energy, checks reconstruction shape, and writes
+`icalens-smoke-text.html` or `icalens-smoke-chat.html`.
+
+Run only one path when iterating locally:
+
+```bash
+uv run icalens-smoke-test text
+uv run icalens-smoke-test chat
+```
+
+Use `--text-lens`, `--text-layer`, `--text-input`, `--chat-lens`,
+`--chat-layer`, `--chat-input`, `--chat-response`, `--device`, and
+`--output-dir` to override the defaults.

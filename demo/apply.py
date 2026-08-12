@@ -7,7 +7,6 @@ from pathlib import Path
 
 import torch
 from gb10_load_llm import load_model_to_cuda
-from html_explorer import write_explorer_html
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from icalens import ICALens
@@ -76,7 +75,6 @@ def main() -> None:
     ranking_values = values.abs() if args.metric == "score" else values
     top_k = min(args.top_k, values.shape[-1])
     top_indices = torch.topk(ranking_values, k=top_k, dim=-1).indices
-    token_ids = result.token_ids.tolist()
     tokens = result.tokens
 
     print(f"Lens: {args.lens}")
@@ -91,31 +89,11 @@ def main() -> None:
         ]
         print(f"{position:>3} {token!r:<18} {'  '.join(entries)}")
 
-    html_tokens = [
-        {
-            "position": position,
-            "token": token,
-            "token_text": tokenizer.decode([token_ids[position]]),
-            "top": [
-                {
-                    "component": int(component),
-                    "score": float(values[position, component]),
-                }
-                for component in top_indices[position]
-            ],
-        }
-        for position, token in enumerate(tokens)
-    ]
-    output_file = write_explorer_html(
+    output_file = result.to_html(
         args.output_file,
         title="ICA Lens Text Explorer",
-        model=f"{lens.model_id}@{lens.model_revision}",
-        layer=args.layer,
-        input_text=args.text,
-        token_scope="all text tokens",
-        tokens=html_tokens,
         metric=args.metric,
-        result_group_title="Text",
+        top_k=args.top_k,
     )
     print()
     print(f"HTML explorer: {output_file}")

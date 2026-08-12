@@ -9,10 +9,10 @@ from typing import Any
 
 import torch
 from gb10_load_llm import load_model_to_cuda
-from html_explorer import write_explorer_html
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from icalens import ICALens
+from icalens.html import write_explorer_html
 
 DEFAULT_LENS = Path(__file__).parent / "output" / "icalens-qwen2.5-0.5b-instruct"
 DEFAULT_USER = "Explain why the sky appears blue in one sentence."
