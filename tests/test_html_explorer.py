@@ -172,9 +172,12 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert "Suppressed logit-lens tokens" not in html
     assert 'class="profile-stat-row"' in html
     assert 'class="profile-chips"' in html
-    assert 'index >= 5 ? "profile-extra"' in html
-    assert "Show all ${profile.occurrences.length}" in html
-    assert 'more.textContent = expanded ? "Show fewer"' in html
+    assert "columns: 3 360px" in html
+    assert 'class="profile-list profile-occurrences"' in html
+    assert "Show all" not in html
+    assert "Show fewer" not in html
+    assert "background: #f59e0b" in html
+    assert "background: #1e3a8a" in html
     assert "profilePanel.hidden = true" in html
     assert "panel.hidden = false" in html
     assert 'class="profile-target"' in html
