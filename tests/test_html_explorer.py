@@ -190,6 +190,8 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert 'class="profile-occurrence-token"' in html
     assert 'class="profile-occurrence-metrics"' in html
     assert "font-size: 9px" in html
+    assert "font-size: 13px; line-height: 1.5" in html
+    assert "font-weight: inherit; text-decoration: underline" in html
     assert "profilePanel.hidden = true" in html
     assert "panel.hidden = false" in html
     assert 'class="profile-target"' in html

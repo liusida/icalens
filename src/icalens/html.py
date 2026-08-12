@@ -262,14 +262,14 @@ def _document(payload: str) -> str:
     .profile-token-chip {{ display: inline-flex; gap: 6px; padding: 4px 7px;
       border: 1px solid #d5dce7; border-radius: 999px; background: #f8fafc; font-size: 11px; }}
     .profile-value {{ color: var(--muted); font-variant-numeric: tabular-nums; }}
-    .profile-occurrence-token {{ font-weight: 800; }}
+    .profile-occurrence-token {{ color: #435066; font-size: 11px; }}
     .profile-occurrence-metrics {{ display: block; margin-top: 2px; color: #929bab;
       font-size: 9px; font-weight: 400; }}
     .profile-metric {{ white-space: nowrap; }}
     .profile-metric-icon {{ font-weight: 600; }}
-    .profile-context {{ display: block; color: var(--muted); font-size: 11px; }}
+    .profile-context {{ display: block; color: #3f4a5c; font-size: 13px; line-height: 1.5; }}
     .profile-target {{ padding: 0 1px; border-radius: 2px; background: #fff1a8;
-      color: #273244; font-weight: 750; text-decoration: underline;
+      color: #273244; font-weight: inherit; text-decoration: underline;
       text-decoration-thickness: 2px; text-underline-offset: 2px; }}
     @media (max-width: 700px) {{ main {{ padding: 10px; }} .selection {{ flex-basis: 100%; }}
       .profile-grid {{ grid-template-columns: 1fr; }} .profile-wide {{ grid-column: auto; }} }}
