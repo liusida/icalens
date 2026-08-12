@@ -44,9 +44,7 @@ def test_save_replaces_existing_artifact(tmp_path, mixed_signals: np.ndarray) ->
     assert loaded.available_layers == (3,)
 
 
-def test_model_card_promotes_common_fitting_dataset(
-    tmp_path, mixed_signals: np.ndarray
-) -> None:
+def test_model_card_promotes_common_fitting_dataset(tmp_path, mixed_signals: np.ndarray) -> None:
     provenance = {
         "dataset": {
             "repo_id": "example/fitting-data",
@@ -57,9 +55,11 @@ def test_model_card_promotes_common_fitting_dataset(
         "candidate_tokens": 1000,
         "fitting_tokens": 800,
     }
-    artifact_dir = make_lens().fit(
-        mixed_signals, layer=6, n_components=2, provenance=provenance
-    ).save(tmp_path / "artifact")
+    artifact_dir = (
+        make_lens()
+        .fit(mixed_signals, layer=6, n_components=2, provenance=provenance)
+        .save(tmp_path / "artifact")
+    )
     model_card = (artifact_dir / "README.md").read_text(encoding="utf-8")
     front_matter = model_card.split("---", maxsplit=2)[1]
 

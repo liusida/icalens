@@ -17,6 +17,9 @@ class CaptureResult:
 
     tokens: tuple[str, ...]
     token_texts: tuple[str, ...]
+    token_labels: tuple[str, ...]
+    token_tooltips: tuple[str, ...]
+    token_groups: tuple[str, ...]
     token_ids: torch.Tensor
     positions: torch.Tensor
     activations: torch.Tensor
@@ -39,14 +42,47 @@ class AnalysisResult(CaptureResult):
         output_file: str | Path,
         *,
         metric: Literal["score", "energy"] = "score",
-        top_k: int = 5,
+        top_k: int = 3,
         title: str = "ICA Lens Explorer",
     ) -> Path:
         """Write a self-contained interactive report and return its path."""
         from .html import write_analysis_html
 
-        return write_analysis_html(
-            self, output_file, metric=metric, top_k=top_k, title=title
+        return write_analysis_html(self, output_file, metric=metric, top_k=top_k, title=title)
+
+    def _repr_html_(self) -> str:
+        """Render the default interactive explorer in Jupyter and Colab."""
+        from .html import analysis_iframe
+
+        return analysis_iframe(self)
+
+    def display(
+        self,
+        *,
+        metric: Literal["score", "energy"] = "score",
+        top_k: int = 3,
+        title: str = "ICA Lens Explorer",
+        height: int = 720,
+    ) -> None:
+        """Display a configurable interactive explorer in a notebook."""
+        try:
+            from IPython.display import HTML, display
+        except ImportError as error:
+            raise ImportError(
+                "AnalysisResult.display() requires IPython; use to_html() outside a notebook"
+            ) from error
+        from .html import analysis_iframe
+
+        display(  # type: ignore[no-untyped-call]
+            HTML(  # type: ignore[no-untyped-call]
+                analysis_iframe(
+                    self,
+                    metric=metric,
+                    top_k=top_k,
+                    title=title,
+                    height=height,
+                )
+            )
         )
 
 
@@ -72,8 +108,9 @@ def capture(
             return_tensors="pt",
         )
         positions = torch.arange(encoded["input_ids"].shape[1], dtype=torch.long)
+        token_groups: tuple[str, ...] = ()
     else:
-        encoded, positions = _encode_chat(
+        encoded, positions, token_groups = _encode_chat(
             tokenizer, inputs, token_scope=token_scope, context_length=context_length
         )
     model_device = next(model.parameters()).device
@@ -104,11 +141,20 @@ def capture(
             raise ValueError(f"layer {layer} is unavailable in model hidden states")
         activations = outputs.hidden_states[hidden_index][0].index_select(0, selected).float()
     ids = input_ids[0].index_select(0, selected).detach().cpu()
-    tokens = tuple(tokenizer.convert_ids_to_tokens(ids.tolist()))
-    token_texts = tuple(tokenizer.decode([token_id]) for token_id in ids.tolist())
+    id_values = ids.tolist()
+    tokens = tuple(tokenizer.convert_ids_to_tokens(id_values))
+    token_texts, token_labels, token_tooltips = _token_presentations(
+        tokenizer,
+        input_ids[0].detach().cpu().tolist(),
+        positions.tolist(),
+        tokens,
+    )
     return CaptureResult(
         tokens=tokens,
         token_texts=token_texts,
+        token_labels=token_labels,
+        token_tooltips=token_tooltips,
+        token_groups=token_groups,
         token_ids=ids,
         positions=positions,
         activations=activations,
@@ -123,6 +169,9 @@ def analyze(lens: Any, inputs: Any, *, layer: int, **kwargs: Any) -> AnalysisRes
     return AnalysisResult(
         tokens=captured.tokens,
         token_texts=captured.token_texts,
+        token_labels=captured.token_labels,
+        token_tooltips=captured.token_tooltips,
+        token_groups=captured.token_groups,
         token_ids=captured.token_ids,
         positions=captured.positions,
         activations=captured.activations,
@@ -133,17 +182,58 @@ def analyze(lens: Any, inputs: Any, *, layer: int, **kwargs: Any) -> AnalysisRes
         input_text=(
             inputs
             if isinstance(inputs, str)
-            else "\n".join(
-                f"{message['role'].title()}: {message['content']}" for message in inputs
-            )
+            else "\n".join(f"{message['role'].title()}: {message['content']}" for message in inputs)
         ),
         token_scope=(
-            "all text tokens"
-            if isinstance(inputs, str)
-            else kwargs.get("token_scope", "all")
+            "all text tokens" if isinstance(inputs, str) else kwargs.get("token_scope", "all")
         ),
         messages=() if isinstance(inputs, str) else tuple(dict(message) for message in inputs),
     )
+
+
+def _token_presentations(
+    tokenizer: Any,
+    all_ids: list[int],
+    positions: list[int],
+    tokens: tuple[str, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Create readable labels and contextual tooltips for tokenizer fragments."""
+    texts: list[str] = []
+    labels: list[str] = []
+    tooltips: list[str] = []
+    for position, token in zip(positions, tokens, strict=True):
+        token_id = all_ids[position]
+        decoded = str(tokenizer.decode([token_id]))
+        texts.append(decoded)
+        if "\ufffd" not in decoded:
+            labels.append(decoded)
+            tooltips.append(token)
+            continue
+
+        label = "<?>"
+        labels.append(label)
+        combined = _decode_smallest_valid_span(tokenizer, all_ids, position)
+        tooltip = f"Token ID {token_id} (0x{token_id:04X}); incomplete UTF-8 fragment"
+        if combined is not None:
+            start, end, text = combined
+            tooltip += f"; tokens {start}–{end - 1} decode together as {text!r}"
+        tooltips.append(tooltip)
+    return tuple(texts), tuple(labels), tuple(tooltips)
+
+
+def _decode_smallest_valid_span(
+    tokenizer: Any, all_ids: list[int], position: int, *, max_tokens: int = 8
+) -> tuple[int, int, str] | None:
+    """Find the shortest neighboring span containing a fragment that decodes cleanly."""
+    for length in range(2, max_tokens + 1):
+        first_start = max(0, position - length + 1)
+        last_start = min(position, len(all_ids) - length)
+        for start in range(first_start, last_start + 1):
+            end = start + length
+            decoded = str(tokenizer.decode(all_ids[start:end]))
+            if decoded and "\ufffd" not in decoded:
+                return start, end, decoded
+    return None
 
 
 def _resolve_model_and_tokenizer(
@@ -166,33 +256,40 @@ def _resolve_model_and_tokenizer(
             raise RuntimeError(f"could not resolve an exact revision for {lens.model_id}")
         lens.model_revision = str(resolved)
     if tokenizer is None:
-        tokenizer = AutoTokenizer.from_pretrained(
-            lens.model_id, revision=lens.model_revision, use_fast=True
-        )
+        tokenizer = lens._analysis_tokenizer
+        if tokenizer is None:
+            tokenizer = AutoTokenizer.from_pretrained(
+                lens.model_id, revision=lens.model_revision, use_fast=True
+            )
+            lens._analysis_tokenizer = tokenizer
     if model is None:
         target = _resolve_device(device)
-        if not target.startswith("cuda"):
-            model = AutoModelForCausalLM.from_pretrained(
-                lens.model_id, revision=lens.model_revision
-            ).to(target)  # type: ignore[arg-type]
-        else:
-            try:
-                from gb10_load_llm import load_model_to_cuda  # type: ignore[import-untyped]
-            except ImportError as error:
-                raise ImportError(
-                    "ICA Lens CUDA model-loading dependencies are missing; "
-                    "reinstall or upgrade 'icalens'"
-                ) from error
-            model = load_model_to_cuda(
-                AutoModelForCausalLM,
-                lens.model_id,
-                revision=lens.model_revision,
-                device=target,
-                dtype=torch.bfloat16,
-                touch="auto",
-                low_cpu_mem_usage=True,
-            )
-        model.eval()
+        model = lens._analysis_model
+        if model is None or lens._analysis_device != target:
+            if not target.startswith("cuda"):
+                model = AutoModelForCausalLM.from_pretrained(
+                    lens.model_id, revision=lens.model_revision
+                ).to(target)  # type: ignore[arg-type]
+            else:
+                try:
+                    from gb10_load_llm import load_model_to_cuda  # type: ignore[import-untyped]
+                except ImportError as error:
+                    raise ImportError(
+                        "ICA Lens CUDA model-loading dependencies are missing; "
+                        "reinstall or upgrade 'icalens'"
+                    ) from error
+                model = load_model_to_cuda(
+                    AutoModelForCausalLM,
+                    lens.model_id,
+                    revision=lens.model_revision,
+                    device=target,
+                    dtype=torch.bfloat16,
+                    touch="auto",
+                    low_cpu_mem_usage=True,
+                )
+            model.eval()
+            lens._analysis_model = model
+            lens._analysis_device = target
     return model, tokenizer
 
 
@@ -209,7 +306,7 @@ def _encode_chat(
     *,
     token_scope: str,
     context_length: int | None,
-) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
+) -> tuple[dict[str, torch.Tensor], torch.Tensor, tuple[str, ...]]:
     if not tokenizer.is_fast or tokenizer.chat_template is None:
         raise ValueError("chat analysis requires a fast tokenizer with a chat template")
     normalized = _normalize_messages(messages)
@@ -235,6 +332,12 @@ def _encode_chat(
         ]
     if not selected:
         raise ValueError(f"conversation contains no {token_scope} tokens")
+    group_titles = _chat_group_titles(
+        rendered,
+        normalized,
+        offsets,
+        tokenizer.convert_ids_to_tokens(encoded_offsets["input_ids"]),
+    )
     encoded = tokenizer(
         rendered,
         add_special_tokens=False,
@@ -242,7 +345,53 @@ def _encode_chat(
         max_length=context_length,
         return_tensors="pt",
     )
-    return encoded, torch.tensor(selected, dtype=torch.long)
+    return (
+        encoded,
+        torch.tensor(selected, dtype=torch.long),
+        tuple(group_titles[index] for index in selected),
+    )
+
+
+def _chat_group_titles(
+    rendered: str,
+    messages: list[dict[str, str]],
+    offsets: list[tuple[int, int]],
+    input_tokens: list[str],
+) -> list[str]:
+    """Assign every rendered chat token to a template or message group."""
+    starts: list[int] = []
+    visible_messages: list[dict[str, str]] = []
+    cursor = 0
+    for message in messages:
+        content_start = rendered.find(message["content"], cursor)
+        if content_start < 0:
+            raise ValueError("chat template transformed message content; offsets are ambiguous")
+        cursor = content_start + len(message["content"])
+        content_token = next(
+            (index for index, (start, end) in enumerate(offsets) if end > content_start),
+            None,
+        )
+        if content_token is None:
+            break
+        opening_candidates = [
+            index
+            for index in range(content_token + 1)
+            if ("start" in input_tokens[index].lower() or "begin" in input_tokens[index].lower())
+            and (not starts or index > starts[-1])
+        ]
+        starts.append(opening_candidates[-1] if opening_candidates else content_token)
+        visible_messages.append(message)
+
+    titles = ["Prompt template"] * len(offsets)
+    role_counts = {"system": 0, "user": 0, "assistant": 0}
+    for message, start, end in zip(
+        visible_messages, starts, [*starts[1:], len(offsets)], strict=True
+    ):
+        role = message["role"]
+        role_counts[role] += 1
+        title = role.title() if role == "system" else f"{role.title()} {role_counts[role]}"
+        titles[start:end] = [title] * (end - start)
+    return titles
 
 
 def _normalize_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:

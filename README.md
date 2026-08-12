@@ -16,37 +16,32 @@ from icalens import ICALens
 lens = ICALens.from_pretrained("sida/icalens-gpt2-small-pile10k")
 result = lens.analyze("She deposited the check at the bank.", layer=6)
 
-print(result.tokens)
-print(result.scores)
-result.to_html("analysis.html")
+result
 ```
 
 Fit and publish your own:
 
-```python
-from icalens import ICALens
-
-lens = ICALens(
-    model_id="openai-community/gpt2",
-    model_type="base",
-    activation_site="resid_post",
-)
-lens.fit(activations, layer=6, random_state=0)
-lens.save("./my-icalens")
-lens.push_to_hub("username/icalens-gpt2-small")
+```bash
+icalens fit text \
+  --model openai-community/gpt2 \
+  --dataset NeelNanda/pile-10k \
+  --layers 6 \
+  --token-budget 1000 \
+  --output ./my-icalens
 ```
 
-For the standalone publishing demo, create a project-root `.env` file containing
-a Hugging Face token with write permission:
+To publish from the command line, authenticate with `hf auth login`, set
+`HF_TOKEN`, or create a `.env` file in the current directory containing a
+Hugging Face token with write permission:
 
 ```dotenv
 HF_TOKEN=hf_...
 ```
 
-The `.env` file is ignored by Git. Publish a saved lens with:
+Publish a saved lens with:
 
 ```bash
-uv run python demo/publish.py \
+icalens publish \
   --lens ./my-icalens \
   username/icalens-model-name
 ```
@@ -77,28 +72,30 @@ depend on scikit-learn or SciPy.
 See the [documentation](https://icalens.readthedocs.io/) for the complete text,
 conversation, fitting, publishing, and HTML-export workflows.
 
-For the 1,000-token GPT-2/Pile-10k fitting demo, run:
+Run a small GPT-2/Pile-10k fitting check with the installed text command:
 
 ```bash
-uv sync
-uv run python demo/fit.py
+icalens fit text \
+  --model openai-community/gpt2 \
+  --dataset NeelNanda/pile-10k \
+  --split train \
+  --text-field text \
+  --layers 6 \
+  --token-budget 1000 \
+  --max-iter 20
 ```
 
-For the corresponding instruct-model demo using all formatted UltraChat
-conversation tokens, including template markers, run:
+Fit an instruction-tuned model from UltraChat conversations with:
 
 ```bash
-uv run python demo/fit_chat.py --layers 12
+icalens fit chat \
+  --model Qwen/Qwen3.5-2B \
+  --layers 12 \
+  --token-budget 100000
 ```
 
-Then inspect assistant-token component scores with:
-
-```bash
-uv run python demo/apply_chat.py
-```
-
-Both `apply.py` and `apply_chat.py` also write standalone interactive HTML
-explorers under `demo/output/`; pass `--output-file` to choose another path.
+The source repository retains thin `demo/` wrappers for contributors, but they
+are not required when using the installed package.
 
 ## Installed-package smoke test
 
@@ -106,7 +103,7 @@ After installing a wheel or PyPI release in a clean project, run the bundled
 end-to-end check:
 
 ```bash
-uv run icalens-smoke-test
+uv run icalens smoke-test
 ```
 
 By default, the suite checks both public input paths: raw text through the
@@ -118,8 +115,8 @@ finite scores and normalized energy, checks reconstruction shape, and writes
 Run only one path when iterating locally:
 
 ```bash
-uv run icalens-smoke-test text
-uv run icalens-smoke-test chat
+uv run icalens smoke-test text
+uv run icalens smoke-test chat
 ```
 
 Use `--text-lens`, `--text-layer`, `--text-input`, `--chat-lens`,

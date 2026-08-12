@@ -4,7 +4,7 @@ from typing import Any
 
 import torch
 
-from demo.fit_chat import ChatDocument, format_conversation, sample_positions
+from icalens.cli.fit_chat import ChatDocument, format_conversation, sample_positions
 
 
 class CharacterTokenizer:

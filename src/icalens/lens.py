@@ -70,6 +70,9 @@ class ICALens:
         self._layers: dict[int, LayerArtifact] = {}
         self._local_root: Path | None = None
         self._hub_source: dict[str, Any] | None = None
+        self._analysis_model: torch.nn.Module | None = None
+        self._analysis_tokenizer: Any = None
+        self._analysis_device: str | None = None
 
     @property
     def available_layers(self) -> tuple[int, ...]:
@@ -245,6 +248,36 @@ class ICALens:
             where=denominator_array > 0,
         )
 
+    @staticmethod
+    def keep_topk(scores: Any, k: int) -> Any:
+        """Keep the top-k absolute scores in each vector and zero the rest."""
+        return _mask_topk_scores(scores, k=k, keep=True)
+
+    @staticmethod
+    def ablate_topk(scores: Any, k: int) -> Any:
+        """Zero the top-k absolute scores in each vector and keep the rest."""
+        return _mask_topk_scores(scores, k=k, keep=False)
+
+    def restore_norm(self, values: Any, *, reference: Any) -> Any:
+        """Restore per-vector norms from reference activations."""
+        if isinstance(values, torch.Tensor) and isinstance(reference, torch.Tensor):
+            _validate_matching_arrays(values, reference)
+            value_norms = torch.linalg.vector_norm(values, dim=-1, keepdim=True)
+            reference_norms = torch.linalg.vector_norm(reference, dim=-1, keepdim=True).to(
+                device=values.device, dtype=values.dtype
+            )
+            return values / value_norms.clamp_min(self.norm_eps) * reference_norms
+        if isinstance(values, torch.Tensor) or isinstance(reference, torch.Tensor):
+            raise TypeError("values and reference must both be PyTorch tensors or NumPy arrays")
+        value_array = np.asarray(values)
+        reference_array = np.asarray(reference)
+        _validate_matching_arrays(value_array, reference_array)
+        value_norms_array = np.linalg.norm(value_array, axis=-1, keepdims=True)
+        reference_norms_array = np.linalg.norm(reference_array, axis=-1, keepdims=True).astype(
+            value_array.dtype, copy=False
+        )
+        return value_array / np.maximum(value_norms_array, self.norm_eps) * reference_norms_array
+
     def capture(self, inputs: Any, *, layer: int, **kwargs: Any) -> Any:
         """Capture model activations aligned to text or conversation tokens."""
         from .analysis import capture
@@ -256,6 +289,14 @@ class ICALens:
         from .analysis import analyze
 
         return analyze(self, inputs, layer=layer, **kwargs)
+
+    def unload_model(self) -> None:
+        """Release the model and tokenizer loaded lazily by capture or analyze."""
+        self._analysis_model = None
+        self._analysis_tokenizer = None
+        self._analysis_device = None
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def inverse_transform(self, scores: Any, *, layer: int) -> Any:
         """Approximately reconstruct preprocessed activations from scores."""
@@ -480,6 +521,71 @@ def _validate_model_type(value: str) -> Literal["base", "instruct"]:
     if value == "instruct":
         return "instruct"
     raise ValueError("model_type must be 'base' or 'instruct'")
+
+
+def _mask_topk_scores(scores: Any, *, k: int, keep: bool) -> Any:
+    if isinstance(k, bool) or not isinstance(k, (int, np.integer)):
+        raise TypeError("k must be a positive integer")
+    count = int(k)
+    shape = getattr(scores, "shape", None)
+    if shape is None or len(shape) < 1:
+        raise ValueError("scores must have at least one dimension")
+    components = int(shape[-1])
+    if count <= 0 or count > components:
+        raise ValueError(f"k must be between 1 and {components}, got {count}")
+
+    if isinstance(scores, torch.Tensor):
+        if not scores.is_floating_point():
+            raise TypeError("scores must be a floating-point array")
+        torch_indices = scores.abs().topk(count, dim=-1).indices
+        if keep:
+            result = torch.zeros_like(scores)
+            return result.scatter(-1, torch_indices, scores.gather(-1, torch_indices))
+        result = scores.clone()
+        return result.scatter(
+            -1, torch_indices, torch.zeros_like(torch_indices, dtype=scores.dtype)
+        )
+
+    array = np.asarray(scores)
+    if not np.issubdtype(array.dtype, np.floating):
+        raise TypeError("scores must be a floating-point array")
+    numpy_indices = np.argsort(np.abs(array), axis=-1, kind="stable")[..., -count:]
+    if keep:
+        result_array = np.zeros_like(array)
+        np.put_along_axis(
+            result_array,
+            numpy_indices,
+            np.take_along_axis(array, numpy_indices, axis=-1),
+            -1,
+        )
+        return result_array
+    result_array = array.copy()
+    np.put_along_axis(result_array, numpy_indices, 0, axis=-1)
+    return result_array
+
+
+def _validate_matching_arrays(values: Any, reference: Any) -> None:
+    if values.ndim < 1 or reference.ndim < 1:
+        raise ValueError("values and reference must have at least one dimension")
+    if values.shape != reference.shape:
+        raise ValueError(
+            f"values and reference must have the same shape, got {values.shape} and "
+            f"{reference.shape}"
+        )
+    values_are_floating = (
+        np.issubdtype(values.dtype, np.floating)
+        if isinstance(values, np.ndarray)
+        else values.is_floating_point()
+    )
+    reference_is_floating = (
+        np.issubdtype(reference.dtype, np.floating)
+        if isinstance(reference, np.ndarray)
+        else reference.is_floating_point()
+    )
+    if not values_are_floating:
+        raise TypeError("values must have a floating-point dtype")
+    if not reference_is_floating:
+        raise TypeError("reference must have a floating-point dtype")
 
 
 def _resolve_optional_compatibility_argument(

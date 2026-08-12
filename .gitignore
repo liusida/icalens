@@ -16,3 +16,6 @@ demo/output/
 experiments/output/
 experiments/
 .worktrees/
+
+.ipynb_checkpoints/
+icalens-output/

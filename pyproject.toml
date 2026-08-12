@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "icalens"
-version = "0.3.0.dev1"
+version = "0.3.0"
 description = "Fit, share, and apply ICA lenses for language-model activations."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,9 +19,11 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
 ]
 dependencies = [
+    "datasets>=4.0",
     "gb10-load-llm>=0.1.2",
     "huggingface-hub>=0.25",
     "numpy>=1.24",
+    "python-dotenv>=1.0",
     "safetensors>=0.4",
     "torch>=2.1",
     "tqdm>=4.66",
@@ -29,7 +31,7 @@ dependencies = [
 ]
 
 [project.scripts]
-icalens-smoke-test = "icalens.smoke_test:main"
+icalens = "icalens.cli:main"
 
 [project.urls]
 Homepage = "https://liusida.github.io/ica-lens-paper/"
@@ -53,6 +55,8 @@ dev = [
     "ruff>=0.8",
     "transformers>=5.0",
     "types-tqdm>=4.66",
+    "jupyterlab>=4.6.3",
+    "ipywidgets>=8,<9",
 ]
 
 [tool.hatch.build.targets.wheel]

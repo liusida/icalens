@@ -1,12 +1,152 @@
 # Fit and publish
 
-## Fit one layer
+ICA Lens includes installed commands for fitting from text or conversations and
+publishing the resulting artifact. These commands are available after:
 
-The low-level fitting API accepts a NumPy array or PyTorch tensor whose final
-dimension is the model hidden size:
+```bash
+pip install icalens
+```
+
+A CUDA GPU is currently required by the end-to-end fitting commands.
+
+## Fit from text
+
+Start with a small run that checks the complete fitting pipeline:
+
+```bash
+icalens fit text \
+  --model openai-community/gpt2 \
+  --dataset NeelNanda/pile-10k \
+  --split train \
+  --text-field text \
+  --layers 6 \
+  --token-budget 1000 \
+  --max-iter 20 \
+  --output icalens-output/quick-test
+```
+
+![Fitting a GPT-2 ICA Lens from Pile-10k in a terminal](assets/fit.png){ loading=lazy }
+
+*A complete one-layer fitting run using the installed `icalens` command. This
+run finished in about 10 seconds; runtime depends on the hardware and whether
+the model and dataset are already cached.*
+
+In this concrete setting:
+
+- `--model openai-community/gpt2` selects the GPT-2 Small checkpoint. Its
+  hidden width is 768, so a full-width lens contains 768 ICA components.
+- `--dataset NeelNanda/pile-10k --split train --text-field text` reads raw text
+  from the `text` column of the dataset's training split.
+- `--layers 6` captures the residual stream after transformer block 6 only.
+- `--token-budget 1000` fits from 1,000 token activations. This is deliberately
+  small, but it exceeds the 769-token minimum required to fit 768 components
+  after centering.
+- `--max-iter 20` runs 20 fixed FastICA updates. At this small token budget,
+  the complete example took about 10 seconds on the machine shown above.
+- `--output icalens-output/quick-test` saves the manifest and fitted layer in
+  that directory.
+
+For a substantive GPT-2 lens, increase the fitting budget and iteration count:
+
+```bash
+icalens fit text \
+  --model openai-community/gpt2 \
+  --dataset NeelNanda/pile-10k \
+  --split train \
+  --text-field text \
+  --layers all \
+  --capture-layers-at-once 1 \
+  --token-budget 1000000 \
+  --max-iter 20 \
+  --output icalens-output/icalens-gpt2-small
+```
+
+Both commands resolve and record the exact model and dataset revisions. They
+tokenize the selected text field, capture post-block residual-stream
+activations, fit the requested layers, and checkpoint each completed layer.
+
+Use `--token-budget all` to fit from every usable token in the selected dataset.
+The command reports the resolved token count after tokenization.
+
+## Fit from conversations
+
+Fit an instruction-tuned Qwen3.5 lens from UltraChat conversations:
+
+```bash
+icalens fit chat \
+  --model Qwen/Qwen3.5-2B \
+  --dataset HuggingFaceH4/ultrachat_200k \
+  --split train_sft \
+  --layers all \
+  --capture-layers-at-once 1 \
+  --token-scope all \
+  --token-budget 1000000 \
+  --max-iter 20 \
+  --output icalens-output/icalens-qwen3.5-2b-ultrachat-1m
+```
+
+Conversations are rendered with the model tokenizer's chat template before
+activation capture. The dataset must provide a message list with `role` and
+`content` fields; select another column with `--messages-field`.
+
+`--token-scope all` makes every rendered position eligible for fitting,
+including role markers and template tokens. The other scopes are `content`,
+`user`, and `assistant`. A narrower scope changes which activation rows are
+sampled, while the complete rendered conversation remains the model context.
+
+## Important controls
+
+| Option | Purpose |
+| --- | --- |
+| `--model` | Hugging Face language-model repository |
+| `--dataset` | Hugging Face fitting-dataset repository |
+| `--split` | Dataset split to stream |
+| `--text-field` | Raw-text column used by `icalens fit text` |
+| `--context-length` | Maximum number of tokens retained from each text document |
+| `--layers` | Comma-separated zero-based transformer-block indices, or `all` |
+| `--token-budget` | Number of sampled activation rows used for fitting |
+| `--candidate-tokens` | Size of the token pool sampled from; defaults to the token budget |
+| `--capture-layers-at-once` | Number of layers materialized in CPU memory together; `0` means all requested layers |
+| `--fit-batch-size` | Activation rows processed on the GPU at once; `0` materializes all fitting rows |
+| `--max-iter` | Fixed number of FastICA iterations |
+| `--objective-every` | Record objective percentiles every N iterations |
+| `--seed` | Token-sampling and FastICA initialization seed |
+| `--max-vram-gb` | Optional PyTorch CUDA allocator limit for testing a memory budget |
+
+FastICA uses the requested fixed iteration count; it does not stop early using
+a tolerance criterion. Full-width ICA also requires at least
+`hidden_size + 1` sampled activations because centering removes one degree of
+rank.
+
+## Memory behavior
+
+Captured activations are held in CPU memory, while fitting processes bounded
+batches on the GPU. The two main controls address different resources:
+
+- Lower `--capture-layers-at-once` to reduce CPU activation memory. A value of
+  `1` captures and fits one layer before moving to the next.
+- Lower `--fit-batch-size` to reduce fitting-time GPU memory.
+
+The model forward pass stops after the deepest layer needed by the current
+capture group. Each fitted layer is saved immediately, including its objective
+history, so earlier layers remain usable if a later layer is interrupted.
+
+## Fit existing activations
+
+Use the Python API when you already have an activation tensor. Its final
+dimension must equal the model hidden size; leading dimensions are treated as
+sample dimensions. This complete example uses synthetic GPT-2-width
+activations so it can run as written; replace them with activations captured
+from your data to produce a meaningful lens.
 
 ```python
+import torch
+
 from icalens import ICALens
+
+# A full-width 768-component fit needs at least 769 samples after centering.
+generator = torch.Generator().manual_seed(0)
+activations = torch.randn(1000, 768, generator=generator)
 
 lens = ICALens(
     model_id="openai-community/gpt2",
@@ -21,47 +161,76 @@ lens.fit(
     batch_size=8192,
     device="cuda",
     progress=True,
+    provenance={
+        "dataset": {"description": "synthetic API example"},
+        "fitting_tokens": int(activations.shape[0]),
+    },
 )
 
-lens.save("./my-icalens")
+output = lens.save("icalens-output/my-icalens")
+print(f"Saved layer {lens.available_layers} to {output}")
 ```
 
-Calling `fit()` for another layer adds or replaces that layer in the same lens.
-Fitting uses blockwise passes so GPU memory scales primarily with `batch_size`,
-not the total number of activation rows.
+Calling `fit()` again adds or replaces a layer in the same lens. Pass
+`n_components` to fit fewer components than the hidden size.
 
-## Demo fitting pipelines
+## What is saved
 
-The repository includes end-to-end examples for Pile-10k with GPT-2 and
-UltraChat with instruction-tuned models:
+An ICA Lens artifact records the information required to interpret and reuse
+the transformation:
+
+- analyzed model ID, type, and exact revision;
+- activation site and layer-index convention;
+- L2 preprocessing and fitted center;
+- reading and writing matrices;
+- FastICA configuration, objective history, and component ordering;
+- available layers and component counts; and
+- dataset and sampling provenance supplied during fitting.
+
+The artifact does not contain the analyzed language-model weights.
+
+## Authenticate with Hugging Face
+
+ICA Lens artifacts belong in a Hugging Face **Model** repository. Authenticate
+with a write-enabled token using the standard Hugging Face CLI:
 
 ```bash
-uv run python demo/fit.py --layers all --token-budget 1000000
-uv run python demo/fit_chat.py --layers 12 --token-budget 1000000
+hf auth login
 ```
 
-## Publish to Hugging Face
-
-Use a Hugging Face **Model** repository for an ICA Lens artifact:
-
-```python
-lens.push_to_hub("username/icalens-model-name")
-```
-
-Or publish an existing local artifact with the demo:
-
-```bash
-uv run python demo/publish.py \
-  --lens ./my-icalens \
-  username/icalens-model-name
-```
-
-For the demo, put a write-enabled token in the project-root `.env` file:
+Alternatively, set `HF_TOKEN` in the environment. The publishing command also
+reads `HF_TOKEN` from `.env` in the current directory:
 
 ```dotenv
 HF_TOKEN=hf_...
 ```
 
-The artifact records the analyzed model, exact revision, activation site,
-layers, preprocessing, fitting configuration, and dataset provenance when it is
-available.
+Do not commit this file or token.
+
+## Publish and verify
+
+Publish a saved artifact:
+
+```bash
+icalens publish \
+  --lens icalens-output/icalens-gpt2-small \
+  username/icalens-gpt2-small
+```
+
+Add `--private` to create a private repository. The command uploads the
+artifact, downloads its manifest again, and verifies that the remote metadata
+and available layers match the local lens.
+
+The Python equivalent is:
+
+```python
+lens.push_to_hub("username/icalens-gpt2-small")
+```
+
+After publication, load it from any environment with:
+
+```python
+from icalens import ICALens
+
+lens = ICALens.from_pretrained("username/icalens-gpt2-small")
+```

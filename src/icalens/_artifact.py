@@ -243,9 +243,9 @@ residual-stream activations to independent-component scores and energy shares.
 | Analyzed model revision | {revision_text} |
 | Model kind | `{model_type}` |
 | Activation site | `{site}` |
-| Layer indexing | `{manifest.get('layer_indexing', 'unknown')}` |
+| Layer indexing | `{manifest.get("layer_indexing", "unknown")}` |
 | Available layers | {layers} |
-| Hidden size | {manifest.get('hidden_size', 'unknown')} |
+| Hidden size | {manifest.get("hidden_size", "unknown")} |
 | Input row normalization | `{normalization}` |
 | ICALens package version | `{package_version}` |
 {fitting_data_rows}

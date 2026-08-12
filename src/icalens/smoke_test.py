@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -36,8 +37,8 @@ DEFAULT_CHAT_CASE = SmokeCase(
 )
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="icalens smoke-test", description=__doc__)
     parser.add_argument(
         "case",
         choices=("text", "chat", "all"),
@@ -54,11 +55,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chat-response", default=DEFAULT_CHAT_CASE.response)
     parser.add_argument("--device", default=None, help="Default: CUDA when available, else CPU.")
     parser.add_argument("--output-dir", type=Path, default=Path.cwd())
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> None:
-    args = parse_args()
+def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv)
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     cases = {
         "text": SmokeCase("text", args.text_lens, args.text_layer, args.text_input),

@@ -165,9 +165,7 @@ def fit_fastica(
     components = unmixing @ whitening
     mixing = torch.linalg.pinv(components)
     if progress:
-        tqdm.write(
-            f"FastICA finalization: completed in {perf_counter() - finalization_start:.1f}s"
-        )
+        tqdm.write(f"FastICA finalization: completed in {perf_counter() - finalization_start:.1f}s")
     return FastICAResult(
         center=center,
         components=components,
@@ -175,9 +173,7 @@ def fit_fastica(
         n_iter=n_iter,
         objective_history=objective_history,
         objective_iterations=objective_iterations,
-        component_objectives=[
-            float(value) for value in final_objectives.detach().cpu().tolist()
-        ],
+        component_objectives=[float(value) for value in final_objectives.detach().cpu().tolist()],
         component_strengths=[float(value) for value in strengths.detach().cpu().tolist()],
         gaussian_objective=gaussian_objective,
     )
@@ -192,9 +188,7 @@ def _component_objectives(
     batch_kwargs: dict[str, object],
 ) -> torch.Tensor:
     """Evaluate the final contrast of every component in a blockwise pass."""
-    objective_sum = torch.zeros(
-        unmixing.shape[0], dtype=unmixing.dtype, device=unmixing.device
-    )
+    objective_sum = torch.zeros(unmixing.shape[0], dtype=unmixing.dtype, device=unmixing.device)
     progress_bar = tqdm(
         total=int(source.shape[0]),
         desc="FastICA component objectives",

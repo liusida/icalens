@@ -2,12 +2,34 @@ from __future__ import annotations
 
 import torch
 
-from demo.fit import parse_token_budget, sample_positions
+from icalens.cli.fit_text import parse_args, parse_token_budget, sample_positions
 
 
 def test_parse_all_token_budget() -> None:
     assert parse_token_budget("all") is None
     assert parse_token_budget("1000") == 1000
+
+
+def test_parse_text_source_options() -> None:
+    args = parse_args(
+        [
+            "--model",
+            "owner/model",
+            "--dataset",
+            "owner/dataset",
+            "--split",
+            "validation",
+            "--text-field",
+            "body",
+            "--context-length",
+            "512",
+        ]
+    )
+    assert args.model == "owner/model"
+    assert args.dataset == "owner/dataset"
+    assert args.split == "validation"
+    assert args.text_field == "body"
+    assert args.context_length == 512
 
 
 def test_sample_all_positions_without_random_index() -> None:

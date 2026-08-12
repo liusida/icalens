@@ -15,22 +15,26 @@ from icalens import ICALens
 lens = ICALens.from_pretrained("sida/icalens-gpt2-small-pile10k")
 result = lens.analyze("She deposited the check at the bank.", layer=6)
 
-print(result.tokens)
-print(result.scores)
-result.to_html("analysis.html")
+result
 ```
+
+![ICA Lens interactive token-level analysis in Jupyter](assets/text-analysis-notebook.png){ loading=lazy }
+
+*Interactive token-level component analysis in Jupyter.*
+
+In Jupyter or Colab, `result` displays the interactive explorer inline. Use
+`result.to_html("analysis.html")` to save it as a standalone file.
 
 [Get started](getting-started.md){ .md-button .md-button--primary }
 [Read the paper](https://arxiv.org/abs/2606.11722){ .md-button }
 
 ## What ICA Lens provides
 
-- A built-in PyTorch FastICA implementation without SciPy or scikit-learn.
-- Direct activation capture from raw text and completed chat conversations.
-- Signed ICA scores and per-token component energy shares.
-- Local and Hugging Face artifact loading with lazy per-layer downloads.
-- Self-contained interactive HTML reports.
-- Blockwise fitting designed to bound GPU memory use.
+- Fit ICA lenses on activations from base or instruction-tuned language models.
+- Analyze raw text and multi-turn conversations at any fitted layer.
+- Inspect signed component scores and per-token energy shares interactively.
+- Save, load, and share lenses through local folders or Hugging Face Hub.
+- Scale fitting to large token collections with bounded GPU and CPU memory.
 
 ## Citation
 

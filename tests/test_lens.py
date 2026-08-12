@@ -80,6 +80,72 @@ def test_energy_is_per_position_fraction(mixed_signals: np.ndarray) -> None:
     np.testing.assert_allclose(energy, scores**2 / np.sum(scores**2, axis=-1, keepdims=True))
 
 
+def test_keep_and_ablate_topk_scores_per_vector() -> None:
+    scores = np.array([[1.0, -4.0, 2.0], [-5.0, 2.0, 3.0]], dtype=np.float32)
+
+    kept = ICALens.keep_topk(scores, k=2)
+    ablated = ICALens.ablate_topk(scores, k=2)
+
+    np.testing.assert_array_equal(kept, [[0.0, -4.0, 2.0], [-5.0, 0.0, 3.0]])
+    np.testing.assert_array_equal(ablated, [[1.0, 0.0, 0.0], [0.0, 2.0, 0.0]])
+    np.testing.assert_array_equal(kept + ablated, scores)
+    assert not np.shares_memory(kept, scores)
+    assert not np.shares_memory(ablated, scores)
+
+
+def test_topk_score_operations_preserve_torch_properties() -> None:
+    scores = torch.tensor([[1.0, -4.0, 2.0]], device="cpu", dtype=torch.float64)
+
+    kept = ICALens.keep_topk(scores, k=1)
+    ablated = ICALens.ablate_topk(scores, k=1)
+
+    torch.testing.assert_close(kept, torch.tensor([[0.0, -4.0, 0.0]], dtype=torch.float64))
+    torch.testing.assert_close(ablated, torch.tensor([[1.0, 0.0, 2.0]], dtype=torch.float64))
+    assert kept.dtype == scores.dtype
+    assert kept.device == scores.device
+
+
+def test_topk_score_operations_validate_k() -> None:
+    scores = np.ones((2, 3), dtype=np.float32)
+    with pytest.raises(ValueError, match="between 1 and 3"):
+        ICALens.keep_topk(scores, k=0)
+    with pytest.raises(ValueError, match="between 1 and 3"):
+        ICALens.ablate_topk(scores, k=4)
+
+
+def test_restore_norm_uses_reference_norms() -> None:
+    lens = make_lens()
+    values = np.array([[3.0, 4.0], [0.0, 0.0]], dtype=np.float32)
+    reference = np.array([[0.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+
+    restored = lens.restore_norm(values, reference=reference)
+
+    np.testing.assert_allclose(restored, [[1.2, 1.6], [0.0, 0.0]], atol=1e-6)
+    np.testing.assert_allclose(np.linalg.norm(restored[0]), np.linalg.norm(reference[0]))
+    assert restored.dtype == values.dtype
+
+
+def test_restore_norm_preserves_torch_properties() -> None:
+    lens = make_lens()
+    values = torch.tensor([[3.0, 4.0]], dtype=torch.float64)
+    reference = torch.tensor([[0.0, 2.0]], dtype=torch.float32)
+
+    restored = lens.restore_norm(values, reference=reference)
+
+    torch.testing.assert_close(restored, torch.tensor([[1.2, 1.6]], dtype=torch.float64))
+    assert restored.dtype == values.dtype
+    assert restored.device == values.device
+
+
+def test_restore_norm_validates_inputs() -> None:
+    lens = make_lens()
+    values = np.ones((2, 3), dtype=np.float32)
+    with pytest.raises(ValueError, match="same shape"):
+        lens.restore_norm(values, reference=np.ones((2, 2), dtype=np.float32))
+    with pytest.raises(TypeError, match="both be"):
+        lens.restore_norm(values, reference=torch.ones((2, 3)))
+
+
 def test_fit_records_detached_json_provenance(mixed_signals: np.ndarray) -> None:
     provenance = {"dataset": {"repo_id": "example/data", "revision": "abc"}}
     lens = make_lens().fit(mixed_signals, layer=2, provenance=provenance)

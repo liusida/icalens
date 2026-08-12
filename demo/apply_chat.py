@@ -109,9 +109,7 @@ def main() -> None:
     if tokenizer.chat_template is None:
         raise RuntimeError(f"{lens.model_id} tokenizer does not define a chat template.")
 
-    user_turns = tuple(
-        turn for argument in (args.user or [(DEFAULT_USER,)]) for turn in argument
-    )
+    user_turns = tuple(turn for argument in (args.user or [(DEFAULT_USER,)]) for turn in argument)
     messages = []
     if args.system is not None:
         messages.append({"role": "system", "content": args.system})
@@ -247,9 +245,7 @@ def group_tokens_by_message(
     tokens: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     """Group formatted token cards by the message that introduced them."""
-    rendered = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=False
-    )
+    rendered = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
     encoded = tokenizer(
         rendered,
         add_special_tokens=False,
@@ -279,10 +275,7 @@ def group_tokens_by_message(
         opening_candidates = [
             index
             for index in range(content_token + 1)
-            if (
-                "start" in input_tokens[index].lower()
-                or "begin" in input_tokens[index].lower()
-            )
+            if ("start" in input_tokens[index].lower() or "begin" in input_tokens[index].lower())
             and (not message_starts or index > message_starts[-1])
         ]
         message_starts.append(opening_candidates[-1] if opening_candidates else content_token)
@@ -292,9 +285,7 @@ def group_tokens_by_message(
 
     role_counts = {"system": 0, "user": 0, "assistant": 0}
     groups = []
-    for message, start, end in zip(
-        visible_messages, message_starts, end_positions, strict=True
-    ):
+    for message, start, end in zip(visible_messages, message_starts, end_positions, strict=True):
         role = message["role"]
         role_counts[role] += 1
         title = role.title() if role == "system" else f"{role.title()} {role_counts[role]}"

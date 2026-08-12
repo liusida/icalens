@@ -7,7 +7,12 @@ import pytest
 import torch
 
 from icalens import ICALens
-from icalens.analysis import _resolve_device
+from icalens.analysis import (
+    _chat_group_titles,
+    _resolve_device,
+    _resolve_model_and_tokenizer,
+    _token_presentations,
+)
 
 
 class DummyTokenizer:
@@ -70,3 +75,78 @@ def test_auto_device_uses_cuda_when_available(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     assert _resolve_device("auto") == "cuda"
     assert _resolve_device("cpu") == "cpu"
+
+
+def test_analysis_model_and_tokenizer_are_reused() -> None:
+    lens = ICALens(model_id="example/model", model_revision="abc")
+    model = DummyModel()
+    tokenizer = DummyTokenizer()
+    lens._analysis_model = model
+    lens._analysis_tokenizer = tokenizer
+    lens._analysis_device = "cpu"
+
+    resolved_model, resolved_tokenizer = _resolve_model_and_tokenizer(lens, None, None, "cpu")
+
+    assert resolved_model is model
+    assert resolved_tokenizer is tokenizer
+
+
+def test_unload_model_clears_analysis_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    lens = ICALens(model_id="example/model", model_revision="abc")
+    lens._analysis_model = DummyModel()
+    lens._analysis_tokenizer = DummyTokenizer()
+    lens._analysis_device = "cpu"
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+
+    lens.unload_model()
+
+    assert lens._analysis_model is None
+    assert lens._analysis_tokenizer is None
+    assert lens._analysis_device is None
+
+
+def test_invalid_token_fragment_uses_placeholder_and_contextual_tooltip() -> None:
+    class FragmentTokenizer:
+        def decode(self, ids: list[int]) -> str:
+            if len(ids) > 1:
+                return "你"
+            return "�"
+
+    texts, labels, tooltips = _token_presentations(
+        FragmentTokenizer(), [99, 100], [0, 1], ("fragment-a", "fragment-b")
+    )
+
+    assert texts == ("�", "�")
+    assert labels == ("<?>", "<?>")
+    assert "Token ID 99 (0x0063)" in tooltips[0]
+    assert "tokens 0–1 decode together as '你'" in tooltips[0]
+
+
+def test_chat_tokens_are_grouped_with_their_message_template() -> None:
+    rendered = "<start>user\nHi<end><start>assistant\nHello<end>"
+    messages = [
+        {"role": "user", "content": "Hi"},
+        {"role": "assistant", "content": "Hello"},
+    ]
+    pieces = [
+        "<start>",
+        "user",
+        "\n",
+        "Hi",
+        "<end>",
+        "<start>",
+        "assistant",
+        "\n",
+        "Hello",
+        "<end>",
+    ]
+    offsets: list[tuple[int, int]] = []
+    cursor = 0
+    for piece in pieces:
+        offsets.append((cursor, cursor + len(piece)))
+        cursor += len(piece)
+
+    groups = _chat_group_titles(rendered, messages, offsets, pieces)
+
+    assert groups[:5] == ["User 1"] * 5
+    assert groups[5:] == ["Assistant 1"] * 5

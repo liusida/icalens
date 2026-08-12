@@ -1,15 +1,20 @@
 # Getting started
 
+This page takes you from installation to an interactive analysis of text or a
+conversation.
+
 ## Install
 
-Install ICA Lens from PyPI:
+ICA Lens requires Python 3.10 or newer. A CUDA GPU is recommended for loading
+and running the analyzed language model; CPU execution is supported but slower.
 
 ```bash
 pip install icalens
 ```
 
-ICA Lens includes the dependencies needed for model loading, activation
-capture, analysis, and HTML export.
+You can access public models on Hugging Face without signing in. Authentication
+is required for private or gated repositories and also provides higher download
+rate limits.
 
 ## Analyze text
 
@@ -17,45 +22,90 @@ capture, analysis, and HTML export.
 from icalens import ICALens
 
 lens = ICALens.from_pretrained("sida/icalens-gpt2-small-pile10k")
-result = lens.analyze(
-    "She deposited the check at the bank.",
-    layer=6,
-)
+result = lens.analyze("She deposited the check at the bank.", layer=6)
 
-for token, scores in zip(result.tokens, result.scores, strict=True):
-    component = scores.abs().argmax().item()
-    print(f"{token!r:<18} C{component}={scores[component].item():+.3f}")
+result
 ```
 
-The first call downloads the analyzed language model and the requested ICA
-layer. Hugging Face caches both for later calls. Model loading uses
-`device="auto"` by default: CUDA is selected when available, otherwise CPU.
-Override it explicitly with `device="cuda"` or `device="cpu"`.
+In Jupyter or Colab, the final `result` expression displays an interactive
+token-level analysis. The first analysis loads the language model and the
+requested lens layer. Later analyses with the same `lens` reuse the model in
+memory.
 
-## Export an interactive report
+The default `device="auto"` uses CUDA when available and otherwise uses the
+CPU. You can override it with `device="cuda"` or `device="cpu"`.
+
+## Read the result
+
+In Jupyter or Colab, the result is displayed as an interactive token-level
+analysis.
+
+![ICA Lens interactive token-level analysis in Jupyter](assets/text-analysis-notebook.png){ loading=lazy }
+
+- Each card represents one token at the selected model layer.
+- `C37`, for example, identifies ICA component 37.
+- **Score** shows the signed component activation and preserves direction.
+- **Energy** shows the component's share of squared score magnitude for that
+  token.
+- Select a component to highlight it across all displayed tokens.
+
+The metric and number of displayed components can be changed directly in the
+result.
+
+## Analyze another input
+
+Reuse the same lens to compare components across inputs without loading the
+language model again:
+
+```python
+result = lens.analyze("She walked along the river bank.", layer=6)
+result
+```
+
+Call `lens.unload_model()` when you want to release the cached model and
+tokenizer from memory.
+
+## Analyze a conversation
+
+Instruction-tuned lenses accept messages with `role` and `content` fields:
+
+```python
+from icalens import ICALens
+
+lens = ICALens.from_pretrained(
+    "sida/icalens-qwen3.5-2b-ultrachat-1m"
+)
+
+result = lens.analyze(
+    [
+        {"role": "user", "content": "What is the most interesting science?"},
+        {"role": "assistant", "content": "Physics."},
+    ],
+    layer=16,
+)
+
+result
+```
+
+![Message-grouped ICA Lens analysis in Jupyter](assets/conversation-analysis-notebook.png){ loading=lazy }
+
+The tokenizer's chat template is applied automatically. By default, the
+analysis includes content, role markers, separators, and other template tokens.
+`analyze()` analyzes the supplied conversation; it does not generate a new
+assistant response.
+
+## Save an ICA Lens Explorer
+
+Save the result as a self-contained ICA Lens Explorer for use outside a
+notebook:
 
 ```python
 result.to_html("analysis.html")
 ```
 
-The output is a self-contained HTML file. To visualize energy shares instead
-of signed scores:
+## Next steps
 
-```python
-result.to_html("energy.html", metric="energy", top_k=5)
-```
-
-## Verify an installation
-
-The installed smoke suite exercises the published text and conversation paths:
-
-```bash
-uv run icalens-smoke-test
-```
-
-Run one path while iterating locally:
-
-```bash
-uv run icalens-smoke-test text
-uv run icalens-smoke-test chat
-```
+- Learn about [text and chat inputs](text-and-chat.md).
+- Understand [scores and energy](scores-and-energy.md).
+- Map component scores back through [reconstruction](reconstruction.md).
+- [Fit and publish](fit-and-publish.md) your own ICA lens.
