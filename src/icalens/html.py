@@ -398,15 +398,15 @@ def _document(payload: str) -> str:
       const lines = [`C${{component}} · dominant ${{profile.dominant_sign}}`];
       lines.push("Top occurrences:");
       profile.occurrences.slice(0, 3).forEach((item, index) => {{
-        const text = String(item.text || "").replace(/\r\n|\r|\n/g, "↵");
-        const context = String(item.context || "").replace(/\r\n|\r|\n/g, "↵");
+        const text = String(item.text || "").replace(/\\r\\n|\\r|\\n/g, "↵");
+        const context = String(item.context || "").replace(/\\r\\n|\\r|\\n/g, "↵");
         lines.push(`${{index + 1}}. ${{JSON.stringify(text)}} · ${{(Number(item.energy) * 100).toFixed(1)}}% · ${{context}}`);
       }});
       lines.push("Top logit-lens tokens:");
       profile.logit_tokens.slice(0, 3).forEach((item, index) => {{
         lines.push(`${{index + 1}}. ${{JSON.stringify(item.text)}} · ${{Number(item.logit) >= 0 ? "+" : ""}}${{Number(item.logit).toFixed(2)}}`);
       }});
-      return lines.join("\n");
+      return lines.join("\\n");
     }}
 
     function allTokens() {{

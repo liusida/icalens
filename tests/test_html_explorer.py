@@ -157,6 +157,8 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert "Top occurrences:" in html
     assert "Top logit-lens tokens:" in html
     assert 'title="${esc(tooltip)}"' in html
+    assert 'replace(/\\r\\n|\\r|\\n/g, "↵")' in html
+    assert 'return lines.join("\\n")' in html
 
 
 def test_analysis_result_has_notebook_representation() -> None:
