@@ -240,19 +240,32 @@ def _document(payload: str) -> str:
     .badge.selected {{ outline: 2px solid var(--color); border-color: var(--color); opacity: 1; }}
     .component {{ font-weight: 850; }}
     .score {{ font-variant-numeric: tabular-nums; }}
-    .profile-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 14px; margin-top: 12px; }}
+    .profile-grid {{ display: grid; grid-template-columns: minmax(280px, .8fr) minmax(380px, 1.5fr);
+      gap: 16px 24px; margin-top: 12px; }}
+    .profile-wide {{ grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid #e1e6ee; }}
     .profile-section h3 {{ margin: 0 0 7px; font-size: 13px; }}
-    .profile-stats {{ display: grid; grid-template-columns: 1fr auto; gap: 5px 14px;
-      color: #435066; font-size: 12px; }}
+    .profile-stat-row {{ display: grid; grid-template-columns: 62px 48px minmax(100px, 1fr) 48px;
+      gap: 7px; align-items: center; margin: 7px 0; color: #435066; font-size: 11px; }}
+    .profile-stat-row strong:last-child {{ text-align: right; }}
+    .profile-bar {{ display: flex; height: 9px; overflow: hidden; border-radius: 999px;
+      background: #e6e9ef; }}
+    .profile-bar-positive {{ background: #93c5fd; }}
+    .profile-bar-negative {{ flex: 1; background: #c4b5fd; }}
     .profile-list {{ margin: 0; padding-left: 20px; }}
     .profile-list li {{ margin: 5px 0; overflow-wrap: anywhere; }}
+    .profile-list .profile-extra {{ display: none; }}
+    .profile-list.expanded .profile-extra {{ display: list-item; }}
+    .profile-more {{ margin-top: 7px; color: #435066; font-size: 11px; }}
+    .profile-chips {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+    .profile-token-chip {{ display: inline-flex; gap: 6px; padding: 4px 7px;
+      border: 1px solid #d5dce7; border-radius: 999px; background: #f8fafc; font-size: 11px; }}
     .profile-value {{ color: var(--muted); font-variant-numeric: tabular-nums; }}
     .profile-context {{ display: block; color: var(--muted); font-size: 11px; }}
     .profile-target {{ padding: 0 1px; border-radius: 2px; background: #fff1a8;
       color: #273244; font-weight: 750; text-decoration: underline;
       text-decoration-thickness: 2px; text-underline-offset: 2px; }}
-    @media (max-width: 700px) {{ main {{ padding: 10px; }} .selection {{ flex-basis: 100%; }} }}
+    @media (max-width: 700px) {{ main {{ padding: 10px; }} .selection {{ flex-basis: 100%; }}
+      .profile-grid {{ grid-template-columns: 1fr; }} .profile-wide {{ grid-column: auto; }} }}
   </style>
 </head>
 <body>
@@ -477,24 +490,34 @@ def _document(payload: str) -> str:
           `<span class="profile-target">${{esc(context.slice(index, index + target.length))}}</span>` +
           esc(context.slice(index + target.length));
       }};
-      const occurrenceItems = profile.occurrences.map(item =>
-        `<li><strong>${{esc(JSON.stringify(String(item.text || "")))}}</strong> ` +
+      const occurrenceItems = profile.occurrences.map((item, index) =>
+        `<li class="${{index >= 5 ? "profile-extra" : ""}}"><strong>${{esc(JSON.stringify(String(item.text || "")))}}</strong> ` +
         `<span class="profile-value">score ${{Number(item.score) >= 0 ? "+" : ""}}${{Number(item.score).toFixed(2)}} · ${{percentage(item.energy)}} energy</span>` +
         `<span class="profile-context">${{highlightedContext(item)}}</span></li>`
       ).join("");
       const tokenItems = items => items.map(item =>
-        `<li><strong>${{esc(JSON.stringify(String(item.text || "")))}}</strong> ` +
-        `<span class="profile-value">${{Number(item.logit) >= 0 ? "+" : ""}}${{Number(item.logit).toFixed(2)}}</span></li>`
+        `<span class="profile-token-chip"><strong>${{esc(JSON.stringify(String(item.text || "")))}}</strong>` +
+        `<span class="profile-value">${{Number(item.logit) >= 0 ? "+" : ""}}${{Number(item.logit).toFixed(2)}}</span></span>`
       ).join("");
+      const positionPositive = percentage(stats.positive_fraction);
+      const positionNegative = percentage(stats.negative_fraction);
+      const energyPositive = percentage(stats.positive_energy_fraction);
+      const energyNegative = percentage(stats.negative_energy_fraction);
+      const moreCount = Math.max(0, profile.occurrences.length - 5);
       body.innerHTML = `
-        <section class="profile-section"><h3>Sign distribution</h3><div class="profile-stats">
-          <span>Positive positions</span><strong>${{percentage(stats.positive_fraction)}}</strong>
-          <span>Negative positions</span><strong>${{percentage(stats.negative_fraction)}}</strong>
-          <span>Positive energy</span><strong>${{percentage(stats.positive_energy_fraction)}}</strong>
-          <span>Negative energy</span><strong>${{percentage(stats.negative_energy_fraction)}}</strong>
-        </div></section>
-        <section class="profile-section"><h3>High-energy occurrences · ${{profile.dominant_sign}}</h3><ol class="profile-list">${{occurrenceItems}}</ol></section>
-        <section class="profile-section"><h3>Logit-lens tokens · ${{profile.dominant_sign}}</h3><ol class="profile-list">${{tokenItems(profile.logit_tokens)}}</ol></section>`;
+        <section class="profile-section"><h3>Sign distribution</h3>
+          <div class="profile-stat-row"><strong>Positions</strong><span>+${{positionPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{positionPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{positionNegative}}</span></div>
+          <div class="profile-stat-row"><strong>Energy</strong><span>+${{energyPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{energyPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{energyNegative}}</span></div>
+        </section>
+        <section class="profile-section"><h3>Logit-lens tokens · ${{profile.dominant_sign}}</h3><div class="profile-chips">${{tokenItems(profile.logit_tokens)}}</div></section>
+        <section class="profile-section profile-wide"><h3>High-energy occurrences · ${{profile.dominant_sign}}</h3><ol class="profile-list" id="profileOccurrenceList">${{occurrenceItems}}</ol>${{moreCount ? `<button class="profile-more" id="profileMore" type="button">Show all ${{profile.occurrences.length}}</button>` : ""}}</section>`;
+      const more = document.getElementById("profileMore");
+      if (more) more.addEventListener("click", () => {{
+        const list = document.getElementById("profileOccurrenceList");
+        const expanded = list.classList.toggle("expanded");
+        more.textContent = expanded ? "Show fewer" : `Show all ${{profile.occurrences.length}}`;
+        requestAnimationFrame(resizeFrame);
+      }});
     }}
 
     function resizeFrame() {{

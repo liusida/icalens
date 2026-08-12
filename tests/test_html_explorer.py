@@ -170,6 +170,11 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert "High-energy occurrences · ${profile.dominant_sign}" in html
     assert "Logit-lens tokens · ${profile.dominant_sign}" in html
     assert "Suppressed logit-lens tokens" not in html
+    assert 'class="profile-stat-row"' in html
+    assert 'class="profile-chips"' in html
+    assert 'index >= 5 ? "profile-extra"' in html
+    assert "Show all ${profile.occurrences.length}" in html
+    assert 'more.textContent = expanded ? "Show fewer"' in html
     assert "profilePanel.hidden = true" in html
     assert "panel.hidden = false" in html
     assert 'class="profile-target"' in html
