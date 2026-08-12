@@ -33,6 +33,7 @@ nav:
   - Home: index.md
   - Getting started: getting-started.md
   - Text and chat: text-and-chat.md
+  - Component profiles: component-profiles.md
   - Scores and energy: scores-and-energy.md
   - Steering: steering.md
   - Reconstruction: reconstruction.md

@@ -114,6 +114,23 @@ ICA Lens includes a PyTorch FastICA implementation and does not depend on
 SciPy or scikit-learn. Blockwise fitting and layer-at-a-time capture support
 larger token collections while bounding memory use.
 
+## Profile every fitted layer
+
+After fitting, profile the components against a representative corpus:
+
+```bash
+icalens profile \
+  --lens icalens-output/gpt2-demo \
+  --layers all \
+  --dataset NeelNanda/pile-10k \
+  --split train \
+  --max-tokens 10000
+```
+
+Profiles add sign statistics, high-energy examples, and logit-lens tokens to
+the existing Lens directory. They help label and inspect components without
+changing the fitted directions.
+
 ## Publish to Hugging Face
 
 Authenticate with `hf auth login`, set `HF_TOKEN`, or add a `.env` file in the
@@ -132,8 +149,9 @@ icalens publish \
 ```
 
 The artifact records the analyzed model, activation site, fitted layers,
-preprocessing, and fitting provenance. Individual layer files are downloaded
-lazily when a published Lens is used.
+preprocessing, component profiles, and fitting and profiling provenance.
+Individual layer and profile files are downloaded lazily when a published Lens
+is used.
 
 ## Learn more
 
@@ -141,6 +159,7 @@ The documentation covers:
 
 - [Getting started](https://icalens.readthedocs.io/en/latest/getting-started/)
 - [Text and chat](https://icalens.readthedocs.io/en/latest/text-and-chat/)
+- [Component profiles](https://icalens.readthedocs.io/en/latest/component-profiles/)
 - [Scores and energy](https://icalens.readthedocs.io/en/latest/scores-and-energy/)
 - [Steering](https://icalens.readthedocs.io/en/latest/steering/)
 - [Reconstruction](https://icalens.readthedocs.io/en/latest/reconstruction/)

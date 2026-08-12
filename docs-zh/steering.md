@@ -26,6 +26,19 @@ print("Baseline:", baseline)
 
 ### 2. 检查成分及其符号
 
+首先读取成分画像中记录的符号：
+
+```python
+component = lens.component_profile(layer=5, component=188)
+print(component["dominant_sign"])
+print(component["sign_statistics"])
+print(component["examples"][component["dominant_sign"]]["tokens"][:10])
+```
+
+在这个产物中，`C188` 的主导符号是 `negative`。画像告诉我们哪一侧在画像语料上承载
+更多能量，并给出该侧的代表性样例；但它本身不能证明某个具体概念属于这一方向，因此
+还需要用相互独立的探针验证解释。
+
 请用相互独立的输入分析不同概念，不要把它们写进同一个列表。对于因果语言模型，前面
 出现的概念会影响后续所有 token。
 
@@ -45,8 +58,9 @@ quantum_result
 `C188` 显著为负（约为 `-8.7` 和 `-14.9`）；而在“Quantum computing.”中接近零。
 “The human brain.”和“Neuroplasticity.”等独立探针也显示相同的负方向。
 
-这里的负号来自实际检查，而不是从“Neuroscience”这个标签推断出来的。ICA 的符号是
-任意的；另一个独立拟合的 Lens 可能用相反的符号约定表示同一方向。
+这里的负号同时得到已保存画像和独立探针的支持，而不是从“Neuroscience”这个标签
+推断出来的。ICA 的符号是任意的；另一个独立拟合的 Lens 可能用相反的符号约定表示
+同一方向。因此，应始终读取当前所用 Lens 自己的画像。
 
 ### 3. 检查基线对话
 
@@ -154,7 +168,8 @@ edited_hidden_states = lens.restore_norm(
 
 - 引导时使用带符号的分数，不要使用能量占比。
 - 成分标签只是由示例支持的假设，不是内置含义或类别标签。
-- 用相互独立的探针确定符号，绝不能根据标签猜测符号。
+- 先读取已保存的主导符号，再用相互独立的探针确认具体概念的方向；绝不能根据标签
+  猜测符号。
 - 模型 revision、层、激活位置和预处理必须与拟合 Lens 中记录的信息一致。
 - 校准适中的目标值，并与确定性的基线比较。
 - 很大的目标值可能显著旋转残差向量，引发非线性或退化行为。

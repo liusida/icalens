@@ -28,6 +28,20 @@ Computing**.
 
 ### 2. Inspect the component and its sign
 
+First read the sign recorded by the component profile:
+
+```python
+component = lens.component_profile(layer=5, component=188)
+print(component["dominant_sign"])
+print(component["sign_statistics"])
+print(component["examples"][component["dominant_sign"]]["tokens"][:10])
+```
+
+For this artifact, `C188` has dominant sign `negative`. The profile tells us
+which side carries more energy over its profiling corpus and provides examples
+from that side. It does not by itself prove that a particular concept belongs
+to that direction, so verify the interpretation with independent probes.
+
 Analyze concepts in separate inputs. Do not put them in one list: in a causal
 language model, an earlier concept can affect every later token.
 
@@ -48,9 +62,10 @@ For this exact Lens at layer 5, `C188` is strongly negative on the `uro` and
 near zero throughout “Quantum computing.” Independent probes such as “The
 human brain.” and “Neuroplasticity.” show the same negative direction.
 
-The negative sign was found by inspection; it was not inferred from the word
-“Neuroscience.” ICA signs are arbitrary, so the same component in another
-independently fitted Lens could use the opposite convention.
+The negative sign is supported by both the stored profile and these probes; it
+was not inferred from the word “Neuroscience.” ICA signs are arbitrary, so the
+same component in another independently fitted Lens could use the opposite
+convention. Always read the profile belonging to the exact Lens being used.
 
 ### 3. Inspect the baseline conversation
 
@@ -166,7 +181,8 @@ edited_hidden_states = lens.restore_norm(
 - Use signed scores, not energy shares, for steering.
 - Treat component labels as hypotheses supported by examples, not built-in
   meanings or class labels.
-- Establish the sign with independent probes; never infer it from the label.
+- Read the stored dominant sign, then confirm the concept-specific direction
+  with independent probes; never infer it from the label.
 - Match the model revision, layer, activation site, and preprocessing recorded
   by the fitted Lens.
 - Calibrate moderate targets and compare against a deterministic baseline.

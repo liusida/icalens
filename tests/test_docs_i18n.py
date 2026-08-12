@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REVIEWED_TRANSLATIONS = (
     "getting-started.md",
     "text-and-chat.md",
+    "component-profiles.md",
     "scores-and-energy.md",
     "steering.md",
     "reconstruction.md",

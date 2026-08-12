@@ -39,12 +39,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--logit-lens-batch-size", type=int, default=64)
     parser.add_argument("--no-progress", action="store_true")
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help=(
+            "Destination artifact directory. By default, a local --lens directory "
+            "is updated in place; Hub sources require this option."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
+    output = _resolve_output(args.lens, args.output)
     lens = ICALens.from_pretrained(args.lens)
     input_type = (
         "chat" if lens.model_type == "instruct" else "text"
@@ -87,15 +95,27 @@ def main(argv: Sequence[str] | None = None) -> None:
             device=args.device,
             progress=not args.no_progress,
         )
-        if (args.output.expanduser() / "icalens.json").is_file():
-            output = lens.checkpoint_component_profile(args.output, layer=layer)
+        if (output / "icalens.json").is_file():
+            saved_to = lens.checkpoint_component_profile(output, layer=layer)
         else:
-            output = lens.save(args.output)
+            saved_to = lens.save(output)
         print(
             f"Profiled layer {layer}: {len(profile['components'])} components from "
             f"{profile['n_tokens']} tokens."
         )
-        print(f"Checkpointed profiled lens to {output}")
+        print(f"Checkpointed profiled lens to {saved_to}")
+
+
+def _resolve_output(lens_source: str, requested: Path | None) -> Path:
+    if requested is not None:
+        return requested.expanduser().resolve()
+    local_source = Path(lens_source).expanduser()
+    if local_source.is_dir():
+        return local_source.resolve()
+    raise ValueError(
+        "--output is required when --lens is a Hugging Face repository; "
+        "local lens directories are profiled in place by default"
+    )
 
 
 def _dataset_inputs(

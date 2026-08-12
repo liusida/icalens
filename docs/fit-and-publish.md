@@ -1,7 +1,17 @@
 # Fit and publish
 
-ICA Lens includes installed commands for fitting from text or conversations and
-publishing the resulting artifact. These commands are available after:
+Producing a complete ICA Lens follows one workflow:
+
+**Fit → Profile every fitted layer → Publish**
+
+| Stage | Result |
+| --- | --- |
+| **Fit** | Component directions and fitted transforms for the requested layers |
+| **Profile** | Sign statistics, representative occurrences, and logit-lens tokens for every fitted layer |
+| **Publish** | One self-contained ICA Lens artifact in a Hugging Face Model repository |
+
+ICA Lens provides installed commands for all three stages. They are available
+after:
 
 ```bash
 pip install icalens
@@ -9,7 +19,9 @@ pip install icalens
 
 A CUDA GPU is currently required by the end-to-end fitting commands.
 
-## Fit from text
+## 1. Fit component directions
+
+### Quick text fit
 
 Start with a small run that checks the complete fitting pipeline:
 
@@ -46,7 +58,9 @@ In this concrete setting:
 - `--output icalens-output/quick-test` saves the manifest and fitted layer in
   that directory.
 
-For a substantive GPT-2 lens, increase the fitting budget and iteration count:
+### Full text fit
+
+For a substantive GPT-2 lens, increase the fitting budget and fit every layer:
 
 ```bash
 icalens fit text \
@@ -68,7 +82,7 @@ activations, fit the requested layers, and checkpoint each completed layer.
 Use `--token-budget all` to fit from every usable token in the selected dataset.
 The command reports the resolved token count after tokenization.
 
-## Fit from conversations
+### Fit from conversations
 
 Fit an instruction-tuned Qwen3.5 lens from UltraChat conversations:
 
@@ -94,7 +108,7 @@ including role markers and template tokens. The other scopes are `content`,
 `user`, and `assistant`. A narrower scope changes which activation rows are
 sampled, while the complete rendered conversation remains the model context.
 
-## Important controls
+### Fitting controls
 
 | Option | Purpose |
 | --- | --- |
@@ -118,7 +132,7 @@ a tolerance criterion. Full-width ICA also requires at least
 `hidden_size + 1` sampled activations because centering removes one degree of
 rank.
 
-## Memory behavior
+### Memory behavior
 
 Captured activations are held in CPU memory, while fitting processes bounded
 batches on the GPU. The two main controls address different resources:
@@ -131,7 +145,7 @@ The model forward pass stops after the deepest layer needed by the current
 capture group. Each fitted layer is saved immediately, including its objective
 history, so earlier layers remain usable if a later layer is interrupted.
 
-## Fit existing activations
+### Fit existing activations
 
 Use the Python API when you already have an activation tensor. Its final
 dimension must equal the model hidden size; leading dimensions are treated as
@@ -174,25 +188,12 @@ print(f"Saved layer {lens.available_layers} to {output}")
 Calling `fit()` again adds or replaces a layer in the same lens. Pass
 `n_components` to fit fewer components than the hidden size.
 
-## What is saved
+## 2. Profile every fitted layer
 
-An ICA Lens artifact records the information required to interpret and reuse
-the transformation:
-
-- analyzed model ID, type, and exact revision;
-- activation site and layer-index convention;
-- L2 preprocessing and fitted center;
-- reading and writing matrices;
-- FastICA configuration, objective history, and component ordering;
-- available layers and component counts; and
-- dataset and sampling provenance supplied during fitting.
-
-The artifact does not contain the analyzed language-model weights.
-
-## Profile components after fitting
-
-Profiling enriches an existing lens without rerunning FastICA. It streams an
-annotation dataset through the model and records, for every component:
+Fitting determines the directions; profiling gives each direction the evidence
+needed for interpretation. Profile every fitted layer against a representative
+corpus before publishing. Profiling does not rerun FastICA or change the fitted
+center or matrices. For every component, it records:
 
 - positive and negative token-position frequencies;
 - the fraction of squared score energy on each sign and the resulting dominant sign;
@@ -200,7 +201,8 @@ annotation dataset through the model and records, for every component:
 - top and bottom vocabulary tokens obtained by passing both writing-vector directions
   through the model's final norm and unembedding.
 
-For example, profile layer 5 of a fitted chat lens:
+The standard CLI workflow streams the profiling dataset from Hugging Face and
+updates the existing Lens directory in place:
 
 ```bash
 icalens profile \
@@ -211,17 +213,69 @@ icalens profile \
   --token-scope all \
   --max-tokens 100000 \
   --top-k-examples 20 \
-  --min-energy 0.05 \
-  --output icalens-output/icalens-qwen3.5-2b-profiled
+  --min-energy 0.05
 ```
 
-Each completed layer is checkpointed to the output directory. The profiling
-dataset and exact revision are recorded separately from fitting
-provenance. Profiles are optional compressed JSON files under `component_profiles/`; the fitted
-center and matrices are unchanged. Consequently, an already published or local
-lens can be profiled later without refitting it.
+`--max-tokens` is the profiling budget for each layer. Every completed profile
+is checkpointed immediately under the Lens's `component_profiles/` directory,
+so no second output path is needed and completed layers survive an interruption.
+The profiling dataset and its exact revision are recorded separately from the
+fitting provenance.
 
-Inspect a stored component profile with:
+### Profile a Lens fitted from your own activations
+
+If you prepare the fitting activations yourself, retain a replayable stream of
+the source texts or completed conversations. An anonymous activation tensor is
+enough to fit directions, but it cannot provide token occurrences or context.
+The profiling corpus need not contain the exact fitting tokens, but it should
+represent the same domain. To profile the fitting distribution itself, retain
+the original records together with the token scope, context length, sampling
+seed, sampling policy, and dataset revision used during capture.
+
+The Python method that creates a profile is `profile_components()` (plural).
+It accepts raw text for a base model or message lists for an instruct model:
+
+```python
+from icalens import ICALens
+
+lens_path = "icalens-output/my-icalens"
+lens = ICALens.from_pretrained(lens_path)
+
+# Replayable source inputs retained alongside the fitting activations.
+profiling_inputs = ["First document...", "Second document..."]
+
+for layer in lens.available_layers:
+    lens.profile_components(
+        profiling_inputs,
+        layer=layer,
+        max_tokens=100000,
+        top_k_examples=20,
+        min_energy=0.05,
+        device="auto",
+        progress=True,
+    )
+
+lens.save(lens_path)
+```
+
+For an instruct model, each item in `profiling_inputs` is a completed
+conversation such as:
+
+```python
+[
+    {"role": "user", "content": "Explain the result."},
+    {"role": "assistant", "content": "The result shows..."},
+]
+```
+
+Keep raw source records rather than decoded tokens when possible. ICA Lens
+applies the recorded tokenizer and, for conversations, the model's chat
+template. Call `save()` after the profiles have been attached to the Lens.
+
+### Inspect a stored profile
+
+The separate `component_profile()` method **reads** one stored component
+profile:
 
 ```python
 profile = lens.component_profile(layer=5, component=188)
@@ -234,10 +288,29 @@ The logit-lens entries are diagnostic associations: at an intermediate layer,
 they skip the remaining transformer blocks and therefore are not exact causal
 predictions of generated tokens.
 
-## Authenticate with Hugging Face
+### Complete artifact contents
 
-ICA Lens artifacts belong in a Hugging Face **Model** repository. Authenticate
-with a write-enabled token using the standard Hugging Face CLI:
+After fitting and profiling, the artifact contains:
+
+- analyzed model ID, type, and exact revision;
+- activation site and layer-index convention;
+- L2 preprocessing and fitted center;
+- reading and writing matrices;
+- FastICA configuration, objective history, and component ordering;
+- component sign statistics, representative high-energy occurrences, and
+  logit-lens tokens for every profiled layer;
+- available layers and component counts; and
+- separate fitting and profiling provenance.
+
+The artifact does not contain the analyzed language-model weights.
+
+## 3. Publish
+
+ICA Lens artifacts belong in a Hugging Face **Model** repository.
+
+### Authenticate with Hugging Face
+
+Authenticate with a write-enabled token using the standard Hugging Face CLI:
 
 ```bash
 hf auth login
@@ -252,14 +325,14 @@ HF_TOKEN=hf_...
 
 Do not commit this file or token.
 
-## Publish and verify
+### Upload and verify
 
 Publish a saved artifact:
 
 ```bash
 icalens publish \
-  --lens icalens-output/icalens-gpt2-small \
-  username/icalens-gpt2-small
+  --lens icalens-output/icalens-qwen3.5-2b-ultrachat-1m \
+  username/icalens-qwen3.5-2b-ultrachat-1m
 ```
 
 Add `--private` to create a private repository. The command uploads the
@@ -269,7 +342,7 @@ and available layers match the local lens.
 The Python equivalent is:
 
 ```python
-lens.push_to_hub("username/icalens-gpt2-small")
+lens.push_to_hub("username/icalens-qwen3.5-2b-ultrachat-1m")
 ```
 
 After publication, load it from any environment with:
@@ -277,5 +350,5 @@ After publication, load it from any environment with:
 ```python
 from icalens import ICALens
 
-lens = ICALens.from_pretrained("username/icalens-gpt2-small")
+lens = ICALens.from_pretrained("username/icalens-qwen3.5-2b-ultrachat-1m")
 ```

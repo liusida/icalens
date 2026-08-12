@@ -49,8 +49,25 @@ analysis.
   token.
 - Select a component to highlight it across all displayed tokens.
 
-The metric and number of displayed components can be changed directly in the
-result.
+### Read a component profile
+
+When a selected component has a profile, expand **Component profile** below the
+token cards.
+
+![ICA Lens profile for a selected component](assets/text-analysis-profile.png){ loading=lazy }
+
+- **Sign distribution** shows whether the component's energy usually appears
+  on its positive or negative side. Read the two sides as distinct directions.
+- **High-energy occurrences** shows representative places where that side was
+  especially strong. Read the highlighted token together with its surrounding
+  text to infer a possible meaning.
+- **Logit-lens tokens** shows vocabulary tokens promoted by the component's
+  writing direction. Treat these as supporting clues, not as a definitive
+  label or a prediction of generated text.
+
+The controls above the token cards change the metric and the number of
+components shown. Start with the occurrences, check whether their contexts are
+consistent, and then use the logit-lens tokens as a second source of evidence.
 
 ## Analyze another input
 

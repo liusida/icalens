@@ -246,7 +246,21 @@ profile = lens.profile_components(
 | **Returns** | `dict` | Complete per-layer component profile, also attached to the lens |
 
 This is a post-fit operation: it does not alter the fitted center, reading
-matrix, or writing matrix. Call `save()` afterward to persist the profile.
+matrix, or writing matrix. The returned layer profile contains `n_tokens`,
+`n_inputs`, profiling `selection` and `provenance`, and a `components` list.
+Each component entry contains:
+
+| Field | Contents |
+| --- | --- |
+| `component` | Component ID |
+| `dominant_sign` | Side with the larger profile-wide squared-score energy fraction |
+| `sign_statistics` | Positive/negative position fractions and positive/negative energy fractions |
+| `examples` | Retained positive and negative high-energy occurrences and token counts |
+| `logit_lens` | Vocabulary associations for the positive, negative, and dominant writing directions |
+
+Call `save()` afterward to persist all attached profiles. When processing many
+layers, use `checkpoint_component_profile()` after each layer so completed
+profiles survive an interruption.
 
 ### `component_profile(...)`
 
@@ -261,6 +275,40 @@ component = lens.component_profile(layer=5, component=188)
 | **Returns** | `dict` | Sign statistics, examples, and logit-lens entries for the component |
 
 Profiles are loaded lazily when reading a local or Hugging Face artifact.
+
+The returned component dictionary has the same `dominant_sign`,
+`sign_statistics`, `examples`, and `logit_lens` fields described above. Its
+four sign statistics are:
+
+| Field | Meaning |
+| --- | --- |
+| `positive_fraction` | Fraction of nonzero profiled positions with a positive score |
+| `negative_fraction` | Fraction of nonzero profiled positions with a negative score |
+| `positive_energy_fraction` | Fraction of this component's corpus-wide squared score magnitude on the positive side |
+| `negative_energy_fraction` | Fraction of this component's corpus-wide squared score magnitude on the negative side |
+
+### `checkpoint_component_profile(...)`
+
+Persist one completed in-memory layer profile immediately:
+
+```python
+path = lens.checkpoint_component_profile(
+    "icalens-output/my-icalens",
+    layer=5,
+)
+```
+
+| Argument | Type / default | Meaning |
+| --- | --- | --- |
+| `path` | `str \| Path`, required | Existing local ICA Lens artifact directory |
+| `layer` | `int`, required | Layer whose newly created profile should be written |
+| **Returns** | `Path` | Resolved artifact directory |
+
+The layer must already have an in-memory profile created by
+`profile_components()`. This method writes the compressed profile under
+`component_profiles/` and updates the manifest without rewriting unrelated
+layer tensors. The `icalens profile` CLI uses it to checkpoint every completed
+layer. For an ordinary one-shot Python workflow, calling `save()` is sufficient.
 
 ## Transform activation tensors
 
@@ -476,12 +524,17 @@ or pass `token=` explicitly.
 | `input_text` | Readable input representation |
 | `token_scope` | Positions selected from the encoded input |
 | `messages` | Original conversation messages, or an empty tuple for text |
+| `component_profiles` | Compact per-component profile summaries for the analyzed layer, or `None` when that layer has no profile |
 
 In Jupyter or Colab, leave `result` as the final expression to render it:
 
 ```python
 result
 ```
+
+`component_profiles` supplies the interactive result with sign statistics,
+high-energy occurrences, and promoted logit-lens tokens. Full stored profiles
+remain available through `lens.component_profile(...)`.
 
 ### `AnalysisResult.display(...)`
 

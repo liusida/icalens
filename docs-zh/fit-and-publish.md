@@ -1,7 +1,16 @@
 # 拟合与发布
 
-ICA Lens 安装后提供了命令行工具，可以从文本或对话拟合 Lens，并发布生成的产物。
-安装命令如下：
+制作一个完整的 ICA Lens 遵循同一套流程：
+
+**拟合 → 为每个已拟合层建立画像 → 发布**
+
+| 阶段 | 产出 |
+| --- | --- |
+| **拟合** | 指定层的成分方向与拟合变换 |
+| **画像** | 每个已拟合层的符号统计、代表性样例和 Logit Lens token |
+| **发布** | Hugging Face Model 仓库中的完整 ICA Lens 产物 |
+
+ICA Lens 为三个阶段都提供了命令行工具。安装命令如下：
 
 ```bash
 pip install icalens
@@ -9,7 +18,9 @@ pip install icalens
 
 目前，端到端拟合命令需要 CUDA GPU。
 
-## 从文本拟合
+## 1. 拟合成分方向
+
+### 快速测试文本拟合
 
 可以先运行一个小规模示例，检查完整的拟合流程：
 
@@ -43,7 +54,9 @@ icalens fit text \
   完成整个示例约需 10 秒。
 - `--output icalens-output/quick-test` 将 manifest 和拟合层保存到该目录。
 
-要拟合一个更具实用性的 GPT-2 Lens，可以增加 token budget 和迭代次数：
+### 完整文本拟合
+
+要拟合一个更具实用性的 GPT-2 Lens，可以增加 token budget 并拟合全部层：
 
 ```bash
 icalens fit text \
@@ -65,7 +78,7 @@ checkpoint。
 使用 `--token-budget all` 可以利用所选数据集中的全部可用 token 进行拟合。tokenize
 完成后，命令会输出最终解析得到的 token 数量。
 
-## 从对话拟合
+### 从对话拟合
 
 使用 UltraChat 对话为指令微调的 Qwen3.5 拟合 Lens：
 
@@ -89,7 +102,7 @@ icalens fit chat \
 范围是 `content`、`user` 和 `assistant`。选择更窄的范围只会改变被采样的激活行；
 渲染后的完整对话仍然是模型使用的上下文。
 
-## 重要参数
+### 拟合参数
 
 | 参数 | 作用 |
 | --- | --- |
@@ -111,7 +124,7 @@ icalens fit chat \
 FastICA 会执行指定的固定迭代次数，不会根据 tolerance 提前停止。由于中心化会损失一个
 秩，满宽 ICA 还要求至少有 `hidden_size + 1` 个采样激活。
 
-## 内存行为
+### 内存行为
 
 捕获的激活保存在 CPU 内存中，拟合时则在 GPU 上分批处理。两个主要参数分别控制不同
 的资源：
@@ -123,7 +136,7 @@ FastICA 会执行指定的固定迭代次数，不会根据 tolerance 提前停�
 模型前向传播会在当前捕获组所需的最深层结束。每一层拟合完成后都会立即保存，包括其
 目标函数历史。因此，即使后续层的处理被中断，之前完成的层仍然可以使用。
 
-## 拟合已有激活
+### 拟合已有激活
 
 如果已经有激活张量，可以使用 Python API。张量最后一维必须等于模型隐藏维度；所有
 前导维度都视为样本维度。下面的完整示例使用符合 GPT-2 隐藏宽度的合成激活，因此可以
@@ -164,25 +177,18 @@ print(f"Saved layer {lens.available_layers} to {output}")
 再次调用 `fit()` 会在同一个 Lens 中添加或替换一层。传入 `n_components` 可以拟合少于
 隐藏维度的成分。
 
-## 保存了什么
+## 2. 为每个已拟合层建立画像
 
-ICA Lens 产物会记录解释和复用该变换所需的信息：
+拟合确定方向，画像则为每个方向提供解释所需的证据。发布前，应使用具有代表性的语料
+为每个已拟合层建立画像。画像过程不会重新运行 FastICA，也不会改变拟合中心或矩阵。
+它会为每个成分记录：
 
-- 待分析模型的 ID、类型和精确 revision；
-- 激活位置和层编号约定；
-- L2 预处理和拟合中心；
-- 读取矩阵与写入矩阵；
-- FastICA 配置、目标函数历史和成分排序；
-- 可用层和各层成分数量；
-- 拟合时提供的数据集与采样来源信息。
+- 正负 token 位置所占比例；
+- 平方分数能量在正负两侧的比例，以及由此得到的主导符号；
+- 高能量 token 的文本、计数、分数、位置和短上下文；
+- 写入方向经过最终归一化层和反嵌入后得到的高低排名词元。
 
-产物不包含待分析语言模型的权重。
-
-## 拟合后为成分建立画像
-
-成分画像不会重新运行 FastICA。它将标注数据集以流式方式送入模型，并为每个成分
-记录正负分数比例、两侧的平方分数能量比例与主导符号、高能量 token 样例及计数，
-以及写入方向经过最终归一化层和反嵌入后的高低排名词元。
+标准 CLI 会从 Hugging Face 流式读取画像数据，并直接更新现有 Lens 目录：
 
 ```bash
 icalens profile \
@@ -193,14 +199,63 @@ icalens profile \
   --token-scope all \
   --max-tokens 100000 \
   --top-k-examples 20 \
-  --min-energy 0.05 \
-  --output icalens-output/icalens-qwen3.5-2b-profiled
+  --min-energy 0.05
 ```
 
-每完成一层都会写入输出目录。画像数据集及其精确 revision 与拟合来源分开记录。
-画像以可选的压缩 JSON 文件保存在
-`component_profiles/` 下，不会改变已经拟合的中心、读取矩阵或写入矩阵。因此，已有
-的本地或已发布 Lens 可以在之后补充画像，无须重新拟合。
+`--max-tokens` 是每一层的画像 token 预算。每完成一层，其画像都会立即写入 Lens 的
+`component_profiles/` 目录，因此不需要指定第二个输出路径；即使任务中断，已完成层
+也会保留下来。画像数据集及其精确 revision 与拟合来源分开记录。
+
+### 为使用自备激活拟合的 Lens 建立画像
+
+如果拟合激活由你自行准备，请同时保留一份可以重新遍历的原始文本或完整对话。匿名
+激活张量足以拟合方向，却无法提供 token 样例及其上下文。画像语料不必包含与拟合张量
+完全相同的 token，但应代表相同的数据分布。如果希望画像反映拟合分布本身，则应保留
+原始数据记录，以及捕获时使用的 token 范围、上下文长度、采样随机种子、采样策略和
+数据集 revision。
+
+用于创建画像的 Python 方法是复数形式的 `profile_components()`。Base 模型传入原始
+文本，Instruct 模型传入消息列表：
+
+```python
+from icalens import ICALens
+
+lens_path = "icalens-output/my-icalens"
+lens = ICALens.from_pretrained(lens_path)
+
+# Replayable source inputs retained alongside the fitting activations.
+profiling_inputs = ["First document...", "Second document..."]
+
+for layer in lens.available_layers:
+    lens.profile_components(
+        profiling_inputs,
+        layer=layer,
+        max_tokens=100000,
+        top_k_examples=20,
+        min_energy=0.05,
+        device="auto",
+        progress=True,
+    )
+
+lens.save(lens_path)
+```
+
+对于 Instruct 模型，`profiling_inputs` 中的每一项都是一段完整对话，例如：
+
+```python
+[
+    {"role": "user", "content": "Explain the result."},
+    {"role": "assistant", "content": "The result shows..."},
+]
+```
+
+条件允许时，应保留原始数据记录，而不是只保留解码后的 token。ICA Lens 会应用记录的
+tokenizer；对于对话，还会应用模型的 chat template。画像全部附加到 Lens 后，再调用
+`save()` 保存。
+
+### 查看已保存的画像
+
+另一个单数形式的方法 `component_profile()` 用于**读取**某个已经保存的成分画像：
 
 ```python
 profile = lens.component_profile(layer=5, component=188)
@@ -212,10 +267,28 @@ print(profile["logit_lens"]["dominant"]["top_tokens"])
 Logit Lens 结果只是诊断性关联：对于中间层，它跳过了后续 Transformer 块，不能视为
 对生成 token 的精确因果预测。
 
-## 使用 Hugging Face 身份认证
+### 完整产物包含什么
 
-ICA Lens 产物应存放在 Hugging Face **Model** 仓库中。使用标准 Hugging Face CLI 和
-具有写权限的 token 登录：
+完成拟合和画像后，产物包含：
+
+- 待分析模型的 ID、类型和精确 revision；
+- 激活位置和层编号约定；
+- L2 预处理和拟合中心；
+- 读取矩阵与写入矩阵；
+- FastICA 配置、目标函数历史和成分排序；
+- 每个已画像层的符号统计、代表性高能量样例和 Logit Lens token；
+- 可用层和各层成分数量；
+- 相互独立的拟合来源与画像来源信息。
+
+产物不包含待分析语言模型的权重。
+
+## 3. 发布
+
+ICA Lens 产物应存放在 Hugging Face **Model** 仓库中。
+
+### 使用 Hugging Face 身份认证
+
+使用标准 Hugging Face CLI 和具有写权限的 token 登录：
 
 ```bash
 hf auth login
@@ -230,14 +303,14 @@ HF_TOKEN=hf_...
 
 不要提交该文件或 token。
 
-## 发布并验证
+### 上传并验证
 
 发布保存好的产物：
 
 ```bash
 icalens publish \
-  --lens icalens-output/icalens-gpt2-small \
-  username/icalens-gpt2-small
+  --lens icalens-output/icalens-qwen3.5-2b-ultrachat-1m \
+  username/icalens-qwen3.5-2b-ultrachat-1m
 ```
 
 添加 `--private` 可以创建私有仓库。命令会上传产物，重新下载其 manifest，并验证远端
@@ -246,7 +319,7 @@ icalens publish \
 对应的 Python 写法是：
 
 ```python
-lens.push_to_hub("username/icalens-gpt2-small")
+lens.push_to_hub("username/icalens-qwen3.5-2b-ultrachat-1m")
 ```
 
 发布后，可以在任意环境中这样加载：
@@ -254,5 +327,5 @@ lens.push_to_hub("username/icalens-gpt2-small")
 ```python
 from icalens import ICALens
 
-lens = ICALens.from_pretrained("username/icalens-gpt2-small")
+lens = ICALens.from_pretrained("username/icalens-qwen3.5-2b-ultrachat-1m")
 ```

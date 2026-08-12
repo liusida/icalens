@@ -51,6 +51,22 @@ def test_dispatches_profile(monkeypatch: pytest.MonkeyPatch) -> None:
     assert received == ["--lens", "artifact", "--layer", "6"]
 
 
+def test_profile_defaults_to_updating_local_lens(tmp_path) -> None:
+    from icalens.cli.profile import _resolve_output
+
+    artifact = tmp_path / "lens"
+    artifact.mkdir()
+
+    assert _resolve_output(str(artifact), None) == artifact.resolve()
+
+
+def test_profile_hub_source_requires_output() -> None:
+    from icalens.cli.profile import _resolve_output
+
+    with pytest.raises(ValueError, match="--output is required"):
+        _resolve_output("owner/lens", None)
+
+
 def test_unknown_command_is_clear() -> None:
     with pytest.raises(SystemExit, match="unknown command"):
         cli.main(["unknown"])

@@ -32,6 +32,7 @@ result
 - 为基础模型或指令模型的激活拟合 ICA Lens。
 - 在任意已拟合层分析纯文本和多轮对话。
 - 交互式查看带符号的成分分数和逐 token 能量占比。
+- 用高能量样例和 Logit Lens token 辅助标注成分。
 - 通过本地目录或 Hugging Face Hub 保存、加载和分享 Lens。
 - 在控制 GPU 和 CPU 内存占用的同时，扩展到大型 token 集合。
 

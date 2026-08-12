@@ -83,6 +83,43 @@ print(energy.sum(dim=-1))    # approximately 1 for each nonzero row
 
 如果分数向量全部为零，ICA Lens 会返回全零的能量向量，而不会进行除零运算。
 
+## 画像范围内的带符号能量
+
+逐 token 能量回答的是“哪些成分主导了这个 token？”；成分画像回答的是另一个问题：
+“在整个画像语料中，这个成分的分数平方主要集中在哪个符号方向？”
+
+对于成分 (j)，以 (i) 表示 token 位置，画像会记录：
+
+\[
+E_j^+ =
+\frac{\sum_i s_{ij}^2\,\mathbf{1}[s_{ij} > 0]}
+     {\sum_i s_{ij}^2},
+\qquad
+E_j^- =
+\frac{\sum_i s_{ij}^2\,\mathbf{1}[s_{ij} < 0]}
+     {\sum_i s_{ij}^2}
+\]
+
+只要该成分存在非零分数，就有 (E_j^+ + E_j^- = 1)。ICA Lens 将能量比例较大的
+一侧称为该成分的**主导符号**。例如，负侧能量为 68%，表示在整个画像语料中，该成分
+分数平方总量的 68% 出现在分数为负的 token 位置上。
+
+这与正负两侧各自包含多少 token 位置并不相同。某个成分可能在大多数位置上为正，
+但少数负分数的绝对值更大，因此总体上仍由负侧能量主导。结果界面会把能量放在主要
+位置，同时保留位置比例作为辅助信息。
+
+```python
+profile = lens.component_profile(layer=6, component=37)
+statistics = profile["sign_statistics"]
+
+print(statistics["positive_energy_fraction"])
+print(statistics["negative_energy_fraction"])
+print(profile["dominant_sign"])
+```
+
+主导符号描述的是这个已拟合成分在所记录画像语料上的表现，并不表示语义上的正面或
+负面判断。将 ICA 成分整体翻转符号，或更换画像数据分布，都可能改变这里显示的方向。
+
 ## 使用分数还是能量？
 
 | 问题 | 使用 |
@@ -91,6 +128,7 @@ print(energy.sum(dim=-1))    # approximately 1 for each nonzero row
 | 一个带符号的成分激活有多大？ | 分数 |
 | 哪些成分主导了这个 token 的分数向量？ | 能量 |
 | 某个成分占分数平方总量的多少？ | 能量 |
+| 在整个画像语料中，成分的哪个符号方向占主导？ | 画像范围内的带符号能量 |
 | 是否需要重构或修改激活？ | 分数 |
 
 交互式结果默认显示分数。如果更关心同一个 token 内各成分的相对集中程度，可以选择

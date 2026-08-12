@@ -34,6 +34,7 @@ In Jupyter or Colab, `result` displays the interactive explorer inline. Use
 - Fit ICA lenses on activations from base or instruction-tuned language models.
 - Analyze raw text and multi-turn conversations at any fitted layer.
 - Inspect signed component scores and per-token energy shares interactively.
+- Label components using high-energy examples and logit-lens tokens.
 - Save, load, and share lenses through local folders or Hugging Face Hub.
 - Scale fitting to large token collections with bounded GPU and CPU memory.
 

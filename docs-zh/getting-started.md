@@ -44,7 +44,21 @@ result
 - **Energy** 显示该成分在当前 token 分数平方和中所占的比例。
 - 点击一个成分，即可在所有显示的 token 上高亮该成分。
 
-可以直接在结果界面中切换指标，并调整每个 token 显示的成分数量。
+### 查看成分画像
+
+如果所选成分带有画像，可以展开 token 卡片下方的 **Component profile**。
+
+![所选 ICA 成分的画像](assets/text-analysis-profile.png){ loading=lazy }
+
+- **Sign distribution** 显示该成分的能量通常集中在正侧还是负侧。正负两侧应被理解为
+  两个不同的方向。
+- **High-energy occurrences** 给出该方向特别强的代表性位置。结合高亮 token 及其上下文，
+  可以推测成分可能表达的含义。
+- **Logit-lens tokens** 显示该成分写入方向会提升的词表 token。这些 token 只是辅助
+  线索，不能当作确定标签，也不是对模型生成结果的预测。
+
+token 卡片上方的控件可以切换指标并调整显示的成分数量。阅读时可以先看高能量样例，
+检查不同上下文是否表达一致，再用 Logit Lens token 作为第二类证据。
 
 ## 分析另一个输入
 

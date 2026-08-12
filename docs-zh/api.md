@@ -166,7 +166,19 @@ profile = lens.profile_components(
 | `progress` | `bool = False` | 是否显示进度 |
 | **返回** | `dict` | 完整逐层画像，同时附加到当前 Lens |
 
-这是拟合后的操作，不会修改中心、读取矩阵或写入矩阵。之后调用 `save()` 即可持久化。
+这是拟合后的操作，不会修改中心、读取矩阵或写入矩阵。返回的逐层画像包含 `n_tokens`、
+`n_inputs`、画像 `selection`、`provenance` 和 `components` 列表。每个成分条目包含：
+
+| 字段 | 内容 |
+| --- | --- |
+| `component` | 成分编号 |
+| `dominant_sign` | 在画像范围内具有较大分数平方能量比例的一侧 |
+| `sign_statistics` | 正负位置比例和正负能量比例 |
+| `examples` | 正负两侧保留的高能量样例和 token 计数 |
+| `logit_lens` | 正向、负向及主导写入方向对应的词表关联 |
+
+之后调用 `save()` 可以持久化所有已附加画像。处理多个层时，应在每层完成后调用
+`checkpoint_component_profile()`，使已经完成的画像在任务中断后仍能保留。
 
 ### `component_profile(...)`
 
@@ -181,6 +193,37 @@ component = lens.component_profile(layer=5, component=188)
 | **返回** | `dict` | 该成分的符号统计、样例和 Logit Lens 条目 |
 
 从本地或 Hugging Face 载入产物时，画像文件会按需延迟加载。
+
+返回的成分字典包含上文所述的 `dominant_sign`、`sign_statistics`、`examples` 和
+`logit_lens`。四项符号统计的含义如下：
+
+| 字段 | 含义 |
+| --- | --- |
+| `positive_fraction` | 非零画像位置中分数为正的比例 |
+| `negative_fraction` | 非零画像位置中分数为负的比例 |
+| `positive_energy_fraction` | 该成分在整个画像语料上的分数平方总量中位于正侧的比例 |
+| `negative_energy_fraction` | 该成分在整个画像语料上的分数平方总量中位于负侧的比例 |
+
+### `checkpoint_component_profile(...)`
+
+立即保存某个已经在内存中完成的逐层画像：
+
+```python
+path = lens.checkpoint_component_profile(
+    "icalens-output/my-icalens",
+    layer=5,
+)
+```
+
+| 参数 | 类型／默认值 | 含义 |
+| --- | --- | --- |
+| `path` | `str \| Path`，必填 | 已存在的本地 ICA Lens 产物目录 |
+| `layer` | `int`，必填 | 要写入新画像的层 |
+| **返回** | `Path` | 解析后的产物目录 |
+
+该层必须已经通过 `profile_components()` 创建了内存画像。此方法会将压缩画像写入
+`component_profiles/` 并更新 manifest，而不会重写无关层的张量。`icalens profile`
+CLI 使用它逐层保存 checkpoint。普通的一次性 Python 流程调用 `save()` 即可。
 
 ## 变换激活张量
 
@@ -318,13 +361,17 @@ url = lens.push_to_hub(
 ### `AnalysisResult`
 
 `AnalysisResult` 还包含 `scores`、`energy`、`model`、`layer`、`input_text`、
-`token_scope` 和 `messages`。
+`token_scope`、`messages` 和 `component_profiles`。其中 `component_profiles` 是当前
+分析层的精简逐成分画像；该层没有画像时为 `None`。
 
 在 Jupyter 或 Colab 中，将 `result` 作为单元格最后一个表达式即可显示结果：
 
 ```python
 result
 ```
+
+`component_profiles` 为交互式结果提供符号统计、高能量样例和提升的 Logit Lens token。
+完整画像仍可通过 `lens.component_profile(...)` 读取。
 
 ### `AnalysisResult.display(...)`
 
