@@ -249,6 +249,9 @@ def _document(payload: str) -> str:
     .profile-stat-row strong:last-child {{ text-align: right; }}
     .profile-bar {{ display: flex; height: 9px; overflow: hidden; border-radius: 999px;
       background: #e6e9ef; }}
+    .profile-stat-primary {{ margin-bottom: 10px; color: #273244; font-size: 12px; }}
+    .profile-stat-primary .profile-bar {{ height: 14px; }}
+    .profile-stat-secondary {{ opacity: .65; }}
     .profile-bar-positive {{ background: #f59e0b; }}
     .profile-bar-negative {{ flex: 1; background: #1e3a8a; }}
     .profile-list {{ margin: 0; padding-left: 20px; }}
@@ -504,8 +507,8 @@ def _document(payload: str) -> str:
       const energyNegative = percentage(stats.negative_energy_fraction);
       body.innerHTML = `
         <section class="profile-section"><h3>Sign distribution</h3>
-          <div class="profile-stat-row"><strong>Positions</strong><span>+${{positionPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{positionPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{positionNegative}}</span></div>
-          <div class="profile-stat-row"><strong>Energy</strong><span>+${{energyPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{energyPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{energyNegative}}</span></div>
+          <div class="profile-stat-row profile-stat-primary"><strong>Energy</strong><span>+${{energyPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{energyPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{energyNegative}}</span></div>
+          <div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+${{positionPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{positionPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{positionNegative}}</span></div>
         </section>
         <section class="profile-section"><h3>Logit-lens tokens · ${{profile.dominant_sign}}</h3><div class="profile-chips">${{tokenItems(profile.logit_tokens)}}</div></section>
         <section class="profile-section profile-wide"><h3>High-energy occurrences · ${{profile.dominant_sign}}</h3><ol class="profile-list profile-occurrences">${{occurrenceItems}}</ol></section>`;

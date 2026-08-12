@@ -170,7 +170,7 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert "High-energy occurrences · ${profile.dominant_sign}" in html
     assert "Logit-lens tokens · ${profile.dominant_sign}" in html
     assert "Suppressed logit-lens tokens" not in html
-    assert 'class="profile-stat-row"' in html
+    assert 'class="profile-stat-row profile-stat-primary"' in html
     assert 'class="profile-chips"' in html
     assert "columns: 3 360px" in html
     assert 'class="profile-list profile-occurrences"' in html
@@ -180,6 +180,9 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert "background: #1e3a8a" in html
     assert 'lines.push(`#${index + 1} ${JSON.stringify(item.text)}`)' in html
     assert '<span class="profile-value">#${index + 1}</span>' in html
+    assert 'profile-stat-row profile-stat-primary"><strong>Energy</strong>' in html
+    assert 'profile-stat-row profile-stat-secondary"><strong>Positions</strong>' in html
+    assert ".profile-stat-primary .profile-bar { height: 14px; }" in html
     assert "profilePanel.hidden = true" in html
     assert "panel.hidden = false" in html
     assert 'class="profile-target"' in html
