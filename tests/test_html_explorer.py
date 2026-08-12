@@ -187,6 +187,9 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert 'title="Component energy"' in html
     assert '<span class="profile-metric-icon">↕</span>' in html
     assert '<span class="profile-metric-icon">⚡</span>' in html
+    assert 'class="profile-occurrence-token"' in html
+    assert 'class="profile-occurrence-metrics"' in html
+    assert "font-size: 9px" in html
     assert "profilePanel.hidden = true" in html
     assert "panel.hidden = false" in html
     assert 'class="profile-target"' in html
