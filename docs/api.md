@@ -238,6 +238,7 @@ profile = lens.profile_components(
 | `top_k_examples` | `int = 20` | Highest-energy occurrences retained per component and sign |
 | `min_energy` | `float = 0.05` | Minimum per-token component energy required for an example |
 | `logit_lens_top_k` | `int = 20` | Top and bottom vocabulary entries retained for each direction |
+| `logit_lens_batch_size` | `int = 64` | Writing directions unembedded together; lower this to reduce peak memory |
 | `provenance` | `dict \| None = None` | JSON-compatible profiling provenance |
 | `context_length` | `int \| None = 1024` | Maximum encoded length of each input |
 | `device` | `str \| torch.device \| None = "auto"` | Language-model device |

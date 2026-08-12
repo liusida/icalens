@@ -21,6 +21,7 @@ def profile_components(
     top_k_examples: int = 20,
     min_energy: float = 0.05,
     logit_lens_top_k: int = 20,
+    logit_lens_batch_size: int = 64,
     provenance: dict[str, Any] | None = None,
     context_length: int | None = 1024,
     device: str | torch.device | None = "auto",
@@ -29,7 +30,7 @@ def profile_components(
     """Profile fitted components without refitting their ICA transformations."""
     if max_tokens is not None and max_tokens <= 0:
         raise ValueError("max_tokens must be positive or None")
-    if top_k_examples <= 0 or logit_lens_top_k <= 0:
+    if top_k_examples <= 0 or logit_lens_top_k <= 0 or logit_lens_batch_size <= 0:
         raise ValueError("top-k values must be positive")
     if not 0 <= min_energy <= 1:
         raise ValueError("min_energy must be between 0 and 1")
@@ -112,7 +113,15 @@ def profile_components(
     if token_count == 0:
         raise ValueError("profiling inputs produced no tokens")
 
-    logit_lens = _logit_lens(lens, artifact, top_k=logit_lens_top_k)
+    if progress:
+        tqdm.write("Profiling logit-lens vocabulary associations...")
+    logit_lens = _logit_lens(
+        lens,
+        artifact,
+        top_k=logit_lens_top_k,
+        batch_size=logit_lens_batch_size,
+        progress=progress,
+    )
     components = []
     for component in range(n_components):
         sign_total = int(positive_count[component] + negative_count[component])
@@ -171,6 +180,7 @@ def profile_components(
             "top_k_examples_per_sign": top_k_examples,
             "minimum_component_energy": min_energy,
             "logit_lens_top_k": logit_lens_top_k,
+            "logit_lens_batch_size": logit_lens_batch_size,
         },
         "provenance": provenance,
         "components": components,
@@ -180,7 +190,14 @@ def profile_components(
     return profile
 
 
-def _logit_lens(lens: Any, artifact: Any, *, top_k: int) -> list[dict[str, Any]]:
+def _logit_lens(
+    lens: Any,
+    artifact: Any,
+    *,
+    top_k: int,
+    batch_size: int,
+    progress: bool,
+) -> list[dict[str, Any]]:
     model = lens._analysis_model
     tokenizer = lens._analysis_tokenizer
     if model is None or tokenizer is None:
@@ -194,21 +211,32 @@ def _logit_lens(lens: Any, artifact: Any, *, top_k: int) -> list[dict[str, Any]]
     directions = torch.as_tensor(
         artifact.writing_matrix.T, device=parameter.device, dtype=parameter.dtype
     )
-    result: list[dict[str, Any]] = []
+    result: list[dict[str, Any]] = [{} for _ in range(int(directions.shape[0]))]
     with torch.inference_mode():
-        for direction in directions:
-            entry: dict[str, Any] = {}
-            for name, signed in (("positive", direction), ("negative", -direction)):
-                normalized = final_norm(signed[None, None, :])
-                logits = output_embeddings(normalized)[0, 0].float()
-                k = min(top_k, int(logits.numel()))
-                top_values, top_ids = torch.topk(logits, k=k)
-                bottom_values, bottom_ids = torch.topk(logits, k=k, largest=False)
-                entry[name] = {
-                    "top_tokens": _vocabulary_entries(tokenizer, top_ids, top_values),
-                    "bottom_tokens": _vocabulary_entries(tokenizer, bottom_ids, bottom_values),
-                }
-            result.append(entry)
+        batches = range(0, int(directions.shape[0]), batch_size)
+        for start in tqdm(
+            batches,
+            desc="Profile logit lens",
+            unit="batch",
+            disable=not progress,
+        ):
+            stop = min(start + batch_size, int(directions.shape[0]))
+            batch = directions[start:stop]
+            for name, signed in (("positive", batch), ("negative", -batch)):
+                normalized = final_norm(signed[:, None, :])
+                logits = output_embeddings(normalized)[:, 0].float()
+                k = min(top_k, int(logits.shape[-1]))
+                top_values, top_ids = torch.topk(logits, k=k, dim=-1)
+                bottom_values, bottom_ids = torch.topk(logits, k=k, dim=-1, largest=False)
+                for offset in range(stop - start):
+                    result[start + offset][name] = {
+                        "top_tokens": _vocabulary_entries(
+                            tokenizer, top_ids[offset], top_values[offset]
+                        ),
+                        "bottom_tokens": _vocabulary_entries(
+                            tokenizer, bottom_ids[offset], bottom_values[offset]
+                        ),
+                    }
     return result
 
 

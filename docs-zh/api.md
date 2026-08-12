@@ -159,6 +159,7 @@ profile = lens.profile_components(
 | `top_k_examples` | `int = 20` | 每个成分、每个符号方向保留的最高能量样例数 |
 | `min_energy` | `float = 0.05` | 样例需要达到的最小逐 token 成分能量 |
 | `logit_lens_top_k` | `int = 20` | 每个方向保留的最高和最低词表条目数 |
+| `logit_lens_batch_size` | `int = 64` | 同时反嵌入的写入方向数；调低可减少峰值显存 |
 | `provenance` | `dict \| None = None` | 可 JSON 序列化的画像来源信息 |
 | `context_length` | `int \| None = 1024` | 每条输入的最大编码长度 |
 | `device` | `str \| torch.device \| None = "auto"` | 语言模型设备 |

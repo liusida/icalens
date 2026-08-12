@@ -36,6 +36,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--top-k-examples", type=int, default=20)
     parser.add_argument("--min-energy", type=float, default=0.05)
     parser.add_argument("--logit-lens-top-k", type=int, default=20)
+    parser.add_argument("--logit-lens-batch-size", type=int, default=64)
+    parser.add_argument("--no-progress", action="store_true")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args(argv)
@@ -69,6 +71,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             top_k_examples=args.top_k_examples,
             min_energy=args.min_energy,
             logit_lens_top_k=args.logit_lens_top_k,
+            logit_lens_batch_size=args.logit_lens_batch_size,
             context_length=args.context_length,
             provenance={
                 "dataset": {
@@ -82,7 +85,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "messages_field": args.messages_field if input_type == "chat" else None,
             },
             device=args.device,
-            progress=True,
+            progress=not args.no_progress,
         )
         output = lens.save(args.output)
         print(
