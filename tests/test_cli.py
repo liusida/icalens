@@ -40,6 +40,17 @@ def test_dispatches_publish(monkeypatch: pytest.MonkeyPatch) -> None:
     assert received == ["owner/lens", "--lens", "artifact"]
 
 
+def test_dispatches_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    from icalens.cli import profile
+
+    received: list[str] = []
+    monkeypatch.setattr(profile, "main", lambda args: received.extend(args))
+
+    cli.main(["profile", "--lens", "artifact", "--layer", "6"])
+
+    assert received == ["--lens", "artifact", "--layer", "6"]
+
+
 def test_unknown_command_is_clear() -> None:
     with pytest.raises(SystemExit, match="unknown command"):
         cli.main(["unknown"])

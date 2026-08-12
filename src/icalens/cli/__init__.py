@@ -20,6 +20,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         from .publish import main as publish_main
 
         publish_main(args)
+    elif command == "profile":
+        from .profile import main as profile_main
+
+        profile_main(args)
     elif command == "smoke-test":
         from ..smoke_test import main as smoke_test_main
 
@@ -47,11 +51,12 @@ def _dispatch_fit(args: list[str]) -> None:
 
 _TOP_HELP = """usage: icalens COMMAND [OPTIONS]
 
-Fit, publish, and verify ICA Lens artifacts.
+Fit, profile, publish, and verify ICA Lens artifacts.
 
 commands:
   fit text     Fit from a raw-text dataset
   fit chat     Fit from a conversation dataset
+  profile      Add component statistics, examples, and logit-lens tokens
   publish      Publish a local artifact to Hugging Face
   smoke-test   Verify installed text and chat analysis paths
 

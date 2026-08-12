@@ -178,6 +178,40 @@ ICA Lens 产物会记录解释和复用该变换所需的信息：
 
 产物不包含待分析语言模型的权重。
 
+## 拟合后为成分建立画像
+
+成分画像不会重新运行 FastICA。它将标注数据集以流式方式送入模型，并为每个成分
+记录正负分数比例、两侧的平方分数能量比例与主导符号、高能量 token 样例及计数，
+以及写入方向经过最终归一化层和反嵌入后的高低排名词元。
+
+```bash
+icalens profile \
+  --lens icalens-output/icalens-qwen3.5-2b-ultrachat-1m \
+  --layers all \
+  --dataset HuggingFaceH4/ultrachat_200k \
+  --split train_sft \
+  --token-scope all \
+  --max-tokens 100000 \
+  --top-k-examples 20 \
+  --min-energy 0.05 \
+  --output icalens-output/icalens-qwen3.5-2b-profiled
+```
+
+每完成一层都会写入输出目录。画像数据集及其精确 revision 与拟合来源分开记录。
+画像以可选 JSON 文件保存在
+`component_profiles/` 下，不会改变已经拟合的中心、读取矩阵或写入矩阵。因此，已有
+的本地或已发布 Lens 可以在之后补充画像，无须重新拟合。
+
+```python
+profile = lens.component_profile(layer=5, component=188)
+print(profile["dominant_sign"])
+print(profile["examples"]["negative"]["tokens"])
+print(profile["logit_lens"]["dominant"]["top_tokens"])
+```
+
+Logit Lens 结果只是诊断性关联：对于中间层，它跳过了后续 Transformer 块，不能视为
+对生成 token 的精确因果预测。
+
 ## 使用 Hugging Face 身份认证
 
 ICA Lens 产物应存放在 Hugging Face **Model** 仓库中。使用标准 Hugging Face CLI 和

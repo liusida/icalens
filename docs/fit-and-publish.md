@@ -189,6 +189,51 @@ the transformation:
 
 The artifact does not contain the analyzed language-model weights.
 
+## Profile components after fitting
+
+Profiling enriches an existing lens without rerunning FastICA. It streams an
+annotation dataset through the model and records, for every component:
+
+- positive and negative token-position frequencies;
+- the fraction of squared score energy on each sign and the resulting dominant sign;
+- high-energy token occurrences, token counts, scores, positions, and short contexts; and
+- top and bottom vocabulary tokens obtained by passing both writing-vector directions
+  through the model's final norm and unembedding.
+
+For example, profile layer 5 of a fitted chat lens:
+
+```bash
+icalens profile \
+  --lens icalens-output/icalens-qwen3.5-2b-ultrachat-1m \
+  --layers all \
+  --dataset HuggingFaceH4/ultrachat_200k \
+  --split train_sft \
+  --token-scope all \
+  --max-tokens 100000 \
+  --top-k-examples 20 \
+  --min-energy 0.05 \
+  --output icalens-output/icalens-qwen3.5-2b-profiled
+```
+
+Each completed layer is checkpointed to the output directory. The profiling
+dataset and exact revision are recorded separately from fitting
+provenance. Profiles are optional files under `component_profiles/`; the fitted
+center and matrices are unchanged. Consequently, an already published or local
+lens can be profiled later without refitting it.
+
+Inspect a stored component profile with:
+
+```python
+profile = lens.component_profile(layer=5, component=188)
+print(profile["dominant_sign"])
+print(profile["examples"]["negative"]["tokens"])
+print(profile["logit_lens"]["dominant"]["top_tokens"])
+```
+
+The logit-lens entries are diagnostic associations: at an intermediate layer,
+they skip the remaining transformer blocks and therefore are not exact causal
+predictions of generated tokens.
+
 ## Authenticate with Hugging Face
 
 ICA Lens artifacts belong in a Hugging Face **Model** repository. Authenticate

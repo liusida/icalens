@@ -23,6 +23,7 @@ from ._artifact import (
     LayerArtifact,
     layer_from_manifest,
     load_layer,
+    load_profile,
     read_manifest,
     save_directory,
 )
@@ -290,6 +291,25 @@ class ICALens:
 
         return analyze(self, inputs, layer=layer, **kwargs)
 
+    def profile_components(self, inputs: Any, *, layer: int, **kwargs: Any) -> dict[str, Any]:
+        """Build sign, example-token, and logit-lens profiles without refitting."""
+        from .profiling import profile_components
+
+        return profile_components(self, inputs, layer=layer, **kwargs)
+
+    def component_profile(self, *, layer: int, component: int) -> dict[str, Any]:
+        """Return the stored profile for one fitted component."""
+        artifact = self._get_layer(layer)
+        profile = self._get_profile(artifact)
+        if isinstance(component, bool) or not isinstance(component, (int, np.integer)):
+            raise TypeError("component must be a non-negative integer")
+        index = int(component)
+        if index < 0 or index >= artifact.n_components:
+            raise ValueError(
+                f"component must be between 0 and {artifact.n_components - 1}, got {index}"
+            )
+        return copy.deepcopy(profile["components"][index])
+
     def generate(self, prompt: Any, **kwargs: Any) -> str:
         """Generate a continuation, optionally clamping one ICA coordinate."""
         from .analysis import generate
@@ -322,7 +342,9 @@ class ICALens:
         if not self._layers:
             raise NotFittedError("cannot save an ICA Lens with no fitted layers")
         for layer in self.available_layers:
-            self._get_layer(layer)
+            artifact = self._get_layer(layer)
+            if artifact.profile_file is not None:
+                self._get_profile(artifact)
         destination = Path(path).expanduser().resolve()
         save_directory(destination, self._manifest(), self._layers)
         return destination
@@ -461,6 +483,39 @@ class ICALens:
             load_layer(tensor_path, artifact, self._hidden_size)
         return artifact
 
+    def _get_profile(self, artifact: LayerArtifact) -> dict[str, Any]:
+        if artifact.profile is not None:
+            return artifact.profile
+        if artifact.profile_file is None:
+            raise NotFittedError(
+                f"layer {artifact.layer} has no component profile; call profile_components()"
+            )
+        if self._local_root is not None:
+            profile_path = self._local_root / artifact.profile_file
+        elif self._hub_source is not None:
+            source = self._hub_source
+            try:
+                profile_path = Path(
+                    hf_hub_download(
+                        repo_id=source["repo_id"],
+                        filename=artifact.profile_file,
+                        repo_type="model",
+                        revision=source["revision"],
+                        cache_dir=source["cache_dir"],
+                        token=source["token"],
+                        local_files_only=source["local_files_only"],
+                        force_download=source["force_download"],
+                    )
+                )
+            except Exception as error:
+                raise ArtifactError(
+                    f"could not download component profile for layer {artifact.layer}: {error}"
+                ) from error
+        else:
+            raise ArtifactError(f"no source is available for layer {artifact.layer} profile")
+        artifact.profile = load_profile(profile_path)
+        return artifact.profile
+
     def _manifest(self) -> dict[str, Any]:
         if self._hidden_size is None:
             hidden_size = 0
@@ -487,6 +542,11 @@ class ICALens:
                     "file": artifact.file,
                     "n_components": artifact.n_components,
                     "fitting": artifact.fitting,
+                    **(
+                        {"component_profile": artifact.profile_file}
+                        if artifact.profile_file is not None
+                        else {}
+                    ),
                 }
                 for layer, artifact in sorted(self._layers.items())
             },

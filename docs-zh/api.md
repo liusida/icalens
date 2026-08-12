@@ -133,6 +133,54 @@ captured = lens.capture("She deposited the check.", layer=6)
 
 此方法不会卸载 ICA 层矩阵。
 
+## 为拟合成分建立画像
+
+### `profile_components(...)`
+
+```python
+profile = lens.profile_components(
+    texts_or_conversations,
+    layer=5,
+    max_tokens=100000,
+    top_k_examples=20,
+    min_energy=0.05,
+    provenance={"dataset": {"repo_id": "owner/dataset", "split": "train"}},
+    device="auto",
+    progress=True,
+)
+```
+
+| 参数 | 类型／默认值 | 含义 |
+| --- | --- | --- |
+| `inputs` | 文本或对话的可迭代对象，必填 | 以流式方式送入模型的输入 |
+| `layer` | `int`，必填 | 要建立画像的已拟合层 |
+| `token_scope` | `str = "all"` | 对话中纳入统计的位置 |
+| `max_tokens` | `int \| None = 100000` | 最多统计的 token 数 |
+| `top_k_examples` | `int = 20` | 每个成分、每个符号方向保留的最高能量样例数 |
+| `min_energy` | `float = 0.05` | 样例需要达到的最小逐 token 成分能量 |
+| `logit_lens_top_k` | `int = 20` | 每个方向保留的最高和最低词表条目数 |
+| `provenance` | `dict \| None = None` | 可 JSON 序列化的画像来源信息 |
+| `context_length` | `int \| None = 1024` | 每条输入的最大编码长度 |
+| `device` | `str \| torch.device \| None = "auto"` | 语言模型设备 |
+| `progress` | `bool = False` | 是否显示进度 |
+| **返回** | `dict` | 完整逐层画像，同时附加到当前 Lens |
+
+这是拟合后的操作，不会修改中心、读取矩阵或写入矩阵。之后调用 `save()` 即可持久化。
+
+### `component_profile(...)`
+
+```python
+component = lens.component_profile(layer=5, component=188)
+```
+
+| 参数 | 类型／默认值 | 含义 |
+| --- | --- | --- |
+| `layer` | `int`，必填 | 已建立画像的层 |
+| `component` | `int`，必填 | 成分编号 |
+| **返回** | `dict` | 该成分的符号统计、样例和 Logit Lens 条目 |
+
+从本地或 Hugging Face 载入产物时，画像文件会按需延迟加载。
+
 ## 变换激活张量
 
 ### `transform(...)`

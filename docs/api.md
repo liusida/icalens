@@ -209,6 +209,58 @@ lens.unload_model()
 
 This does not unload the fitted ICA layer matrices.
 
+## Profile fitted components
+
+### `profile_components(...)`
+
+Profile one fitted layer from a stream of raw texts or completed conversations:
+
+```python
+profile = lens.profile_components(
+    texts_or_conversations,
+    layer=5,
+    token_scope="all",
+    max_tokens=100000,
+    top_k_examples=20,
+    min_energy=0.05,
+    provenance={"dataset": {"repo_id": "owner/dataset", "split": "train"}},
+    device="auto",
+    progress=True,
+)
+```
+
+| Argument | Type / default | Meaning |
+| --- | --- | --- |
+| `inputs` | iterable of text or conversations, required | Inputs streamed through the analyzed model |
+| `layer` | `int`, required | Fitted layer to profile |
+| `token_scope` | `str = "all"` | Eligible chat positions; raw text always uses all tokens |
+| `max_tokens` | `int \| None = 100000` | Maximum token positions included; `None` consumes the iterable |
+| `top_k_examples` | `int = 20` | Highest-energy occurrences retained per component and sign |
+| `min_energy` | `float = 0.05` | Minimum per-token component energy required for an example |
+| `logit_lens_top_k` | `int = 20` | Top and bottom vocabulary entries retained for each direction |
+| `provenance` | `dict \| None = None` | JSON-compatible profiling provenance |
+| `context_length` | `int \| None = 1024` | Maximum encoded length of each input |
+| `device` | `str \| torch.device \| None = "auto"` | Language-model device |
+| `progress` | `bool = False` | Display streaming progress |
+| **Returns** | `dict` | Complete per-layer component profile, also attached to the lens |
+
+This is a post-fit operation: it does not alter the fitted center, reading
+matrix, or writing matrix. Call `save()` afterward to persist the profile.
+
+### `component_profile(...)`
+
+```python
+component = lens.component_profile(layer=5, component=188)
+```
+
+| Argument | Type / default | Meaning |
+| --- | --- | --- |
+| `layer` | `int`, required | Profiled layer |
+| `component` | `int`, required | Component ID |
+| **Returns** | `dict` | Sign statistics, examples, and logit-lens entries for the component |
+
+Profiles are loaded lazily when reading a local or Hugging Face artifact.
+
 ## Transform activation tensors
 
 ### `transform(...)`

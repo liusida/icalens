@@ -30,6 +30,8 @@ class LayerArtifact:
     file: str
     n_components: int
     fitting: dict[str, Any]
+    profile_file: str | None = None
+    profile: dict[str, Any] | None = None
     center: NDArray[np.float32] | None = None
     reading_matrix: NDArray[np.float32] | None = None
     writing_matrix: NDArray[np.float32] | None = None
@@ -88,7 +90,32 @@ def layer_from_manifest(layer_key: str, data: Any) -> LayerArtifact:
     path = Path(filename)
     if path.is_absolute() or ".." in path.parts:
         raise ArtifactError(f"unsafe tensor path for layer {layer}: {filename!r}")
-    return LayerArtifact(layer=layer, file=filename, n_components=n_components, fitting=fitting)
+    profile_file = data.get("component_profile")
+    if profile_file is not None:
+        profile_file = str(profile_file)
+        profile_path = Path(profile_file)
+        if profile_path.is_absolute() or ".." in profile_path.parts:
+            raise ArtifactError(
+                f"unsafe component profile path for layer {layer}: {profile_file!r}"
+            )
+    return LayerArtifact(
+        layer=layer,
+        file=filename,
+        n_components=n_components,
+        fitting=fitting,
+        profile_file=profile_file,
+    )
+
+
+def load_profile(path: Path) -> dict[str, Any]:
+    """Load one component-profile JSON file."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ArtifactError(f"could not read component profile {path}: {error}") from error
+    if not isinstance(value, dict) or not isinstance(value.get("components"), list):
+        raise ArtifactError(f"invalid component profile: {path}")
+    return value
 
 
 def load_layer(path: Path, artifact: LayerArtifact, hidden_size: int) -> None:
@@ -130,6 +157,13 @@ def save_directory(path: Path, manifest: dict[str, Any], layers: dict[int, Layer
                 },
                 tensor_path,
             )
+            if artifact.profile_file is not None and artifact.profile is not None:
+                profile_path = stage / artifact.profile_file
+                profile_path.parent.mkdir(parents=True, exist_ok=True)
+                profile_path.write_text(
+                    json.dumps(artifact.profile, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
         (stage / MANIFEST_FILENAME).write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
