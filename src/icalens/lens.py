@@ -290,8 +290,14 @@ class ICALens:
 
         return analyze(self, inputs, layer=layer, **kwargs)
 
+    def generate(self, prompt: Any, **kwargs: Any) -> str:
+        """Generate a continuation, optionally clamping one ICA coordinate."""
+        from .analysis import generate
+
+        return generate(self, prompt, **kwargs)
+
     def unload_model(self) -> None:
-        """Release the model and tokenizer loaded lazily by capture or analyze."""
+        """Release the model and tokenizer loaded lazily by capture, analyze, or generate."""
         self._analysis_model = None
         self._analysis_tokenizer = None
         self._analysis_device = None

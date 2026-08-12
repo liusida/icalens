@@ -12,6 +12,7 @@ __pycache__/
 .coverage
 htmlcov/
 site/
+site-zh/
 demo/output/
 experiments/output/
 experiments/

@@ -131,6 +131,53 @@ lens.analyze(
 The first call lazily loads the language model and tokenizer. Subsequent calls
 on the same lens reuse them.
 
+### `generate(...)`
+
+Generate a continuation, optionally clamping one signed ICA coordinate:
+
+```python
+baseline = lens.generate(messages, max_new_tokens=16)
+
+steered = lens.generate(
+    messages,
+    layer=5,
+    clamp=(188, -20.0),
+    max_new_tokens=16,
+)
+```
+
+```python
+lens.generate(
+    prompt,
+    *,
+    layer=None,
+    clamp=None,
+    max_new_tokens=64,
+    device="auto",
+    model=None,
+    tokenizer=None,
+    **generation_kwargs,
+) -> str
+```
+
+| Argument | Type / default | Meaning |
+| --- | --- | --- |
+| `prompt` | `str \| list[dict[str, str]]`, required | Raw prompt or chat messages; chat templates are applied automatically |
+| `layer` | `int \| None = None` | Zero-based residual-stream layer to edit; required with `clamp` |
+| `clamp` | `tuple[int, float] \| Mapping[int, float] \| None = None` | One `(component, target_score)` pair or a mapping of simultaneous clamps, applied at every processed token position and generation step |
+| `max_new_tokens` | `int = 64` | Maximum number of continuation tokens |
+| `device` | `str \| torch.device \| None = "auto"` | Model device; automatic mode prefers CUDA and otherwise uses CPU |
+| `model` | `torch.nn.Module \| None = None` | Optional caller-supplied language model |
+| `tokenizer` | tokenizer or `None` | Optional caller-supplied tokenizer |
+| `**generation_kwargs` | keyword arguments | Additional arguments forwarded to `model.generate()` |
+| **Returns** | `str` | Decoded continuation only, without the prompt |
+
+Without `clamp`, this is ordinary generation. With `clamp`, ICA Lens edits the
+`resid_post` activation at the selected layer, then restores each activation's
+original norm before returning it to the model. Greedy decoding is the default;
+pass standard generation arguments to choose another decoding strategy. The
+language model is loaded lazily and reused by later calls on the same lens.
+
 ### `capture(...)`
 
 Use `capture()` when you need aligned activations without transforming them:
@@ -158,7 +205,7 @@ lens.unload_model()
 
 | Argument | Type / default | Meaning |
 | --- | --- | --- |
-| **Returns** | `None` | Releases the model and tokenizer cached by `capture()` or `analyze()` |
+| **Returns** | `None` | Releases the model and tokenizer cached by `capture()`, `analyze()`, or `generate()` |
 
 This does not unload the fitted ICA layer matrices.
 

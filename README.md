@@ -4,6 +4,9 @@ ICA Lens fits, shares, and applies Independent Component Analysis bases for
 language-model activations. It can capture activations directly from text or
 operate on activation tensors supplied by the caller.
 
+By [Sida Liu](https://liusida.com/) and
+[Feijiang Han](https://feijianghan.com/).
+
 ```bash
 uv add icalens
 ```

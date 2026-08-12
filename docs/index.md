@@ -1,7 +1,8 @@
 # ICA Lens
 
-ICA Lens maps language-model activations into independent components without
-training another dictionary. It provides a compact Python API for loading,
+ICA Lens maps language-model activations into independent components with a
+lightweight fitting process that is substantially more compute-efficient than
+training an SAE dictionary. It provides a compact Python API for loading,
 fitting, sharing, and applying ICA transformations to base and instruction-
 tuned language models.
 
@@ -35,6 +36,11 @@ In Jupyter or Colab, `result` displays the interactive explorer inline. Use
 - Inspect signed component scores and per-token energy shares interactively.
 - Save, load, and share lenses through local folders or Hugging Face Hub.
 - Scale fitting to large token collections with bounded GPU and CPU memory.
+
+## Authors
+
+- [Sida Liu](https://liusida.com/)
+- [Feijiang Han](https://feijianghan.com/)
 
 ## Citation
 

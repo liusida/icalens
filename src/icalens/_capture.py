@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import contextmanager
 from typing import Any, cast
 
 import torch
@@ -79,3 +80,33 @@ def capture_resid_post(
     if missing:
         raise RuntimeError(f"forward hooks did not capture layers: {missing}")
     return captured
+
+
+@contextmanager
+def clamp_resid_post(
+    model: torch.nn.Module,
+    *,
+    layer: int,
+    edit: Any,
+) -> Any:
+    """Apply an activation edit to one block output for the context lifetime."""
+    blocks = transformer_blocks(model)
+    if layer < 0 or layer >= len(blocks):
+        raise ValueError(f"layer index out of range 0..{len(blocks) - 1}: {layer}")
+
+    def hook(_: torch.nn.Module, __: tuple[Any, ...], output: Any) -> Any:
+        hidden = output[0] if isinstance(output, tuple) else output
+        if not isinstance(hidden, torch.Tensor):
+            raise TypeError(f"transformer block {layer} did not return a tensor")
+        edited = edit(hidden)
+        if not isinstance(edited, torch.Tensor) or edited.shape != hidden.shape:
+            raise ValueError("resid_post edit must return a tensor with the original shape")
+        if isinstance(output, tuple):
+            return (edited, *output[1:])
+        return edited
+
+    handle = blocks[layer].register_forward_hook(hook)
+    try:
+        yield
+    finally:
+        handle.remove()

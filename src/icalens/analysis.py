@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import torch
 
-from ._capture import capture_resid_post
+from ._capture import capture_resid_post, clamp_resid_post
 
 
 @dataclass(frozen=True)
@@ -189,6 +190,114 @@ def analyze(lens: Any, inputs: Any, *, layer: int, **kwargs: Any) -> AnalysisRes
         ),
         messages=() if isinstance(inputs, str) else tuple(dict(message) for message in inputs),
     )
+
+
+def generate(
+    lens: Any,
+    prompt: str | list[dict[str, str]],
+    *,
+    layer: int | None = None,
+    clamp: tuple[int, float] | Mapping[int, float] | None = None,
+    max_new_tokens: int = 64,
+    device: str | torch.device | None = "auto",
+    model: torch.nn.Module | None = None,
+    tokenizer: Any = None,
+    **generation_kwargs: Any,
+) -> str:
+    """Generate text, optionally clamping one signed ICA score at resid_post."""
+    if isinstance(prompt, str):
+        if not prompt:
+            raise ValueError("prompt must be a non-empty string")
+    elif isinstance(prompt, list):
+        prompt = _normalize_messages(prompt)
+        if not prompt:
+            raise ValueError("prompt messages cannot be empty")
+    else:
+        raise TypeError("prompt must be a string or a list of messages")
+    if max_new_tokens <= 0:
+        raise ValueError("max_new_tokens must be positive")
+    if clamp is None:
+        if layer is not None:
+            raise ValueError("layer is only used when clamp is provided")
+    else:
+        if layer is None:
+            raise ValueError("layer is required when clamp is provided")
+        if lens.activation_site != "resid_post":
+            raise ValueError("generation clamping currently requires activation_site='resid_post'")
+        clamps = dict(clamp.items()) if isinstance(clamp, Mapping) else {clamp[0]: clamp[1]}
+        if not clamps:
+            raise ValueError("clamp mapping cannot be empty")
+        for component, target in clamps.items():
+            if isinstance(component, bool) or not isinstance(component, int) or component < 0:
+                raise ValueError("clamp components must be non-negative integers")
+            if (
+                isinstance(target, bool)
+                or not isinstance(target, (int, float))
+                or not torch.isfinite(torch.tensor(float(target)))
+            ):
+                raise ValueError("clamp targets must be finite numbers")
+
+    model, tokenizer = _resolve_model_and_tokenizer(lens, model, tokenizer, device)
+    rendered_prompt = (
+        prompt
+        if isinstance(prompt, str)
+        else tokenizer.apply_chat_template(
+            prompt,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+    )
+    encoded = tokenizer(rendered_prompt, add_special_tokens=False, return_tensors="pt")
+    model_device = next(model.parameters()).device
+    model_inputs = {
+        name: value.to(model_device)
+        for name, value in encoded.items()
+        if isinstance(value, torch.Tensor)
+    }
+    prompt_length = int(model_inputs["input_ids"].shape[1])
+    kwargs = {"do_sample": False, **generation_kwargs}
+    model_generate = cast(Any, model).generate
+
+    if clamp is None:
+        with torch.inference_mode():
+            generated = model_generate(
+                **model_inputs,
+                max_new_tokens=max_new_tokens,
+                **kwargs,
+            )
+    else:
+        assert layer is not None
+        clamps = dict(clamp.items()) if isinstance(clamp, Mapping) else {clamp[0]: clamp[1]}
+
+        def edit(hidden: torch.Tensor) -> torch.Tensor:
+            original_dtype = hidden.dtype
+            scores = lens.transform(hidden.float(), layer=layer)
+            for component, target in clamps.items():
+                if component >= scores.shape[-1]:
+                    raise ValueError(
+                        f"clamp component {component} is unavailable; "
+                        f"layer {layer} has {scores.shape[-1]} components"
+                    )
+                scores[..., component] = float(target)
+            reconstructed = cast(torch.Tensor, lens.inverse_transform(scores, layer=layer))
+            restored = cast(
+                torch.Tensor,
+                lens.restore_norm(reconstructed, reference=hidden.float()),
+            )
+            return restored.to(original_dtype)
+
+        with clamp_resid_post(model, layer=layer, edit=edit), torch.inference_mode():
+            generated = model_generate(
+                **model_inputs,
+                max_new_tokens=max_new_tokens,
+                **kwargs,
+            )
+
+    sequences = generated.sequences if hasattr(generated, "sequences") else generated
+    if not isinstance(sequences, torch.Tensor):
+        raise TypeError("model.generate() must return token IDs or an object with .sequences")
+    continuation = sequences[0, prompt_length:].detach().cpu()
+    return str(tokenizer.decode(continuation, skip_special_tokens=True)).strip()
 
 
 def _token_presentations(

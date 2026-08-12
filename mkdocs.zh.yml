@@ -1,14 +1,16 @@
-site_name: ICA Lens
-site_description: Interpreting language models with Independent Component Analysis
-site_url: https://icalens.readthedocs.io/
+site_name: ICA Lens 中文文档
+site_description: 使用独立成分分析解释语言模型
+site_url: https://icalens-zh.readthedocs.io/zh_CN/latest/
+
+docs_dir: docs-zh
 
 repo_name: liusida/icalens
 repo_url: https://github.com/liusida/icalens
-edit_uri: edit/main/docs/
+edit_uri: edit/main/docs-zh/
 
 theme:
   name: material
-  language: en
+  language: zh
   features:
     - navigation.sections
     - navigation.top
@@ -20,24 +22,24 @@ theme:
       accent: indigo
       toggle:
         icon: material/brightness-7
-        name: Switch to dark mode
+        name: 切换至深色模式
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: indigo
       accent: indigo
       toggle:
         icon: material/brightness-4
-        name: Switch to light mode
+        name: 切换至浅色模式
 
 nav:
-  - Home: index.md
-  - Getting started: getting-started.md
-  - Text and chat: text-and-chat.md
-  - Scores and energy: scores-and-energy.md
-  - Steering: steering.md
-  - Reconstruction: reconstruction.md
-  - Fit and publish: fit-and-publish.md
-  - API: api.md
+  - 首页: index.md
+  - 快速开始: getting-started.md
+  - 文本与对话: text-and-chat.md
+  - 分数与能量: scores-and-energy.md
+  - 引导: steering.md
+  - 重构: reconstruction.md
+  - 拟合与发布: fit-and-publish.md
+  - Python API: api.md
 
 markdown_extensions:
   - admonition

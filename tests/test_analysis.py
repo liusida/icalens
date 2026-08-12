@@ -43,6 +43,33 @@ class DummyModel(torch.nn.Module):
         return SimpleNamespace(hidden_states=(hidden,))
 
 
+class DummyGenerationTokenizer(DummyTokenizer):
+    def decode(self, ids: object, **_: object) -> str:
+        values = torch.as_tensor(ids).tolist()
+        return " ".join(f"t{value}" for value in values)
+
+
+class TupleBlock(torch.nn.Module):
+    def forward(self, hidden: torch.Tensor) -> tuple[torch.Tensor]:
+        return (hidden + 1,)
+
+
+class DummyGenerationModel(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.anchor = torch.nn.Parameter(torch.zeros(()))
+        self.transformer = torch.nn.Module()
+        self.transformer.h = torch.nn.ModuleList([TupleBlock()])
+        self.block_output: torch.Tensor | None = None
+
+    def generate(self, input_ids: torch.Tensor, **_: object) -> torch.Tensor:
+        values = input_ids.float()
+        hidden = torch.stack((values, values.square(), values + 1), dim=-1)
+        self.block_output = self.transformer.h[0](hidden)[0]
+        new_token = torch.full((input_ids.shape[0], 1), 9, device=input_ids.device)
+        return torch.cat((input_ids, new_token), dim=1)
+
+
 def test_analyze_raw_text_returns_scores_and_energy(mixed_signals: np.ndarray) -> None:
     lens = ICALens(
         model_id="example/model",
@@ -103,6 +130,62 @@ def test_unload_model_clears_analysis_cache(monkeypatch: pytest.MonkeyPatch) -> 
     assert lens._analysis_model is None
     assert lens._analysis_tokenizer is None
     assert lens._analysis_device is None
+
+
+def test_generate_clamps_one_component_at_every_position(mixed_signals: np.ndarray) -> None:
+    lens = ICALens(model_id="example/model", model_revision="abc").fit(mixed_signals, layer=0)
+    model = DummyGenerationModel()
+    output = lens.generate(
+        "one two",
+        layer=0,
+        clamp=(1, 2.5),
+        max_new_tokens=1,
+        device="cpu",
+        model=model,
+        tokenizer=DummyGenerationTokenizer(),
+    )
+
+    assert output == "t9"
+    assert model.block_output is not None
+    values = torch.tensor([[1.0, 2.0]])
+    original = torch.stack((values, values.square(), values + 1), dim=-1) + 1
+    expected_scores = lens.transform(original, layer=0)
+    expected_scores[..., 1] = 2.5
+    reconstructed = lens.inverse_transform(expected_scores, layer=0)
+    expected = lens.restore_norm(reconstructed, reference=original)
+    torch.testing.assert_close(model.block_output, expected)
+
+
+def test_generate_clamps_multiple_components_at_every_position(
+    mixed_signals: np.ndarray,
+) -> None:
+    lens = ICALens(model_id="example/model", model_revision="abc").fit(mixed_signals, layer=0)
+    model = DummyGenerationModel()
+    lens.generate(
+        "one two",
+        layer=0,
+        clamp={0: -1.5, 2: 3.0},
+        max_new_tokens=1,
+        device="cpu",
+        model=model,
+        tokenizer=DummyGenerationTokenizer(),
+    )
+
+    assert model.block_output is not None
+    values = torch.tensor([[1.0, 2.0]])
+    original = torch.stack((values, values.square(), values + 1), dim=-1) + 1
+    expected_scores = lens.transform(original, layer=0)
+    expected_scores[..., 0] = -1.5
+    expected_scores[..., 2] = 3.0
+    reconstructed = lens.inverse_transform(expected_scores, layer=0)
+    expected = lens.restore_norm(reconstructed, reference=original)
+    torch.testing.assert_close(model.block_output, expected)
+
+
+def test_generate_validates_clamp_arguments() -> None:
+    lens = ICALens(model_id="example/model", model_revision="abc")
+    with pytest.raises(ValueError, match="layer is required"):
+        lens.generate("prompt", clamp=(0, 1.0))
 
 
 def test_invalid_token_fragment_uses_placeholder_and_contextual_tooltip() -> None:
