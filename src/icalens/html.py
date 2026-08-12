@@ -249,6 +249,9 @@ def _document(payload: str) -> str:
     .profile-list li {{ margin: 5px 0; overflow-wrap: anywhere; }}
     .profile-value {{ color: var(--muted); font-variant-numeric: tabular-nums; }}
     .profile-context {{ display: block; color: var(--muted); font-size: 11px; }}
+    .profile-target {{ padding: 0 1px; border-radius: 2px; background: #fff1a8;
+      color: #273244; font-weight: 750; text-decoration: underline;
+      text-decoration-thickness: 2px; text-underline-offset: 2px; }}
     @media (max-width: 700px) {{ main {{ padding: 10px; }} .selection {{ flex-basis: 100%; }} }}
   </style>
 </head>
@@ -465,10 +468,19 @@ def _document(payload: str) -> str:
       summary.textContent = `Component profile — C${{component}} · dominant ${{profile.dominant_sign}}`;
       const stats = profile.sign_statistics;
       const percentage = value => `${{(Number(value) * 100).toFixed(1)}}%`;
+      const highlightedContext = item => {{
+        const target = String(item.text || "");
+        const context = String(item.context || "").replace(/\\r\\n|\\r|\\n/g, "↵");
+        const index = target ? context.indexOf(target) : -1;
+        if (index < 0) return esc(context);
+        return esc(context.slice(0, index)) +
+          `<span class="profile-target">${{esc(context.slice(index, index + target.length))}}</span>` +
+          esc(context.slice(index + target.length));
+      }};
       const occurrenceItems = profile.occurrences.map(item =>
         `<li><strong>${{esc(JSON.stringify(String(item.text || "")))}}</strong> ` +
         `<span class="profile-value">score ${{Number(item.score) >= 0 ? "+" : ""}}${{Number(item.score).toFixed(2)}} · ${{percentage(item.energy)}} energy</span>` +
-        `<span class="profile-context">${{esc(String(item.context || "").replace(/\\r\\n|\\r|\\n/g, "↵"))}}</span></li>`
+        `<span class="profile-context">${{highlightedContext(item)}}</span></li>`
       ).join("");
       const tokenItems = items => items.map(item =>
         `<li><strong>${{esc(JSON.stringify(String(item.text || "")))}}</strong> ` +

@@ -173,6 +173,9 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert "Suppressed logit-lens tokens" in html
     assert "profilePanel.hidden = true" in html
     assert "panel.hidden = false" in html
+    assert 'class="profile-target"' in html
+    assert "const index = target ? context.indexOf(target) : -1" in html
+    assert "highlightedContext(item)" in html
 
 
 def test_analysis_result_has_notebook_representation() -> None:
