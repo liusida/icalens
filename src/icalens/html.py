@@ -118,6 +118,7 @@ def _analysis_payload(
         messages=list(result.messages),
         tokens=tokens,
         token_groups=token_groups,
+        component_profiles=result.component_profiles or {},
     )
 
 
@@ -155,6 +156,7 @@ def write_explorer_html(
         messages=messages or [],
         tokens=tokens,
         token_groups=token_groups or [],
+        component_profiles={},
     )
     destination.write_text(_document(payload), encoding="utf-8")
     return destination
@@ -384,9 +386,27 @@ def _document(payload: str) -> str:
         const display = state.metric === "energy"
           ? `${{(score * 100).toFixed(2)}}%`
           : `${{score >= 0 ? "+" : ""}}${{score.toFixed(3)}}`;
-        return `<div class="score-row"><button class="badge ${{ratio < threshold ? "weak" : ""}} ${{selected ? "selected" : ""}}" data-component="${{component}}" style="--width:${{(ratio*100).toFixed(1)}}%;--bar:${{bar}};--color:${{color(component)}}"><span class="component">C${{component}}</span><span class="score">${{display}}</span></button></div>`;
+        const tooltip = componentTooltip(component);
+        return `<div class="score-row"><button class="badge ${{ratio < threshold ? "weak" : ""}} ${{selected ? "selected" : ""}}" data-component="${{component}}" title="${{esc(tooltip)}}" style="--width:${{(ratio*100).toFixed(1)}}%;--bar:${{bar}};--color:${{color(component)}}"><span class="component">C${{component}}</span><span class="score">${{display}}</span></button></div>`;
       }}).join("");
       return `<article class="token-card"><div class="token-text" title="${{esc(tokenTooltip)}}">${{esc(tokenText)}}</div>${{badges}}</article>`;
+    }}
+
+    function componentTooltip(component) {{
+      const profile = data.component_profiles[String(component)] || data.component_profiles[component];
+      if (!profile) return `C${{component}} · no component profile available`;
+      const lines = [`C${{component}} · dominant ${{profile.dominant_sign}}`];
+      lines.push("Top occurrences:");
+      profile.occurrences.slice(0, 3).forEach((item, index) => {{
+        const text = String(item.text || "").replace(/\r\n|\r|\n/g, "↵");
+        const context = String(item.context || "").replace(/\r\n|\r|\n/g, "↵");
+        lines.push(`${{index + 1}}. ${{JSON.stringify(text)}} · ${{(Number(item.energy) * 100).toFixed(1)}}% · ${{context}}`);
+      }});
+      lines.push("Top logit-lens tokens:");
+      profile.logit_tokens.slice(0, 3).forEach((item, index) => {{
+        lines.push(`${{index + 1}}. ${{JSON.stringify(item.text)}} · ${{Number(item.logit) >= 0 ? "+" : ""}}${{Number(item.logit).toFixed(2)}}`);
+      }});
+      return lines.join("\n");
     }}
 
     function allTokens() {{

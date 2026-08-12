@@ -37,6 +37,7 @@ class AnalysisResult(CaptureResult):
     input_text: str
     token_scope: str
     messages: tuple[dict[str, str], ...]
+    component_profiles: dict[int, dict[str, Any]] | None = None
 
     def to_html(
         self,
@@ -167,6 +168,7 @@ def analyze(lens: Any, inputs: Any, *, layer: int, **kwargs: Any) -> AnalysisRes
     captured = capture(lens, inputs, layer=layer, **kwargs)
     scores = lens.transform(captured.activations, layer=layer)
     energy = lens.energy(scores)
+    component_profiles = lens._component_profile_summaries(layer)
     return AnalysisResult(
         tokens=captured.tokens,
         token_texts=captured.token_texts,
@@ -189,6 +191,7 @@ def analyze(lens: Any, inputs: Any, *, layer: int, **kwargs: Any) -> AnalysisRes
             "all text tokens" if isinstance(inputs, str) else kwargs.get("token_scope", "all")
         ),
         messages=() if isinstance(inputs, str) else tuple(dict(message) for message in inputs),
+        component_profiles=component_profiles,
     )
 
 

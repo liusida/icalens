@@ -528,6 +528,34 @@ class ICALens:
         artifact.profile = load_profile(profile_path)
         return artifact.profile
 
+    def _component_profile_summaries(self, layer: int) -> dict[int, dict[str, Any]] | None:
+        artifact = self._get_layer(layer)
+        if artifact.profile_file is None:
+            return None
+        profile = self._get_profile(artifact)
+        summaries: dict[int, dict[str, Any]] = {}
+        for component in profile["components"]:
+            sign = str(component["dominant_sign"])
+            occurrences = component["examples"][sign]["occurrences"][:3]
+            logit_tokens = component["logit_lens"]["dominant"]["top_tokens"][:3]
+            summaries[int(component["component"])] = {
+                "dominant_sign": sign,
+                "occurrences": [
+                    {
+                        "text": occurrence["text"],
+                        "context": occurrence["context"],
+                        "score": occurrence["score"],
+                        "energy": occurrence["energy"],
+                    }
+                    for occurrence in occurrences
+                ],
+                "logit_tokens": [
+                    {"text": token["text"], "logit": token["logit"]}
+                    for token in logit_tokens
+                ],
+            }
+        return summaries
+
     def _manifest(self) -> dict[str, Any]:
         if self._hidden_size is None:
             hidden_size = 0

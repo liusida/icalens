@@ -23,6 +23,20 @@ def analysis_result() -> AnalysisResult:
         input_text="hello",
         token_scope="all text tokens",
         messages=(),
+        component_profiles={
+            0: {
+                "dominant_sign": "negative",
+                "occurrences": [
+                    {
+                        "text": " biology",
+                        "context": "interested in biology",
+                        "score": -12.0,
+                        "energy": 0.4,
+                    }
+                ],
+                "logit_tokens": [{"text": " biology", "logit": 6.5}],
+            }
+        },
     )
 
 
@@ -139,6 +153,10 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert '"metrics":{"score":[-2.0,1.0]' in html
     assert '"top_k":1' in html
     assert '"dynamic_metrics":true' in html
+    assert '"dominant_sign":"negative"' in html
+    assert "Top occurrences:" in html
+    assert "Top logit-lens tokens:" in html
+    assert 'title="${esc(tooltip)}"' in html
 
 
 def test_analysis_result_has_notebook_representation() -> None:
