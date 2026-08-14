@@ -92,6 +92,31 @@ def test_analyze_raw_text_returns_scores_and_energy(mixed_signals: np.ndarray) -
     torch.testing.assert_close(result.energy.sum(dim=-1), torch.ones(3))
 
 
+def test_analyze_verbose_reports_major_stages(
+    mixed_signals: np.ndarray, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lens = ICALens(
+        model_id="example/model",
+        model_revision="abc",
+        activation_site="hidden_states",
+        layer_indexing="hidden_states",
+    ).fit(mixed_signals, layer=0)
+
+    lens.analyze(
+        "one two three",
+        layer=0,
+        model=DummyModel(),
+        tokenizer=DummyTokenizer(),
+        verbose=True,
+    )
+
+    output = capsys.readouterr().out
+    assert "[ICALens] Preparing example/model..." in output
+    assert "Capturing 3 token activations" in output
+    assert "Computing ICA scores and component energy" in output
+    assert "Analysis complete" in output
+
+
 def test_auto_device_uses_cpu_without_cuda(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     assert _resolve_device("auto") == "cpu"

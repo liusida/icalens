@@ -75,6 +75,13 @@ icalens fit text \
 tokenize，捕获每个 block 之后的残差流激活，拟合指定层，并在每一层完成后立即保存
 checkpoint。
 
+对于纯文本，`--document-framing auto` 会通过版本控制下的
+`model_framing.json` 注册表按精确模型解析文档边界格式。已知模型会获得相应的文档
+边界上下文 token，但该 token 不会进入拟合样本。若本地注册表中没有该模型，ICALens
+会查询并缓存 GitHub 上的最新注册表；也可用 `--refresh-model-registry` 主动刷新。
+未知模型会安全地停止，除非用户显式指定 `--document-framing`。最终策略、注册表哈希和
+证据链接都会写入拟合 provenance。
+
 使用 `--token-budget all` 可以利用所选数据集中的全部可用 token 进行拟合。tokenize
 完成后，命令会输出最终解析得到的 token 数量。
 
@@ -111,9 +118,11 @@ icalens fit chat \
 | `--split` | 要流式读取的数据集 split |
 | `--text-field` | `icalens fit text` 使用的纯文本列 |
 | `--context-length` | 每篇文档最多保留的 token 数 |
+| `--document-framing` | 使用精确模型注册表自动解析（`auto`），或显式指定 `none`、`prepend-bos`、`prepend-eos` |
+| `--refresh-model-registry` | 从 GitHub 获取并缓存最新的文档格式注册表 |
 | `--layers` | 逗号分隔、从 0 开始的 transformer block 编号，或 `all` |
 | `--token-budget` | 拟合使用的采样激活行数 |
-| `--candidate-tokens` | 候选 token 池大小；默认等于 token budget |
+| `--candidate-tokens` | 候选 token 池大小，或用 `all` 读取整个数据集；默认等于 token budget |
 | `--capture-layers-at-once` | 同时在 CPU 内存中保存的层数；`0` 表示全部指定层 |
 | `--fit-batch-size` | 每次在 GPU 上处理的激活行数；`0` 表示一次放入全部拟合数据 |
 | `--max-iter` | 固定的 FastICA 迭代次数 |

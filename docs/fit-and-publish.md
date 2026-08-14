@@ -79,6 +79,14 @@ Both commands resolve and record the exact model and dataset revisions. They
 tokenize the selected text field, capture post-block residual-stream
 activations, fit the requested layers, and checkpoint each completed layer.
 
+For raw text, `--document-framing auto` resolves the exact model in the
+version-controlled `model_framing.json` registry. Known models receive their
+document-boundary context token, which is excluded from fitting samples. If a
+model is absent locally, ICALens checks and caches the current GitHub registry;
+use `--refresh-model-registry` to request an update explicitly. Unknown models
+fail safely unless `--document-framing` is set explicitly. The resolved policy,
+registry hash, and evidence URL are saved in fitting provenance.
+
 Use `--token-budget all` to fit from every usable token in the selected dataset.
 The command reports the resolved token count after tokenization.
 
@@ -117,9 +125,11 @@ sampled, while the complete rendered conversation remains the model context.
 | `--split` | Dataset split to stream |
 | `--text-field` | Raw-text column used by `icalens fit text` |
 | `--context-length` | Maximum number of tokens retained from each text document |
+| `--document-framing` | Exact-model registry policy (`auto`), or an explicit `none`, `prepend-bos`, or `prepend-eos` |
+| `--refresh-model-registry` | Fetch and cache the current framing registry from GitHub |
 | `--layers` | Comma-separated zero-based transformer-block indices, or `all` |
 | `--token-budget` | Number of sampled activation rows used for fitting |
-| `--candidate-tokens` | Size of the token pool sampled from; defaults to the token budget |
+| `--candidate-tokens` | Size of the token pool sampled from, or `all` for the entire dataset; defaults to the token budget |
 | `--capture-layers-at-once` | Number of layers materialized in CPU memory together; `0` means all requested layers |
 | `--fit-batch-size` | Activation rows processed on the GPU at once; `0` materializes all fitting rows |
 | `--max-iter` | Fixed number of FastICA iterations |

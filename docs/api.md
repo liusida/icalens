@@ -114,6 +114,7 @@ lens.analyze(
     token_scope="all",
     context_length=None,
     device="auto",
+    verbose=False,
 ) -> AnalysisResult
 ```
 
@@ -126,10 +127,12 @@ lens.analyze(
 | `token_scope` | `"all" \| "content" \| "user" \| "assistant" = "all"` | Conversation positions to return; raw text always returns all encoded tokens |
 | `context_length` | `int \| None = None` | Optional maximum encoded input length |
 | `device` | `str \| torch.device \| None = "auto"` | Model device; automatic mode prefers CUDA and otherwise uses CPU |
+| `verbose` | `bool = False` | Print timed progress for model loading, activation capture, and score computation |
 | **Returns** | `AnalysisResult` | Tokens, activations, signed scores, and energy shares |
 
 The first call lazily loads the language model and tokenizer. Subsequent calls
-on the same lens reuse them.
+on the same lens reuse them. For large models, pass `verbose=True` to make the
+loading, capture, and transformation stages visible.
 
 ### `generate(...)`
 

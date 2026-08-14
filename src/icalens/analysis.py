@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Literal, cast
 
 import torch
@@ -98,18 +99,48 @@ def capture(
     token_scope: Literal["assistant", "user", "content", "all"] = "all",
     context_length: int | None = None,
     device: str | torch.device | None = "auto",
+    verbose: bool = False,
 ) -> CaptureResult:
     """Capture activations for raw text or a completed chat conversation."""
-    model, tokenizer = _resolve_model_and_tokenizer(lens, model, tokenizer, device)
+    started = perf_counter()
+    _analysis_log(verbose, f"Preparing {lens.model_id}...")
+    model, tokenizer = _resolve_model_and_tokenizer(
+        lens, model, tokenizer, device, verbose=verbose
+    )
     if isinstance(inputs, str):
+        framing = _document_framing_for_layer(lens, layer)
+        prefix_id = framing.get("token_id") if framing.get("strategy") != "none" else None
+        content_limit = context_length
+        if content_limit is not None and prefix_id is not None:
+            content_limit -= 1
+            if content_limit <= 0:
+                raise ValueError("context_length must leave room for document framing")
         encoded = tokenizer(
             inputs,
             add_special_tokens=False,
-            truncation=context_length is not None,
-            max_length=context_length,
+            truncation=content_limit is not None,
+            max_length=content_limit,
             return_tensors="pt",
         )
-        positions = torch.arange(encoded["input_ids"].shape[1], dtype=torch.long)
+        if prefix_id is not None:
+            prefix = torch.tensor([[int(prefix_id)]], dtype=encoded["input_ids"].dtype)
+            encoded["input_ids"] = torch.cat((prefix, encoded["input_ids"]), dim=1)
+            if "attention_mask" in encoded:
+                prefix_mask = torch.ones(
+                    (1, 1), dtype=encoded["attention_mask"].dtype
+                )
+                encoded["attention_mask"] = torch.cat(
+                    (prefix_mask, encoded["attention_mask"]), dim=1
+                )
+            _analysis_log(
+                verbose,
+                f"Applied recorded document framing {framing.get('token')!r}; "
+                "the prefix is excluded from reported tokens.",
+            )
+        offset = 1 if prefix_id is not None else 0
+        positions = torch.arange(
+            offset, encoded["input_ids"].shape[1], dtype=torch.long
+        )
         token_groups: tuple[str, ...] = ()
     else:
         encoded, positions, token_groups = _encode_chat(
@@ -122,6 +153,11 @@ def capture(
     if attention_mask is not None:
         kwargs["attention_mask"] = attention_mask.to(model_device)
     selected = positions.to(model_device)
+    _analysis_log(
+        verbose,
+        f"Capturing {len(selected)} token activations at {lens.activation_site} layer {layer}...",
+    )
+    capture_started = perf_counter()
     if lens.activation_site == "resid_post":
         activations = capture_resid_post(
             model,
@@ -142,6 +178,10 @@ def capture(
         if hidden_index < 0 or hidden_index >= len(outputs.hidden_states):
             raise ValueError(f"layer {layer} is unavailable in model hidden states")
         activations = outputs.hidden_states[hidden_index][0].index_select(0, selected).float()
+    _analysis_log(
+        verbose,
+        f"Captured activations in {perf_counter() - capture_started:.2f}s.",
+    )
     ids = input_ids[0].index_select(0, selected).detach().cpu()
     id_values = ids.tolist()
     tokens = tuple(tokenizer.convert_ids_to_tokens(id_values))
@@ -151,7 +191,7 @@ def capture(
         positions.tolist(),
         tokens,
     )
-    return CaptureResult(
+    result = CaptureResult(
         tokens=tokens,
         token_texts=token_texts,
         token_labels=token_labels,
@@ -161,15 +201,43 @@ def capture(
         positions=positions,
         activations=activations,
     )
+    _analysis_log(verbose, f"Capture complete in {perf_counter() - started:.2f}s.")
+    return result
 
 
-def analyze(lens: Any, inputs: Any, *, layer: int, **kwargs: Any) -> AnalysisResult:
+def _document_framing_for_layer(lens: Any, layer: int) -> dict[str, Any]:
+    """Read the portable text-framing policy recorded during fitting."""
+    try:
+        fitting = lens.metadata["layers"][str(layer)]["fitting"]
+        provenance = fitting.get("provenance") or {}
+        framing = provenance.get("document_framing")
+    except (KeyError, TypeError):
+        framing = None
+    if not isinstance(framing, dict):
+        return {"strategy": "none", "token": None, "token_id": None}
+    strategy = framing.get("strategy")
+    if strategy not in {"none", "prepend-bos", "prepend-eos"}:
+        raise ValueError(f"unsupported recorded document framing: {strategy!r}")
+    return framing
+
+
+def analyze(
+    lens: Any, inputs: Any, *, layer: int, verbose: bool = False, **kwargs: Any
+) -> AnalysisResult:
     """Capture an input and calculate signed scores and per-token energy shares."""
-    captured = capture(lens, inputs, layer=layer, **kwargs)
+    started = perf_counter()
+    captured = capture(lens, inputs, layer=layer, verbose=verbose, **kwargs)
+    _analysis_log(verbose, "Computing ICA scores and component energy...")
+    transform_started = perf_counter()
     scores = lens.transform(captured.activations, layer=layer)
     energy = lens.energy(scores)
     component_profiles = lens._component_profile_summaries(layer)
-    return AnalysisResult(
+    _analysis_log(
+        verbose,
+        f"Computed {scores.shape[-1]} component scores for {scores.shape[0]} tokens "
+        f"in {perf_counter() - transform_started:.2f}s.",
+    )
+    result = AnalysisResult(
         tokens=captured.tokens,
         token_texts=captured.token_texts,
         token_labels=captured.token_labels,
@@ -193,6 +261,8 @@ def analyze(lens: Any, inputs: Any, *, layer: int, **kwargs: Any) -> AnalysisRes
         messages=() if isinstance(inputs, str) else tuple(dict(message) for message in inputs),
         component_profiles=component_profiles,
     )
+    _analysis_log(verbose, f"Analysis complete in {perf_counter() - started:.2f}s.")
+    return result
 
 
 def generate(
@@ -353,6 +423,8 @@ def _resolve_model_and_tokenizer(
     model: torch.nn.Module | None,
     tokenizer: Any,
     device: str | torch.device | None,
+    *,
+    verbose: bool = False,
 ) -> tuple[torch.nn.Module, Any]:
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -370,14 +442,19 @@ def _resolve_model_and_tokenizer(
     if tokenizer is None:
         tokenizer = lens._analysis_tokenizer
         if tokenizer is None:
+            _analysis_log(verbose, "Loading tokenizer...")
             tokenizer = AutoTokenizer.from_pretrained(
                 lens.model_id, revision=lens.model_revision, use_fast=True
             )
             lens._analysis_tokenizer = tokenizer
+        else:
+            _analysis_log(verbose, "Reusing cached tokenizer.")
     if model is None:
         target = _resolve_device(device)
         model = lens._analysis_model
         if model is None or lens._analysis_device != target:
+            _analysis_log(verbose, f"Loading model weights on {target}...")
+            load_started = perf_counter()
             if not target.startswith("cuda"):
                 model = AutoModelForCausalLM.from_pretrained(
                     lens.model_id, revision=lens.model_revision
@@ -402,7 +479,15 @@ def _resolve_model_and_tokenizer(
             model.eval()
             lens._analysis_model = model
             lens._analysis_device = target
+            _analysis_log(verbose, f"Loaded model in {perf_counter() - load_started:.2f}s.")
+        else:
+            _analysis_log(verbose, f"Reusing cached model on {target}.")
     return model, tokenizer
+
+
+def _analysis_log(verbose: bool, message: str) -> None:
+    if verbose:
+        print(f"[ICALens] {message}", flush=True)
 
 
 def _resolve_device(device: str | torch.device | None) -> str:

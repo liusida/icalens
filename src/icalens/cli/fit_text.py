@@ -7,6 +7,7 @@ import resource
 import sys
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from icalens import ICALens
 from icalens._capture import capture_resid_post
+from icalens._model_framing import resolve_framing_policy
 
 MODEL_ID = "openai-community/gpt2"
 DATASET_ID = "NeelNanda/pile-10k"
@@ -29,6 +31,14 @@ TEXT_FIELD = "text"
 TOKEN_BUDGET = 1_000
 CONTEXT_LENGTH = 1_024
 DEFAULT_OUTPUT = Path("icalens-output") / "icalens-gpt2-small"
+
+
+@dataclass(frozen=True)
+class TextDocument:
+    """One model input and the positions eligible for ICA fitting."""
+
+    input_ids: torch.Tensor
+    candidate_positions: torch.Tensor
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -54,6 +64,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help=f"Maximum tokens captured per document (default: {CONTEXT_LENGTH}).",
     )
     parser.add_argument(
+        "--document-framing",
+        choices=("auto", "none", "prepend-bos", "prepend-eos"),
+        default="auto",
+        help=(
+            "Context placed before each raw document. 'auto' uses the exact-model "
+            "ICALens registry and fails when the model is unknown (default: auto)."
+        ),
+    )
+    parser.add_argument(
+        "--refresh-model-registry",
+        action="store_true",
+        help="Fetch and cache the current model-framing registry from GitHub.",
+    )
+    parser.add_argument(
         "--layers",
         default="6",
         help="Comma-separated transformer-layer indices, or 'all' (default: 6).",
@@ -73,9 +97,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--candidate-tokens",
-        type=int,
-        default=None,
-        help="Candidate pool size; defaults to --token-budget.",
+        type=parse_token_budget,
+        default=argparse.SUPPRESS,
+        help="Candidate pool size, or 'all' for the entire dataset; defaults to --token-budget.",
     )
     parser.add_argument(
         "--token-budget",
@@ -129,7 +153,23 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise RuntimeError("Could not resolve exact model and dataset revisions.")
     log(f"Loading tokenizer and {args.dataset} candidate tokens...")
     tokenizer = AutoTokenizer.from_pretrained(args.model, revision=revision)
-    candidate_tokens = args.token_budget if args.candidate_tokens is None else args.candidate_tokens
+    document_framing = resolve_document_framing(
+        tokenizer,
+        args.document_framing,
+        model_id=args.model,
+        refresh_registry=args.refresh_model_registry,
+    )
+    log(
+        "Document framing: "
+        f"{document_framing['strategy']}"
+        + (
+            f" {document_framing['token']!r} (excluded from fitting samples)."
+            if document_framing["strategy"] != "none"
+            else "."
+        )
+    )
+    log(f"Document-framing policy source: {document_framing['policy_source']}")
+    candidate_tokens = getattr(args, "candidate_tokens", args.token_budget)
     documents = load_pile_documents(
         tokenizer,
         dataset_id=args.dataset,
@@ -138,8 +178,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         text_field=args.text_field,
         candidate_token_budget=candidate_tokens,
         context_length=args.context_length,
+        document_framing=document_framing,
     )
-    candidate_token_count = sum(int(document.shape[0]) for document in documents)
+    candidate_token_count = sum(
+        int(document.candidate_positions.shape[0]) for document in documents
+    )
     selected_positions = sample_positions(
         documents,
         token_budget=args.token_budget,
@@ -228,6 +271,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     "fitting_tokens": token_budget,
                     "sampling_seed": args.seed,
                     "context_length": args.context_length,
+                    "document_framing": document_framing,
                 },
             )
             output = lens.save(output)
@@ -252,12 +296,20 @@ def load_pile_documents(
     text_field: str = TEXT_FIELD,
     candidate_token_budget: int | None,
     context_length: int,
-) -> list[torch.Tensor]:
+    document_framing: dict[str, Any] | None = None,
+) -> list[TextDocument]:
     """Tokenize text documents until the requested candidate pool is full."""
     if candidate_token_budget is not None and candidate_token_budget <= 0:
         raise ValueError("--candidate-tokens must be positive")
     dataset = load_dataset(dataset_id, split=split, revision=dataset_revision, streaming=True)
-    documents: list[torch.Tensor] = []
+    framing = document_framing or {"strategy": "none", "token_id": None}
+    prefix_ids = (
+        [] if framing["strategy"] == "none" else [int(framing["token_id"])]
+    )
+    content_limit = context_length - len(prefix_ids)
+    if content_limit <= 0:
+        raise ValueError("--context-length must leave room for document framing")
+    documents: list[TextDocument] = []
     captured_tokens = 0
     progress = tqdm(
         total=candidate_token_budget,
@@ -271,7 +323,7 @@ def load_pile_documents(
             if not isinstance(text, str) or not text.strip():
                 continue
             remaining = (
-                context_length
+                content_limit
                 if candidate_token_budget is None
                 else candidate_token_budget - captured_tokens
             )
@@ -279,12 +331,19 @@ def load_pile_documents(
                 text,
                 add_special_tokens=False,
                 truncation=True,
-                max_length=min(context_length, remaining),
+                max_length=min(content_limit, remaining),
             )["input_ids"]
             if encoded:
-                document = torch.tensor(encoded, dtype=torch.long)
+                input_ids = torch.tensor(prefix_ids + encoded, dtype=torch.long)
+                candidate_positions = torch.arange(
+                    len(prefix_ids), len(prefix_ids) + len(encoded), dtype=torch.long
+                )
+                document = TextDocument(
+                    input_ids=input_ids,
+                    candidate_positions=candidate_positions,
+                )
                 documents.append(document)
-                token_count = int(document.shape[0])
+                token_count = int(candidate_positions.shape[0])
                 captured_tokens += token_count
                 progress.update(token_count)
                 progress.set_postfix(documents=len(documents), refresh=False)
@@ -303,18 +362,16 @@ def load_pile_documents(
 
 
 def sample_positions(
-    documents: list[torch.Tensor],
+    documents: list[TextDocument] | list[torch.Tensor],
     *,
     token_budget: int | None,
     seed: int,
 ) -> dict[int, torch.Tensor]:
     """Sample token positions uniformly without replacement across documents."""
-    total_tokens = sum(int(document.shape[0]) for document in documents)
+    candidates = [_candidate_positions(document) for document in documents]
+    total_tokens = sum(int(positions.shape[0]) for positions in candidates)
     if token_budget is None:
-        return {
-            index: torch.arange(document.shape[0], dtype=torch.long)
-            for index, document in enumerate(documents)
-        }
+        return {index: positions.clone() for index, positions in enumerate(candidates)}
     if token_budget <= 0:
         raise ValueError("--token-budget must be positive")
     if token_budget > total_tokens:
@@ -326,18 +383,89 @@ def sample_positions(
     selected: defaultdict[int, list[int]] = defaultdict(list)
     document_start = 0
     position_index = 0
-    for document_index, document in enumerate(documents):
-        document_end = document_start + int(document.shape[0])
+    for document_index, positions in enumerate(candidates):
+        document_end = document_start + int(positions.shape[0])
         while (
             position_index < len(flat_positions) and flat_positions[position_index] < document_end
         ):
-            selected[document_index].append(int(flat_positions[position_index] - document_start))
+            local_index = int(flat_positions[position_index] - document_start)
+            selected[document_index].append(int(positions[local_index]))
             position_index += 1
         document_start = document_end
     return {
         document_index: torch.tensor(positions, dtype=torch.long)
         for document_index, positions in selected.items()
     }
+
+
+def _candidate_positions(document: TextDocument | torch.Tensor) -> torch.Tensor:
+    if isinstance(document, TextDocument):
+        return document.candidate_positions
+    return torch.arange(document.shape[0], dtype=torch.long)
+
+
+def resolve_document_framing(
+    tokenizer: Any,
+    requested: str,
+    *,
+    model_id: str | None = None,
+    refresh_registry: bool = False,
+) -> dict[str, Any]:
+    """Resolve and validate a portable raw-document prefix policy."""
+    if requested not in {"auto", "none", "prepend-bos", "prepend-eos"}:
+        raise ValueError(f"unsupported document framing: {requested!r}")
+
+    strategy = requested
+    policy = None
+    if strategy == "auto":
+        if model_id is None:
+            raise ValueError("model_id is required when --document-framing is auto")
+        policy = resolve_framing_policy(model_id, refresh=refresh_registry)
+        strategy = str(policy.entry["document_framing"])
+
+    if strategy == "none":
+        result: dict[str, Any] = {
+            "requested": requested,
+            "strategy": "none",
+            "token": None,
+            "token_id": None,
+            "included_in_fitting_samples": False,
+            "policy_source": "explicit-cli",
+        }
+        return result
+
+    token_kind = "bos" if strategy == "prepend-bos" else "eos"
+    token = getattr(tokenizer, f"{token_kind}_token", None)
+    token_id = getattr(tokenizer, f"{token_kind}_token_id", None)
+    if token is None or token_id is None:
+        raise ValueError(
+            f"--document-framing {strategy} requires tokenizer.{token_kind}_token"
+        )
+    if policy is not None and str(token) != policy.entry["expected_token"]:
+        raise ValueError(
+            f"The registry expects {policy.entry['expected_token']!r} for {model_id}, "
+            f"but its tokenizer exposes {str(token)!r} as {token_kind}_token. "
+            "Refusing to fit with an unverified framing token."
+        )
+    result = {
+        "requested": requested,
+        "strategy": strategy,
+        "token": str(token),
+        "token_id": int(token_id),
+        "included_in_fitting_samples": False,
+        "policy_source": "explicit-cli" if policy is None else policy.source,
+    }
+    if policy is not None:
+        result.update(
+            {
+                "registry_sha256": policy.sha256,
+                "registry_schema_version": policy.schema_version,
+                "registry_model_entry": policy.model_id,
+                "evidence_url": policy.entry["evidence_url"],
+                "evidence_note": policy.entry["evidence_note"],
+            }
+        )
+    return result
 
 
 def parse_token_budget(value: str) -> int | None:
@@ -356,7 +484,7 @@ def parse_token_budget(value: str) -> int | None:
 def capture_activations(
     model: torch.nn.Module,
     *,
-    documents: list[torch.Tensor],
+    documents: list[TextDocument] | list[torch.Tensor],
     selected_positions: dict[int, torch.Tensor],
     layers: tuple[int, ...],
 ) -> dict[int, torch.Tensor]:
@@ -372,7 +500,9 @@ def capture_activations(
     )
     try:
         for document_index, positions_cpu in selected_positions.items():
-            input_ids = documents[document_index].unsqueeze(0).to("cuda")
+            document = documents[document_index]
+            document_ids = document.input_ids if isinstance(document, TextDocument) else document
+            input_ids = document_ids.unsqueeze(0).to("cuda")
             positions = positions_cpu.to("cuda")
             selected_by_layer = capture_resid_post(
                 model,

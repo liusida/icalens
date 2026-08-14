@@ -62,6 +62,7 @@ result = lens.analyze("She deposited the check.", layer=6)
 | `token_scope` | `"all" \| "content" \| "user" \| "assistant" = "all"` | 对话中返回的位置 |
 | `context_length` | `int \| None = None` | 最大编码长度 |
 | `device` | `str \| torch.device \| None = "auto"` | 模型设备；自动模式优先 CUDA |
+| `verbose` | `bool = False` | 输出模型加载、激活捕获和分数计算各阶段的耗时进度 |
 | **返回** | `AnalysisResult` | token、激活、ICA 分数和能量占比 |
 
 ### `generate(...)`
