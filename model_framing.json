@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "policy_scope": "independent_pretraining_document",
+  "description": "Document-framing policies for raw-text fitting of base language models. Chat-model fitting uses the tokenizer's chat template and does not consult this registry.",
   "models": {
     "Qwen/Qwen3.5-2B-Base": {
       "document_framing": "prepend-eos",
