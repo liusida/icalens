@@ -17,6 +17,13 @@
       "evidence_url": "https://qwen.readthedocs.io/en/latest/getting_started/concepts.html#control-tokens",
       "evidence_note": "Qwen documents are separated by <|endoftext|> inside packed pretraining sequences."
     },
+    "Qwen/Qwen3.5-9B-Base": {
+      "document_framing": "prepend-eos",
+      "token_role": "eos",
+      "expected_token": "<|endoftext|>",
+      "evidence_url": "https://qwen.readthedocs.io/en/latest/getting_started/concepts.html#control-tokens",
+      "evidence_note": "Qwen documents are separated by <|endoftext|> inside packed pretraining sequences."
+    },
     "google/gemma-2-2b": {
       "document_framing": "prepend-bos",
       "token_role": "bos",

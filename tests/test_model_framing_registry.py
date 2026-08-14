@@ -35,6 +35,7 @@ def test_registry_contains_verified_project_models() -> None:
     assert models["openai-community/gpt2"]["document_framing"] == "prepend-eos"
     assert models["google/gemma-2-2b"]["document_framing"] == "prepend-bos"
     assert models["Qwen/Qwen3.5-2B-Base"]["document_framing"] == "prepend-eos"
+    assert models["Qwen/Qwen3.5-9B-Base"]["document_framing"] == "prepend-eos"
     assert models["Qwen/Qwen3.5-35B-A3B-Base"]["document_framing"] == "prepend-eos"
 
 
