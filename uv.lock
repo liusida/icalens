@@ -1512,7 +1512,7 @@ wheels = [
 
 [[package]]
 name = "icalens"
-version = "0.3.2.dev0"
+version = "0.3.2"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },

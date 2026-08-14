@@ -20,6 +20,7 @@ from ._artifact import (
     FORMAT_NAME,
     FORMAT_VERSION,
     MANIFEST_FILENAME,
+    MINIMUM_PACKAGE_VERSION,
     LayerArtifact,
     layer_from_manifest,
     load_layer,
@@ -563,6 +564,7 @@ class ICALens:
         return {
             "format": FORMAT_NAME,
             "format_version": FORMAT_VERSION,
+            "minimum_package_version": MINIMUM_PACKAGE_VERSION,
             "package_version": _package_version(),
             "model": {
                 "repo_id": self.model_id,

@@ -80,6 +80,33 @@ def test_rejects_unsupported_format_version(tmp_path) -> None:
         ICALens.from_pretrained(target)
 
 
+def test_v3_manifest_records_minimum_package_version(
+    tmp_path, mixed_signals: np.ndarray
+) -> None:
+    artifact_dir = (
+        make_lens().fit(mixed_signals, layer=6, n_components=2).save(tmp_path / "artifact")
+    )
+    manifest = json.loads((artifact_dir / "icalens.json").read_text(encoding="utf-8"))
+
+    assert manifest["format_version"] == 3
+    assert manifest["minimum_package_version"] == "0.3.2"
+
+
+def test_rejects_v3_manifest_without_minimum_package_version(
+    tmp_path, mixed_signals: np.ndarray
+) -> None:
+    artifact_dir = (
+        make_lens().fit(mixed_signals, layer=6, n_components=2).save(tmp_path / "artifact")
+    )
+    manifest_path = artifact_dir / "icalens.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["minimum_package_version"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ArtifactError, match="minimum_package_version"):
+        ICALens.from_pretrained(artifact_dir)
+
+
 def test_loads_v1_base_model_manifest(tmp_path, mixed_signals: np.ndarray) -> None:
     artifact_dir = (
         make_lens().fit(mixed_signals, layer=6, n_components=2).save(tmp_path / "artifact")

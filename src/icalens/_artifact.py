@@ -18,8 +18,9 @@ from safetensors.numpy import load_file, save_file
 from .exceptions import ArtifactError
 
 FORMAT_NAME = "icalens"
-FORMAT_VERSION = 2
-SUPPORTED_FORMAT_VERSIONS = (1, 2)
+FORMAT_VERSION = 3
+MINIMUM_PACKAGE_VERSION = "0.3.2"
+SUPPORTED_FORMAT_VERSIONS = (1, 2, 3)
 MANIFEST_FILENAME = "icalens.json"
 
 
@@ -53,6 +54,11 @@ def parse_manifest(data: Any) -> dict[str, Any]:
             f"unsupported artifact format version: {format_version!r}; "
             f"this package supports versions {SUPPORTED_FORMAT_VERSIONS}"
         )
+    if format_version == 3 and data.get("minimum_package_version") != MINIMUM_PACKAGE_VERSION:
+        raise ArtifactError(
+            "format version 3 requires "
+            f"minimum_package_version={MINIMUM_PACKAGE_VERSION!r}"
+        )
     model_key = "base_model" if format_version == 1 else "model"
     required = (model_key, "activation_site", "hidden_size", "input_preprocessing", "layers")
     missing = [key for key in required if key not in data]
@@ -60,7 +66,7 @@ def parse_manifest(data: Any) -> dict[str, Any]:
         raise ArtifactError(f"manifest is missing required fields: {', '.join(missing)}")
     if not isinstance(data[model_key], dict) or not data[model_key].get("repo_id"):
         raise ArtifactError(f"manifest {model_key}.repo_id must be a non-empty string")
-    if format_version == 2 and data[model_key].get("type") not in ("base", "instruct"):
+    if format_version >= 2 and data[model_key].get("type") not in ("base", "instruct"):
         raise ArtifactError("manifest model.type must be 'base' or 'instruct'")
     if not isinstance(data["layers"], dict):
         raise ArtifactError("manifest layers must be an object")
