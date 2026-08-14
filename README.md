@@ -166,9 +166,6 @@ The documentation covers:
 - [Fitting and publishing](https://icalens.readthedocs.io/en/latest/fit-and-publish/)
 - [Python API](https://icalens.readthedocs.io/en/latest/api/)
 
-The repository also contains compact notebooks in [`demo/`](demo/) covering
-text analysis, conversations, reconstruction, fitting, and steering.
-
 ## Authors
 
 - [Sida Liu](https://liusida.com/)
