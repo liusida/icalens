@@ -18,7 +18,9 @@ For each component, profiling records:
 - how its squared score energy is divided between the two signs;
 - representative high-energy token occurrences and their surrounding text;
 - vocabulary tokens associated with each writing direction through a logit-lens
-  projection.
+  projection; and
+- when a compatible R-lens has been added, vocabulary tokens associated after
+  transporting the writing direction through the remaining model.
 
 Profiles are saved inside the ICA Lens artifact under `component_profiles/`.
 The profiling dataset and exact revision are recorded separately from fitting
@@ -29,7 +31,7 @@ for the CLI and Python workflows.
 
 Select a component in the token cards, then expand **Component profile**.
 
-![ICA Lens profile for a selected component](assets/text-analysis-profile.png){ loading=lazy }
+![ICA Lens component profile with corpus examples, Logit Lens, and R-lens readouts](assets/component-profile-r-lens.png){ loading=lazy }
 
 ### Sign distribution
 
@@ -66,13 +68,26 @@ At an intermediate layer, this projection skips all remaining transformer
 blocks. It is therefore a diagnostic association—not a prediction of what the
 model will generate and not proof that the component means a listed token.
 
+### R-lens tokens
+
+R-lens tokens use a corpus-averaged linear map to transport the component's
+writing direction toward a later residual-stream layer before applying the
+model's final normalization and unembedding. Unlike the direct Logit Lens,
+this readout incorporates an approximation of the intervening transformer
+blocks.
+
+They are still diagnostic associations: the map is averaged over a fitting
+corpus and is not an exact input-specific causal effect. This row appears only
+when the artifact has been enriched with a compatible R-lens.
+
 ## Form a working label
 
 A useful reading sequence is:
 
 1. Start with the dominant sign and high-energy occurrences.
 2. Look for a pattern that repeats across different contexts.
-3. Check whether the logit-lens tokens support the same interpretation.
+3. Compare the Logit Lens and, when available, R-lens tokens with that
+   interpretation.
 4. Test the proposed label on new inputs with `lens.analyze()`.
 
 Treat the result as a working hypothesis. Profiles make labeling much faster,

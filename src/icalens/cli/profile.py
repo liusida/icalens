@@ -15,13 +15,25 @@ from icalens import ICALens
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="icalens profile", description=__doc__)
+    parser.add_argument(
+        "operation",
+        nargs="?",
+        choices=("add-r-lens",),
+        help=(
+            "Optional profile operation. Use 'add-r-lens' to enrich existing "
+            "profiles without replaying the dataset."
+        ),
+    )
     parser.add_argument("--lens", required=True, help="Local lens directory or Hub repository.")
     layer_group = parser.add_mutually_exclusive_group(required=True)
     layer_group.add_argument("--layer", type=int, help="One fitted layer (compatibility form).")
     layer_group.add_argument(
         "--layers", help="Comma-separated fitted layers, or 'all'."
     )
-    parser.add_argument("--dataset", required=True, help="Hugging Face dataset repository.")
+    parser.add_argument(
+        "--dataset",
+        help="Hugging Face dataset repository (not used by 'add-r-lens').",
+    )
     parser.add_argument("--split", default="train")
     parser.add_argument("--text-field", default="text")
     parser.add_argument("--messages-field", default="messages")
@@ -37,6 +49,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--min-energy", type=float, default=0.05)
     parser.add_argument("--logit-lens-top-k", type=int, default=20)
     parser.add_argument("--logit-lens-batch-size", type=int, default=64)
+    parser.add_argument(
+        "--r-lens",
+        type=Path,
+        help="Compatible local R-lens artifact to add R-lens vocabulary readouts.",
+    )
+    parser.add_argument("--r-lens-top-k", type=int, default=20)
+    parser.add_argument("--r-lens-batch-size", type=int, default=8)
     parser.add_argument("--no-progress", action="store_true")
     parser.add_argument("--device", default="auto")
     parser.add_argument(
@@ -54,13 +73,34 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     output = _resolve_output(args.lens, args.output)
     lens = ICALens.from_pretrained(args.lens)
+    layers = _parse_layers(args.layer, args.layers, lens.available_layers)
+    if args.operation == "add-r-lens":
+        if args.r_lens is None:
+            raise ValueError("'add-r-lens' requires --r-lens")
+        for layer in layers:
+            profile = lens.add_r_lens_profile(
+                layer=layer,
+                r_lens=args.r_lens,
+                top_k=args.r_lens_top_k,
+                batch_size=args.r_lens_batch_size,
+                device=args.device,
+                progress=not args.no_progress,
+            )
+            saved_to = lens.checkpoint_component_profile(output, layer=layer)
+            print(
+                f"Added R-lens readouts to layer {layer}: "
+                f"{len(profile['components'])} components."
+            )
+            print(f"Checkpointed profiled lens to {saved_to}")
+        return
+    if args.dataset is None:
+        raise ValueError("--dataset is required for full component profiling")
     input_type = (
         "chat" if lens.model_type == "instruct" else "text"
     ) if args.input_type == "auto" else args.input_type
     revision = HfApi().dataset_info(args.dataset).sha
     if revision is None:
         raise RuntimeError("could not resolve the dataset revision")
-    layers = _parse_layers(args.layer, args.layers, lens.available_layers)
     for layer in layers:
         dataset = load_dataset(
             args.dataset, split=args.split, revision=revision, streaming=True
@@ -80,6 +120,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             min_energy=args.min_energy,
             logit_lens_top_k=args.logit_lens_top_k,
             logit_lens_batch_size=args.logit_lens_batch_size,
+            r_lens=args.r_lens,
+            r_lens_top_k=args.r_lens_top_k,
+            r_lens_batch_size=args.r_lens_batch_size,
             context_length=args.context_length,
             provenance={
                 "dataset": {

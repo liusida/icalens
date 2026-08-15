@@ -16,7 +16,8 @@ ICA 方向是一条坐标轴，并不自带语义标签。成分画像为研究�
 - 分数为正或为负的频率；
 - 分数平方能量在正负两侧的分布；
 - 具有代表性的高能量 token 位置及其上下文；
-- 每个写入方向经过 Logit Lens 投影后对应的词表 token。
+- 每个写入方向经过 Logit Lens 投影后对应的词表 token；
+- 如果加入了兼容的 R-lens，还会记录写入方向经过后续模型近似映射后的词表 token。
 
 画像保存在 ICA Lens 产物的 `component_profiles/` 目录中。画像数据集及其精确 revision
 会与拟合来源分开记录。CLI 和 Python 工作流见[拟合与发布](fit-and-publish.md)。
@@ -25,7 +26,7 @@ ICA 方向是一条坐标轴，并不自带语义标签。成分画像为研究�
 
 在 token 卡片中选择一个成分，然后展开 **Component profile**。
 
-![所选 ICA 成分的画像](assets/text-analysis-profile.png){ loading=lazy }
+![包含语料样例、Logit Lens 和 R-lens 读出的 ICA 成分画像](assets/component-profile-r-lens.png){ loading=lazy }
 
 ### 符号分布
 
@@ -53,13 +54,22 @@ ICA 方向是一条坐标轴，并不自带语义标签。成分画像为研究�
 对于中间层，这个投影跳过了所有后续 Transformer block。因此它只是诊断性关联，既不
 预测模型将生成什么，也不能证明成分的含义就是某个列出的 token。
 
+### R-lens token
+
+R-lens 使用在语料上估计的平均线性映射，把成分的写入方向传到更靠后的残差流层，再经过
+模型的最终归一化层和反嵌入。与直接 Logit Lens 相比，它近似纳入了中间 Transformer
+block 的影响。
+
+它仍然只是诊断性关联：该映射是语料平均结果，不是针对当前输入的精确因果效应。只有在
+产物中加入兼容的 R-lens 后，这一行才会出现。
+
 ## 提出暂定标签
 
 可以按以下顺序阅读：
 
 1. 先看主导符号和高能量样例。
 2. 寻找在不同上下文中反复出现的模式。
-3. 检查 Logit Lens token 是否支持同一种解释。
+3. 比较 Logit Lens token，以及可用时的 R-lens token，是否支持这种解释。
 4. 使用 `lens.analyze()` 在新输入上检验这个标签。
 
 最终结果应被视为待检验的假设。画像可以显著加快标注，但其证据取决于画像语料，不能

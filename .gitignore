@@ -21,3 +21,5 @@ experiments/
 .ipynb_checkpoints/
 icalens-output/
 three-icalens-fit/
+local-icalens-models/
+local-r-lens-models/

@@ -56,9 +56,11 @@ result
   可以推测成分可能表达的含义。
 - **Logit-lens tokens** 显示该成分写入方向会提升的词表 token。这些 token 只是辅助
   线索，不能当作确定标签，也不是对模型生成结果的预测。
+- **R-lens tokens**（如果存在）近似纳入后续 Transformer block 的平均线性影响，可作为
+  另一类读出证据。
 
 token 卡片上方的控件可以切换指标并调整显示的成分数量。阅读时可以先看高能量样例，
-检查不同上下文是否表达一致，再用 Logit Lens token 作为第二类证据。
+检查不同上下文是否表达一致，再比较 Logit Lens 和 R-lens token 作为补充证据。
 
 ## 分析另一个输入
 

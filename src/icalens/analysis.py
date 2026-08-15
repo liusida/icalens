@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal, cast
@@ -39,6 +39,7 @@ class AnalysisResult(CaptureResult):
     token_scope: str
     messages: tuple[dict[str, str], ...]
     component_profiles: dict[int, dict[str, Any]] | None = None
+    logit_effects: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
     def to_html(
         self,
@@ -263,6 +264,119 @@ def analyze(
     )
     _analysis_log(verbose, f"Analysis complete in {perf_counter() - started:.2f}s.")
     return result
+
+
+def add_logit_effects(
+    lens: Any,
+    result: AnalysisResult,
+    *,
+    components_per_token: int = 3,
+    multiplier: float = 1.1,
+    effect_tokens_per_component: int = 10,
+    batch_size: int = 32,
+    vocabulary_batch_size: int = 16384,
+) -> AnalysisResult:
+    """Attach local Logit Lens effects for each token's top-scoring components."""
+    if result.layer not in lens.available_layers:
+        raise ValueError(f"analysis layer {result.layer} is unavailable in this lens")
+    if components_per_token <= 0:
+        raise ValueError("components_per_token must be positive")
+    if not torch.isfinite(torch.tensor(float(multiplier))):
+        raise ValueError("multiplier must be finite")
+    if effect_tokens_per_component <= 0:
+        raise ValueError("effect_tokens_per_component must be positive")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    if vocabulary_batch_size <= 0:
+        raise ValueError("vocabulary_batch_size must be positive")
+    model = lens._analysis_model
+    tokenizer = lens._analysis_tokenizer
+    if model is None or tokenizer is None:
+        raise RuntimeError("analyze() must load and cache the model before add_logit_effects()")
+
+    from .profiling import _final_norm, _vocabulary_entries
+
+    final_norm = _final_norm(model)
+    output_embeddings = model.get_output_embeddings()
+    if final_norm is None or output_embeddings is None:
+        raise ValueError("model does not expose a supported final norm and output embeddings")
+
+    selected_count = min(components_per_token, int(result.scores.shape[-1]))
+    components = result.scores.abs().topk(selected_count, dim=-1).indices
+    token_indices = torch.arange(result.scores.shape[0], device=components.device)
+    token_indices = token_indices[:, None].expand_as(components).reshape(-1)
+    components = components.reshape(-1)
+    edited_scores = result.scores[token_indices].clone()
+    rows = torch.arange(edited_scores.shape[0], device=edited_scores.device)
+    original_scores = edited_scores[rows, components]
+    edited_scores[rows, components] = original_scores * float(multiplier)
+    reconstructed = lens.inverse_transform(edited_scores, layer=result.layer)
+    references = result.activations[token_indices]
+    edited_hidden = lens.restore_norm(reconstructed, reference=references)
+    original_hidden = references
+    weight = output_embeddings.weight
+    device = weight.device
+    dtype = weight.dtype
+    effects: list[dict[str, Any]] = []
+    with torch.inference_mode():
+        for start in range(0, int(edited_hidden.shape[0]), batch_size):
+            stop = min(start + batch_size, int(edited_hidden.shape[0]))
+            original_normed = final_norm(
+                original_hidden[start:stop].to(device=device, dtype=dtype)[:, None, :]
+            )
+            edited_normed = final_norm(
+                edited_hidden[start:stop].to(device=device, dtype=dtype)[:, None, :]
+            )
+            # Subtract in float32 before unembedding. Subtracting separately
+            # computed bf16 logits creates quantized deltas such as repeated 0.5.
+            delta_hidden = edited_normed.float() - original_normed.float()
+            count = min(effect_tokens_per_component, int(weight.shape[0]))
+            best_abs = torch.empty(
+                (stop - start, 0), device=device, dtype=torch.float32
+            )
+            signed_values = best_abs
+            ids = torch.empty((stop - start, 0), device=device, dtype=torch.long)
+            for vocabulary_start in range(0, int(weight.shape[0]), vocabulary_batch_size):
+                vocabulary_stop = min(
+                    vocabulary_start + vocabulary_batch_size, int(weight.shape[0])
+                )
+                chunk_logits = torch.nn.functional.linear(
+                    delta_hidden[:, 0],
+                    weight[vocabulary_start:vocabulary_stop].float(),
+                    bias=None,
+                )
+                chunk_count = min(count, int(chunk_logits.shape[-1]))
+                chunk_abs, chunk_ids = torch.topk(
+                    chunk_logits.abs(), k=chunk_count, dim=-1
+                )
+                chunk_signed = chunk_logits.gather(1, chunk_ids)
+                chunk_ids = chunk_ids + vocabulary_start
+                candidate_abs = torch.cat((best_abs, chunk_abs), dim=1)
+                candidate_signed = torch.cat((signed_values, chunk_signed), dim=1)
+                candidate_ids = torch.cat((ids, chunk_ids), dim=1)
+                keep = min(count, int(candidate_abs.shape[-1]))
+                best_abs, selected = torch.topk(candidate_abs, k=keep, dim=-1)
+                signed_values = candidate_signed.gather(1, selected)
+                ids = candidate_ids.gather(1, selected)
+            for offset in range(stop - start):
+                item = start + offset
+                token_index = int(token_indices[item])
+                component = int(components[item])
+                effects.append(
+                    {
+                        "component": component,
+                        "token_index": token_index,
+                        "position": int(result.positions[token_index]),
+                        "token_text": result.token_texts[token_index],
+                        "multiplier": float(multiplier),
+                        "original_score": float(original_scores[item]),
+                        "edited_score": float(original_scores[item] * float(multiplier)),
+                        "tokens": _vocabulary_entries(
+                            tokenizer, ids[offset], signed_values[offset]
+                        ),
+                    }
+                )
+    return replace(result, logit_effects=tuple(effects))
 
 
 def generate(

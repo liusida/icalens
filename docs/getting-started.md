@@ -64,10 +64,13 @@ token cards.
 - **Logit-lens tokens** shows vocabulary tokens promoted by the component's
   writing direction. Treat these as supporting clues, not as a definitive
   label or a prediction of generated text.
+- **R-lens tokens**, when present, include an average linear approximation of
+  the remaining transformer blocks and provide a complementary readout.
 
 The controls above the token cards change the metric and the number of
 components shown. Start with the occurrences, check whether their contexts are
-consistent, and then use the logit-lens tokens as a second source of evidence.
+consistent, and then compare the Logit Lens and R-lens tokens as additional
+evidence.
 
 ## Analyze another input
 

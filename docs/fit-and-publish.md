@@ -7,7 +7,7 @@ Producing a complete ICA Lens follows one workflow:
 | Stage | Result |
 | --- | --- |
 | **Fit** | Component directions and fitted transforms for the requested layers |
-| **Profile** | Sign statistics, representative occurrences, and logit-lens tokens for every fitted layer |
+| **Profile** | Sign statistics, representative occurrences, Logit Lens tokens, and compatible R-lens readouts |
 | **Publish** | One self-contained ICA Lens artifact in a Hugging Face Model repository |
 
 ICA Lens provides installed commands for all three stages. They are available
@@ -298,6 +298,30 @@ The logit-lens entries are diagnostic associations: at an intermediate layer,
 they skip the remaining transformer blocks and therefore are not exact causal
 predictions of generated tokens.
 
+### Add R-lens readouts
+
+If a compatible fitted R-lens is available, add its vocabulary readouts to the
+existing component profiles without replaying the profiling dataset:
+
+```bash
+icalens profile add-r-lens \
+  --lens icalens-output/my-icalens \
+  --layers all \
+  --r-lens local-r-lens-models/model/lens.pt
+```
+
+This additive command preserves the sign statistics, high-energy occurrences,
+Logit Lens entries, and ICA matrices already stored in the artifact. It updates
+the same `component_profiles/` files in place, so no output path or dataset is
+required. By default it retains 20 R-lens tokens per direction and processes 8
+directions at once; use `--r-lens-top-k` and `--r-lens-batch-size` to change
+those values.
+
+The R-lens must match the analyzed model and hidden size and must contain a
+source-layer map for each requested `resid_post` layer. R-lens tokens account
+for an average linear approximation of the remaining transformer blocks, but
+they remain diagnostic associations rather than exact input-specific effects.
+
 ### Complete artifact contents
 
 After fitting and profiling, the artifact contains:
@@ -308,7 +332,9 @@ After fitting and profiling, the artifact contains:
 - reading and writing matrices;
 - FastICA configuration, objective history, and component ordering;
 - component sign statistics, representative high-energy occurrences, and
-  logit-lens tokens for every profiled layer;
+  Logit Lens tokens for every profiled layer;
+- R-lens tokens and their provenance for layers enriched with a compatible
+  R-lens;
 - available layers and component counts; and
 - separate fitting and profiling provenance.
 

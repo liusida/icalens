@@ -7,7 +7,7 @@
 | 阶段 | 产出 |
 | --- | --- |
 | **拟合** | 指定层的成分方向与拟合变换 |
-| **画像** | 每个已拟合层的符号统计、代表性样例和 Logit Lens token |
+| **画像** | 每个已拟合层的符号统计、代表性样例、Logit Lens token，以及兼容的 R-lens 读出 |
 | **发布** | Hugging Face Model 仓库中的完整 ICA Lens 产物 |
 
 ICA Lens 为三个阶段都提供了命令行工具。安装命令如下：
@@ -276,6 +276,27 @@ print(profile["logit_lens"]["dominant"]["top_tokens"])
 Logit Lens 结果只是诊断性关联：对于中间层，它跳过了后续 Transformer 块，不能视为
 对生成 token 的精确因果预测。
 
+### 加入 R-lens 读出
+
+如果已有兼容的 R-lens，可以在不重新遍历画像数据集的情况下，把它的词表读出加入现有
+成分画像：
+
+```bash
+icalens profile add-r-lens \
+  --lens icalens-output/my-icalens \
+  --layers all \
+  --r-lens local-r-lens-models/model/lens.pt
+```
+
+这个增量命令会保留已有的符号统计、高能量样例、Logit Lens 条目和 ICA 矩阵，只更新
+同一 `component_profiles/` 目录，因此无需提供输出路径或数据集。默认每个方向保留 20
+个 R-lens token，并同时处理 8 个方向；可用 `--r-lens-top-k` 和
+`--r-lens-batch-size` 调整。
+
+R-lens 必须与待分析模型及隐藏维度匹配，并为请求的每个 `resid_post` 层提供源层映射。
+R-lens token 近似纳入后续 Transformer block 的平均线性影响，但仍是诊断性关联，不是
+针对当前输入的精确效应。
+
 ### 完整产物包含什么
 
 完成拟合和画像后，产物包含：
@@ -286,6 +307,7 @@ Logit Lens 结果只是诊断性关联：对于中间层，它跳过了后续 Tr
 - 读取矩阵与写入矩阵；
 - FastICA 配置、目标函数历史和成分排序；
 - 每个已画像层的符号统计、代表性高能量样例和 Logit Lens token；
+- 对于加入兼容 R-lens 的层，还包含 R-lens token 及其来源信息；
 - 可用层和各层成分数量；
 - 相互独立的拟合来源与画像来源信息。
 

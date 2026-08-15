@@ -293,11 +293,23 @@ class ICALens:
 
         return analyze(self, inputs, layer=layer, **kwargs)
 
+    def add_logit_effects(self, result: Any, **kwargs: Any) -> Any:
+        """Attach token-local vocabulary effects from scaling one ICA score."""
+        from .analysis import add_logit_effects
+
+        return add_logit_effects(self, result, **kwargs)
+
     def profile_components(self, inputs: Any, *, layer: int, **kwargs: Any) -> dict[str, Any]:
         """Build sign, example-token, and logit-lens profiles without refitting."""
         from .profiling import profile_components
 
         return profile_components(self, inputs, layer=layer, **kwargs)
+
+    def add_r_lens_profile(self, *, layer: int, r_lens: Any, **kwargs: Any) -> dict[str, Any]:
+        """Add R-lens token readouts to an existing component profile."""
+        from .profiling import add_r_lens_profile
+
+        return add_r_lens_profile(self, layer=layer, r_lens=r_lens, **kwargs)
 
     def component_profile(self, *, layer: int, component: int) -> dict[str, Any]:
         """Return the stored profile for one fitted component."""
@@ -552,6 +564,12 @@ class ICALens:
                 "logit_tokens": [
                     {"text": token["text"], "logit": token["logit"]}
                     for token in component["logit_lens"]["dominant"]["top_tokens"][:10]
+                ],
+                "r_lens_tokens": [
+                    {"text": token["text"]}
+                    for token in component.get("r_lens", {})
+                    .get("dominant", {})
+                    .get("top_tokens", [])[:10]
                 ],
             }
         return summaries

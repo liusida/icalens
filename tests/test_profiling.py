@@ -64,3 +64,50 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     component = loaded.component_profile(layer=1, component=0)
     assert component["dominant_sign"] == "negative"
     assert component["logit_lens"]["method"] == "final_norm_then_unembed"
+    assert profile["format_version"] == 1
+
+
+def test_add_r_lens_profile_preserves_existing_information(monkeypatch) -> None:
+    signals = np.asarray(
+        [[1.0, 0.0], [0.0, 1.0], [-1.0, 0.2], [0.1, -1.0]], dtype=np.float32
+    )
+    lens = ICALens(model_id="example/model", model_revision="revision").fit(
+        signals, layer=1, n_components=2, max_iter=2
+    )
+    lens._analysis_model = TinyModel()
+    lens._analysis_tokenizer = TinyTokenizer()
+    lens._analysis_device = "cpu"
+    result = SimpleNamespace(
+        scores=torch.tensor([[2.0, -1.0], [-3.0, 0.5]]),
+        energy=torch.tensor([[0.8, 0.2], [0.97, 0.03]]),
+        tokens=("A", "B"),
+        token_texts=(" alpha", " beta"),
+        token_ids=torch.tensor([10, 11]),
+        positions=torch.tensor([4, 5]),
+    )
+    monkeypatch.setattr(lens, "analyze", lambda *args, **kwargs: result)
+    original = lens.profile_components(
+        ["example"], layer=1, min_energy=0.1, top_k_examples=2
+    )
+    original_examples = original["components"][0]["examples"]
+
+    enriched = lens.add_r_lens_profile(
+        layer=1,
+        r_lens={
+            "J": {1: torch.eye(2)},
+            "d_model": 2,
+            "provenance": {
+                "model_id": "example/model",
+                "model_revision": "revision",
+            },
+        },
+        top_k=2,
+        batch_size=1,
+    )
+
+    assert enriched["components"][0]["examples"] == original_examples
+    assert enriched["components"][0]["r_lens"]["method"] == (
+        "relp_then_final_norm_then_unembed"
+    )
+    assert len(enriched["components"][0]["r_lens"]["dominant"]["top_tokens"]) == 2
+    assert enriched["selection"]["r_lens_top_k"] == 2

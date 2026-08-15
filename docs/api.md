@@ -242,6 +242,9 @@ profile = lens.profile_components(
 | `min_energy` | `float = 0.05` | Minimum per-token component energy required for an example |
 | `logit_lens_top_k` | `int = 20` | Top and bottom vocabulary entries retained for each direction |
 | `logit_lens_batch_size` | `int = 64` | Writing directions unembedded together; lower this to reduce peak memory |
+| `r_lens` | `str \| Path \| dict \| None = None` | Compatible R-lens artifact used to add downstream-aware vocabulary readouts |
+| `r_lens_top_k` | `int = 20` | R-lens vocabulary entries retained per direction |
+| `r_lens_batch_size` | `int = 8` | R-lens directions processed together |
 | `provenance` | `dict \| None = None` | JSON-compatible profiling provenance |
 | `context_length` | `int \| None = 1024` | Maximum encoded length of each input |
 | `device` | `str \| torch.device \| None = "auto"` | Language-model device |
@@ -260,10 +263,43 @@ Each component entry contains:
 | `sign_statistics` | Positive/negative position fractions and positive/negative energy fractions |
 | `examples` | Retained positive and negative high-energy occurrences and token counts |
 | `logit_lens` | Vocabulary associations for the positive, negative, and dominant writing directions |
+| `r_lens` | Optional downstream-aware vocabulary associations when a compatible R-lens was supplied |
 
 Call `save()` afterward to persist all attached profiles. When processing many
 layers, use `checkpoint_component_profile()` after each layer so completed
 profiles survive an interruption.
+
+### `add_r_lens_profile(...)`
+
+Add R-lens readouts to an existing component profile without replaying its
+dataset:
+
+```python
+profile = lens.add_r_lens_profile(
+    layer=6,
+    r_lens="local-r-lens-models/model/lens.pt",
+    top_k=20,
+    batch_size=8,
+    device="auto",
+    progress=True,
+)
+lens.checkpoint_component_profile("icalens-output/my-icalens", layer=6)
+```
+
+| Argument | Type / default | Meaning |
+| --- | --- | --- |
+| `layer` | `int`, required | Layer with an existing component profile |
+| `r_lens` | `str \| Path \| dict`, required | Compatible fitted R-lens artifact |
+| `top_k` | `int = 20` | Vocabulary entries retained per sign direction |
+| `batch_size` | `int = 8` | Component directions processed together |
+| `device` | `str \| torch.device \| None = "auto"` | Language-model device |
+| `progress` | `bool = False` | Display R-lens projection progress |
+| **Returns** | `dict` | Updated per-layer profile, also attached to the lens |
+
+The method preserves existing sign statistics, examples, and Logit Lens
+entries. The R-lens must match the analyzed model and hidden size and provide a
+source map for the requested `resid_post` layer. Use `save()` or
+`checkpoint_component_profile()` afterward to persist the update.
 
 ### `component_profile(...)`
 
@@ -275,12 +311,13 @@ component = lens.component_profile(layer=5, component=188)
 | --- | --- | --- |
 | `layer` | `int`, required | Profiled layer |
 | `component` | `int`, required | Component ID |
-| **Returns** | `dict` | Sign statistics, examples, and logit-lens entries for the component |
+| **Returns** | `dict` | Sign statistics, examples, Logit Lens entries, and optional R-lens entries |
 
 Profiles are loaded lazily when reading a local or Hugging Face artifact.
 
 The returned component dictionary has the same `dominant_sign`,
-`sign_statistics`, `examples`, and `logit_lens` fields described above. Its
+`sign_statistics`, `examples`, `logit_lens`, and optional `r_lens` fields
+described above. Its
 four sign statistics are:
 
 | Field | Meaning |
@@ -308,7 +345,7 @@ path = lens.checkpoint_component_profile(
 | **Returns** | `Path` | Resolved artifact directory |
 
 The layer must already have an in-memory profile created by
-`profile_components()`. This method writes the compressed profile under
+`profile_components()` or enriched by `add_r_lens_profile()`. This method writes the compressed profile under
 `component_profiles/` and updates the manifest without rewriting unrelated
 layer tensors. The `icalens profile` CLI uses it to checkpoint every completed
 layer. For an ordinary one-shot Python workflow, calling `save()` is sufficient.
@@ -528,6 +565,7 @@ or pass `token=` explicitly.
 | `token_scope` | Positions selected from the encoded input |
 | `messages` | Original conversation messages, or an empty tuple for text |
 | `component_profiles` | Compact per-component profile summaries for the analyzed layer, or `None` when that layer has no profile |
+| `logit_effects` | Token-local Logit Lens effects added by `lens.add_logit_effects(...)` |
 
 In Jupyter or Colab, leave `result` as the final expression to render it:
 
@@ -536,8 +574,39 @@ result
 ```
 
 `component_profiles` supplies the interactive result with sign statistics,
-high-energy occurrences, and promoted logit-lens tokens. Full stored profiles
-remain available through `lens.component_profile(...)`.
+high-energy occurrences, Logit Lens tokens, and optional R-lens tokens. Full
+stored profiles remain available through `lens.component_profile(...)`.
+
+### `add_logit_effects(...)`
+
+After analyzing an input, scale its top component scores and attach the largest
+direct Logit Lens changes to the result:
+
+```python
+result = lens.analyze("She deposited the check at the bank.", layer=6)
+result = lens.add_logit_effects(
+    result,
+    components_per_token=3,
+    multiplier=1.1,
+    effect_tokens_per_component=10,
+)
+result
+```
+
+The method evaluates the leading absolute-score components independently at
+every analyzed token. Its values appear in a separate **Local intervention
+projection** panel. They use final normalization and unembedding directly and
+do not run the remaining transformer layers.
+
+| Argument | Type / default | Meaning |
+| --- | --- | --- |
+| `result` | `AnalysisResult`, required | Existing analysis whose cached model and activations are reused |
+| `components_per_token` | `int = 3` | Highest absolute-score components evaluated at each analyzed token |
+| `multiplier` | `float = 1.1` | Multiplicative change applied to the original signed score |
+| `effect_tokens_per_component` | `int = 10` | Vocabulary tokens retained for each local component edit, ranked by absolute logit change |
+| `batch_size` | `int = 32` | Local edits unembedded together; lower this to reduce temporary memory |
+| `vocabulary_batch_size` | `int = 16384` | Vocabulary rows projected together in float32; lower this to reduce temporary memory |
+| **Returns** | `AnalysisResult` | A new result containing the attached local effect |
 
 ### `AnalysisResult.display(...)`
 

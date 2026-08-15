@@ -161,6 +161,9 @@ profile = lens.profile_components(
 | `min_energy` | `float = 0.05` | 样例需要达到的最小逐 token 成分能量 |
 | `logit_lens_top_k` | `int = 20` | 每个方向保留的最高和最低词表条目数 |
 | `logit_lens_batch_size` | `int = 64` | 同时反嵌入的写入方向数；调低可减少峰值显存 |
+| `r_lens` | `str \| Path \| dict \| None = None` | 用于加入后续层近似词表读出的兼容 R-lens 产物 |
+| `r_lens_top_k` | `int = 20` | 每个方向保留的 R-lens 词表条目数 |
+| `r_lens_batch_size` | `int = 8` | 同时处理的 R-lens 方向数 |
 | `provenance` | `dict \| None = None` | 可 JSON 序列化的画像来源信息 |
 | `context_length` | `int \| None = 1024` | 每条输入的最大编码长度 |
 | `device` | `str \| torch.device \| None = "auto"` | 语言模型设备 |
@@ -177,9 +180,40 @@ profile = lens.profile_components(
 | `sign_statistics` | 正负位置比例和正负能量比例 |
 | `examples` | 正负两侧保留的高能量样例和 token 计数 |
 | `logit_lens` | 正向、负向及主导写入方向对应的词表关联 |
+| `r_lens` | 提供兼容 R-lens 时加入的、近似纳入后续层影响的词表关联 |
 
 之后调用 `save()` 可以持久化所有已附加画像。处理多个层时，应在每层完成后调用
 `checkpoint_component_profile()`，使已经完成的画像在任务中断后仍能保留。
+
+### `add_r_lens_profile(...)`
+
+无需重新遍历画像数据集，即可向已有成分画像加入 R-lens 读出：
+
+```python
+profile = lens.add_r_lens_profile(
+    layer=6,
+    r_lens="local-r-lens-models/model/lens.pt",
+    top_k=20,
+    batch_size=8,
+    device="auto",
+    progress=True,
+)
+lens.checkpoint_component_profile("icalens-output/my-icalens", layer=6)
+```
+
+| 参数 | 类型／默认值 | 含义 |
+| --- | --- | --- |
+| `layer` | `int`，必填 | 已有成分画像的层 |
+| `r_lens` | `str \| Path \| dict`，必填 | 兼容的已拟合 R-lens 产物 |
+| `top_k` | `int = 20` | 每个符号方向保留的词表条目数 |
+| `batch_size` | `int = 8` | 同时处理的成分方向数 |
+| `device` | `str \| torch.device \| None = "auto"` | 语言模型设备 |
+| `progress` | `bool = False` | 是否显示 R-lens 投影进度 |
+| **返回** | `dict` | 更新后的逐层画像，同时附加到当前 Lens |
+
+该方法保留已有的符号统计、样例和 Logit Lens 条目。R-lens 必须与待分析模型及隐藏维度
+匹配，并为请求的 `resid_post` 层提供源层映射。之后调用 `save()` 或
+`checkpoint_component_profile()` 持久化更新。
 
 ### `component_profile(...)`
 
@@ -191,12 +225,12 @@ component = lens.component_profile(layer=5, component=188)
 | --- | --- | --- |
 | `layer` | `int`，必填 | 已建立画像的层 |
 | `component` | `int`，必填 | 成分编号 |
-| **返回** | `dict` | 该成分的符号统计、样例和 Logit Lens 条目 |
+| **返回** | `dict` | 该成分的符号统计、样例、Logit Lens 条目和可选 R-lens 条目 |
 
 从本地或 Hugging Face 载入产物时，画像文件会按需延迟加载。
 
-返回的成分字典包含上文所述的 `dominant_sign`、`sign_statistics`、`examples` 和
-`logit_lens`。四项符号统计的含义如下：
+返回的成分字典包含上文所述的 `dominant_sign`、`sign_statistics`、`examples`、
+`logit_lens` 和可选的 `r_lens`。四项符号统计的含义如下：
 
 | 字段 | 含义 |
 | --- | --- |
@@ -222,7 +256,8 @@ path = lens.checkpoint_component_profile(
 | `layer` | `int`，必填 | 要写入新画像的层 |
 | **返回** | `Path` | 解析后的产物目录 |
 
-该层必须已经通过 `profile_components()` 创建了内存画像。此方法会将压缩画像写入
+该层必须已经通过 `profile_components()` 创建，或通过 `add_r_lens_profile()` 丰富了
+内存画像。此方法会将压缩画像写入
 `component_profiles/` 并更新 manifest，而不会重写无关层的张量。`icalens profile`
 CLI 使用它逐层保存 checkpoint。普通的一次性 Python 流程调用 `save()` 即可。
 
@@ -362,8 +397,10 @@ url = lens.push_to_hub(
 ### `AnalysisResult`
 
 `AnalysisResult` 还包含 `scores`、`energy`、`model`、`layer`、`input_text`、
-`token_scope`、`messages` 和 `component_profiles`。其中 `component_profiles` 是当前
-分析层的精简逐成分画像；该层没有画像时为 `None`。
+`token_scope`、`messages`、`component_profiles` 和 `logit_effects`。其中
+`component_profiles` 是当前分析层的精简逐成分画像；该层没有画像时为 `None`。
+`logit_effects` 保存由 `lens.add_logit_effects(...)` 添加的逐 token 局部 Logit Lens
+效应。
 
 在 Jupyter 或 Colab 中，将 `result` 作为单元格最后一个表达式即可显示结果：
 
@@ -371,8 +408,37 @@ url = lens.push_to_hub(
 result
 ```
 
-`component_profiles` 为交互式结果提供符号统计、高能量样例和提升的 Logit Lens token。
-完整画像仍可通过 `lens.component_profile(...)` 读取。
+`component_profiles` 为交互式结果提供符号统计、高能量样例、Logit Lens token 和可选
+R-lens token。完整画像仍可通过 `lens.component_profile(...)` 读取。
+
+### `add_logit_effects(...)`
+
+分析输入后，可以将每个 token 上绝对值最大的若干成分分别放大，并把最大的直接
+Logit Lens 变化附加到结果中：
+
+```python
+result = lens.analyze("She deposited the check at the bank.", layer=6)
+result = lens.add_logit_effects(
+    result,
+    components_per_token=3,
+    multiplier=1.1,
+    effect_tokens_per_component=10,
+)
+result
+```
+
+这些数值显示在单独的 **Local intervention projection** 面板中。它们是经过最终
+归一化层与 unembedding 后的直接投影，不会运行后续 Transformer 层。
+
+| 参数 | 类型 / 默认值 | 含义 |
+| --- | --- | --- |
+| `result` | `AnalysisResult`，必填 | 已有分析结果；复用其中的激活与缓存模型 |
+| `components_per_token` | `int = 3` | 每个已分析 token 上按分数绝对值选取的成分数 |
+| `multiplier` | `float = 1.1` | 原始有符号分数的乘数 |
+| `effect_tokens_per_component` | `int = 10` | 每次局部成分编辑按 logit 变化绝对值保留的词表 token 数 |
+| `batch_size` | `int = 32` | 同时处理的局部编辑数；调小可降低临时显存 |
+| `vocabulary_batch_size` | `int = 16384` | 以 float32 同时投影的词表行数；调小可降低临时显存 |
+| **返回** | `AnalysisResult` | 包含局部效应的新结果 |
 
 ### `AnalysisResult.display(...)`
 

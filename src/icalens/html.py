@@ -80,6 +80,7 @@ def _analysis_payload(
     component_count = int(scores.shape[-1])
     tokens = [
         {
+            "token_index": row,
             "position": int(result.positions[row]),
             "token": result.tokens[row],
             "token_text": result.token_texts[row],
@@ -119,6 +120,7 @@ def _analysis_payload(
         tokens=tokens,
         token_groups=token_groups,
         component_profiles=result.component_profiles or {},
+        logit_effects=result.logit_effects,
     )
 
 
@@ -157,6 +159,7 @@ def write_explorer_html(
         tokens=tokens,
         token_groups=token_groups or [],
         component_profiles={},
+        logit_effects={},
     )
     destination.write_text(_document(payload), encoding="utf-8")
     return destination
@@ -240,10 +243,11 @@ def _document(payload: str) -> str:
     .badge.selected {{ outline: 2px solid var(--color); border-color: var(--color); opacity: 1; }}
     .component {{ font-weight: 850; }}
     .score {{ font-variant-numeric: tabular-nums; }}
-    .profile-grid {{ display: grid; grid-template-columns: minmax(280px, .8fr) minmax(380px, 1.5fr);
+    .profile-grid {{ display: grid; grid-template-columns: minmax(340px, .55fr) minmax(0, 1.8fr);
       gap: 16px 24px; margin-top: 12px; }}
     .profile-wide {{ grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid #e1e6ee; }}
     .profile-section h3 {{ margin: 0 0 7px; font-size: 13px; }}
+    .profile-token-row + .profile-token-row {{ margin-top: 13px; }}
     .profile-stat-row {{ display: grid; grid-template-columns: 62px 48px minmax(100px, 1fr) 48px;
       gap: 7px; align-items: center; margin: 7px 0; color: #435066; font-size: 11px; }}
     .profile-stat-row strong:last-child {{ text-align: right; }}
@@ -306,6 +310,10 @@ def _document(payload: str) -> str:
       <summary id="componentProfileSummary">Component profile</summary>
       <div class="profile-grid" id="componentProfileBody"></div>
     </details>
+    <details class="panel" id="localIntervention" hidden>
+      <summary id="localInterventionSummary">Local intervention projection</summary>
+      <div class="profile-chips" id="localInterventionBody"></div>
+    </details>
   </main>
   <script>
     const data = {payload};
@@ -313,7 +321,7 @@ def _document(payload: str) -> str:
       "&":"&amp;", "<":"&lt;", ">":"&gt;", "\\\"":"&quot;", "'":"&#39;"
     }})[char]);
     const color = component => `hsl(${{(Number(component) * 137.508) % 360}} 66% 78%)`;
-    const state = {{ selected: null, metric: data.metric, topK: Number(data.top_k || 3) }};
+    const state = {{ selected: null, selectedToken: null, metric: data.metric, topK: Number(data.top_k || 3) }};
     const results = document.getElementById("results");
     const cutoff = document.getElementById("cutoff");
 
@@ -423,7 +431,7 @@ def _document(payload: str) -> str:
           ? `${{(score * 100).toFixed(2)}}%`
           : `${{score >= 0 ? "+" : ""}}${{score.toFixed(3)}}`;
         const tooltip = componentTooltip(component);
-        return `<div class="score-row"><button class="badge ${{ratio < threshold ? "weak" : ""}} ${{selected ? "selected" : ""}}" data-component="${{component}}" title="${{esc(tooltip)}}" style="--width:${{(ratio*100).toFixed(1)}}%;--bar:${{bar}};--color:${{color(component)}}"><span class="component">C${{component}}</span><span class="score">${{display}}</span></button></div>`;
+        return `<div class="score-row"><button class="badge ${{ratio < threshold ? "weak" : ""}} ${{selected ? "selected" : ""}}" data-component="${{component}}" data-token-index="${{token.token_index}}" title="${{esc(tooltip)}}" style="--width:${{(ratio*100).toFixed(1)}}%;--bar:${{bar}};--color:${{color(component)}}"><span class="component">C${{component}}</span><span class="score">${{display}}</span></button></div>`;
       }}).join("");
       return `<article class="token-card"><div class="token-text" title="${{esc(tokenTooltip)}}">${{esc(tokenText)}}</div>${{badges}}</article>`;
     }}
@@ -442,6 +450,12 @@ def _document(payload: str) -> str:
       profile.logit_tokens.slice(0, 3).forEach((item, index) => {{
         lines.push(`#${{index + 1}} ${{JSON.stringify(item.text)}}`);
       }});
+      if (profile.r_lens_tokens?.length) {{
+        lines.push("Top R-lens tokens:");
+        profile.r_lens_tokens.slice(0, 3).forEach((item, index) => {{
+          lines.push(`#${{index + 1}} ${{JSON.stringify(item.text)}}`);
+        }});
+      }}
       return lines.join("\\n");
     }}
 
@@ -452,9 +466,11 @@ def _document(payload: str) -> str:
     function updateSelection() {{
       const selection = document.getElementById("selection");
       const profilePanel = document.getElementById("componentProfile");
+      const localPanel = document.getElementById("localIntervention");
       if (state.selected === null) {{
         selection.textContent = "Click a component to highlight it.";
         profilePanel.hidden = true;
+        localPanel.hidden = true;
         return;
       }}
       const tokens = allTokens();
@@ -471,10 +487,11 @@ def _document(payload: str) -> str:
         : `${{strongest.value >= 0 ? "+" : ""}}${{strongest.value.toFixed(3)}}`;
       const token = strongest === null ? "" : ` at “${{strongest.token.token_text || strongest.token.token}}” (${{value}})`;
       selection.textContent = `C${{state.selected}} · strongest${{token}} · visible in ${{visible}}/${{tokens.length}} tokens`;
-      updateComponentProfile(state.selected);
+      updateComponentProfile(state.selected, state.selectedToken);
+      updateLocalIntervention(state.selected, state.selectedToken);
     }}
 
-    function updateComponentProfile(component) {{
+    function updateComponentProfile(component, tokenIndex) {{
       const panel = document.getElementById("componentProfile");
       const summary = document.getElementById("componentProfileSummary");
       const body = document.getElementById("componentProfileBody");
@@ -511,13 +528,37 @@ def _document(payload: str) -> str:
       const positionNegative = percentage(stats.negative_fraction);
       const energyPositive = percentage(stats.positive_energy_fraction);
       const energyNegative = percentage(stats.negative_energy_fraction);
+      const rLensSection = profile.r_lens_tokens?.length
+        ? `<div class="profile-token-row"><h3>R-lens tokens · ${{profile.dominant_sign}}</h3><div class="profile-chips">${{tokenItems(profile.r_lens_tokens)}}</div></div>`
+        : "";
       body.innerHTML = `
         <section class="profile-section"><h3>Sign distribution</h3>
           <div class="profile-stat-row profile-stat-primary"><strong>Energy</strong><span>+${{energyPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{energyPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{energyNegative}}</span></div>
           <div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+${{positionPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{positionPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{positionNegative}}</span></div>
         </section>
-        <section class="profile-section"><h3>Logit-lens tokens · ${{profile.dominant_sign}}</h3><div class="profile-chips">${{tokenItems(profile.logit_tokens)}}</div></section>
+        <section class="profile-section">
+          <div class="profile-token-row"><h3>Logit-lens tokens · ${{profile.dominant_sign}}</h3><div class="profile-chips">${{tokenItems(profile.logit_tokens)}}</div></div>
+          ${{rLensSection}}
+        </section>
         <section class="profile-section profile-wide"><h3>High-energy occurrences · ${{profile.dominant_sign}}</h3><ol class="profile-list profile-occurrences">${{occurrenceItems}}</ol></section>`;
+    }}
+
+    function updateLocalIntervention(component, tokenIndex) {{
+      const panel = document.getElementById("localIntervention");
+      const summary = document.getElementById("localInterventionSummary");
+      const body = document.getElementById("localInterventionBody");
+      const effect = data.logit_effects.find(item =>
+        Number(item.component) === component && Number(item.token_index) === tokenIndex);
+      if (!effect) {{
+        panel.hidden = true;
+        return;
+      }}
+      panel.hidden = false;
+      summary.textContent = `Local intervention projection — C${{component}} ×${{Number(effect.multiplier).toFixed(2)}}`;
+      body.innerHTML = effect.tokens.map((item, index) =>
+        `<span class="profile-token-chip" title="Ranked by absolute local logit change"><span class="profile-value">#${{index + 1}}</span>` +
+        `<strong>${{esc(JSON.stringify(String(item.text || "")))}}</strong></span>`
+      ).join("");
     }}
 
     function resizeFrame() {{
@@ -536,7 +577,10 @@ def _document(payload: str) -> str:
       }});
       document.querySelectorAll(".badge").forEach(node => node.addEventListener("click", () => {{
         const component = Number(node.dataset.component);
-        state.selected = state.selected === component ? null : component;
+        const tokenIndex = Number(node.dataset.tokenIndex);
+        const same = state.selected === component && state.selectedToken === tokenIndex;
+        state.selected = same ? null : component;
+        state.selectedToken = same ? null : tokenIndex;
         render();
       }}));
       updateSelection();
@@ -559,6 +603,7 @@ def _document(payload: str) -> str:
     cutoff.addEventListener("input", render);
     document.getElementById("clear").addEventListener("click", () => {{
       state.selected = null;
+      state.selectedToken = null;
       document.getElementById("selection").textContent = "Click a component to highlight it.";
       render();
     }});

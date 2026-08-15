@@ -43,6 +43,23 @@ class DummyModel(torch.nn.Module):
         return SimpleNamespace(hidden_states=(hidden,))
 
 
+class DummyLogitModel(DummyModel):
+    def __init__(self) -> None:
+        super().__init__()
+        self.transformer = SimpleNamespace(ln_f=torch.nn.Identity())
+        self.output_embeddings = torch.nn.Linear(3, 7, bias=False)
+
+    def get_output_embeddings(self) -> torch.nn.Module:
+        return self.output_embeddings
+
+
+class DummyLogitTokenizer(DummyTokenizer):
+    def convert_ids_to_tokens(self, ids: int | list[int]) -> str | list[str]:
+        if isinstance(ids, int):
+            return f"v{ids}"
+        return [f"v{value}" for value in ids]
+
+
 class DummyGenerationTokenizer(DummyTokenizer):
     def decode(self, ids: object, **_: object) -> str:
         values = torch.as_tensor(ids).tolist()
@@ -115,6 +132,39 @@ def test_analyze_verbose_reports_major_stages(
     assert "Capturing 3 token activations" in output
     assert "Computing ICA scores and component energy" in output
     assert "Analysis complete" in output
+
+
+def test_add_logit_effects_covers_top_components_at_every_token(
+    mixed_signals: np.ndarray,
+) -> None:
+    lens = ICALens(
+        model_id="example/model",
+        model_revision="abc",
+        activation_site="hidden_states",
+        layer_indexing="hidden_states",
+    ).fit(mixed_signals, layer=0)
+    model = DummyLogitModel()
+    tokenizer = DummyLogitTokenizer()
+    result = lens.analyze("one two three", layer=0, model=model, tokenizer=tokenizer)
+    lens._analysis_model = model
+    lens._analysis_tokenizer = tokenizer
+
+    enriched = lens.add_logit_effects(
+        result,
+        components_per_token=2,
+        effect_tokens_per_component=4,
+        batch_size=2,
+    )
+
+    assert result.logit_effects == ()
+    assert len(enriched.logit_effects) == 6
+    assert {(item["token_index"], item["component"]) for item in enriched.logit_effects} == {
+        (token_index, int(component))
+        for token_index, row in enumerate(result.scores.abs().topk(2, dim=-1).indices)
+        for component in row
+    }
+    assert all(len(item["tokens"]) == 4 for item in enriched.logit_effects)
+    assert all(item["multiplier"] == 1.1 for item in enriched.logit_effects)
 
 
 def test_auto_device_uses_cpu_without_cuda(monkeypatch: pytest.MonkeyPatch) -> None:

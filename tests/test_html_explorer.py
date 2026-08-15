@@ -43,6 +43,18 @@ def analysis_result() -> AnalysisResult:
                 "logit_tokens": [{"text": " biology", "logit": 6.5}],
             }
         },
+        logit_effects=(
+            {
+                "component": 0,
+                "token_index": 0,
+                "position": 3,
+                "token_text": " hello",
+                "multiplier": 1.1,
+                "original_score": -2.0,
+                "edited_score": -2.2,
+                "tokens": [{"text": " world", "logit": 0.45}],
+            },
+        ),
     )
 
 
@@ -197,6 +209,15 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert 'class="profile-target"' in html
     assert "const index = target ? context.indexOf(target) : -1" in html
     assert "highlightedContext(item)" in html
+    assert 'data-token-index="${token.token_index}"' in html
+    assert (
+        "Local intervention projection — C${component} "
+        "×${Number(effect.multiplier).toFixed(2)}" in html
+    )
+    assert "Ranked by absolute local logit change" in html
+    assert "Number(item.logit).toFixed(3)" not in html
+    assert '<details class="panel" id="localIntervention" hidden>' in html
+    assert '"token_text":" hello","multiplier":1.1' in html
 
 
 def test_analysis_result_has_notebook_representation() -> None:
