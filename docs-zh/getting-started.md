@@ -48,7 +48,7 @@ result
 
 如果所选成分带有画像，可以展开 token 卡片下方的 **Component profile**。
 
-![所选 ICA 成分的画像](assets/text-analysis-profile.png){ loading=lazy }
+![包含语料样例、Logit Lens 和 R-lens 读出的 ICA 成分画像](assets/component-profile-r-lens.png){ loading=lazy }
 
 - **Sign distribution** 显示该成分的能量通常集中在正侧还是负侧。正负两侧应被理解为
   两个不同的方向。

@@ -54,7 +54,7 @@ analysis.
 When a selected component has a profile, expand **Component profile** below the
 token cards.
 
-![ICA Lens profile for a selected component](assets/text-analysis-profile.png){ loading=lazy }
+![ICA Lens component profile with corpus examples, Logit Lens, and R-lens readouts](assets/component-profile-r-lens.png){ loading=lazy }
 
 - **Sign distribution** shows whether the component's energy usually appears
   on its positive or negative side. Read the two sides as distinct directions.
