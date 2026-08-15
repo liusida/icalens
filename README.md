@@ -7,7 +7,7 @@ dictionary and supports base and instruction-tuned language models.
 **[Documentation](https://icalens.readthedocs.io/en/latest/)** ·
 **[中文文档](https://icalens.readthedocs.io/zh_CN/latest/)** ·
 **[Paper](https://arxiv.org/abs/2606.11722)** ·
-**[Model collection](https://huggingface.co/sida)**
+**[Model collection](https://huggingface.co/collections/sida/ica-lens)**
 
 ## Get started
 
@@ -24,6 +24,9 @@ lens = ICALens.from_pretrained("sida/icalens-gpt2-small-pile10k")
 result = lens.analyze("She deposited the check at the bank.", layer=6)
 result
 ```
+
+Browse the [ICA Lens model collection](https://huggingface.co/collections/sida/ica-lens)
+for other published lenses.
 
 In Jupyter or Colab, the final `result` expression displays an interactive
 token-level analysis:

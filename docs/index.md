@@ -19,6 +19,9 @@ result = lens.analyze("She deposited the check at the bank.", layer=6)
 result
 ```
 
+Browse the [ICA Lens model collection](https://huggingface.co/collections/sida/ica-lens)
+for other published lenses.
+
 ![ICA Lens interactive token-level analysis in Jupyter](assets/text-analysis-notebook.png){ loading=lazy }
 
 *Interactive token-level component analysis in Jupyter.*

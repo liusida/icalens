@@ -16,6 +16,9 @@ You can access public models on Hugging Face without signing in. Authentication
 is required for private or gated repositories and also provides higher download
 rate limits.
 
+Browse the [ICA Lens model collection](https://huggingface.co/collections/sida/ica-lens)
+to choose from the published lenses.
+
 ## Analyze text
 
 ```python

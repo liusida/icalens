@@ -14,6 +14,9 @@ pip install icalens
 访问 Hugging Face 上的公开模型无需登录。访问私有或受限仓库时必须进行身份认证；
 登录后还可以获得更高的下载速率限制。
 
+可以在 [ICA Lens 模型合集](https://huggingface.co/collections/sida/ica-lens)中选择已经发布的
+Lens。
+
 ## 分析文本
 
 ```python
