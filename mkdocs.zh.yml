@@ -10,6 +10,7 @@ edit_uri: edit/main/docs-zh/
 
 theme:
   name: material
+  custom_dir: docs-overrides
   language: zh
   features:
     - navigation.sections
