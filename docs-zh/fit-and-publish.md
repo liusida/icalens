@@ -297,6 +297,20 @@ R-lens 必须与待分析模型及隐藏维度匹配，并为请求的每个 `re
 R-lens token 近似纳入后续 Transformer block 的平均线性影响，但仍是诊断性关联，不是
 针对当前输入的精确效应。
 
+若要把基座模型的 R-lens 复用于架构兼容的指令模型，必须显式启用：
+
+```bash
+icalens profile add-r-lens \
+  --lens icalens-output/my-instruct-icalens \
+  --layers all \
+  --r-lens local-r-lens-models/base-model/lens.pt \
+  --allow-base-model-transfer
+```
+
+这样可以节省重新拟合 R-lens 的计算，同时仍使用指令模型自身的最终归一化层和
+unembedding。ICALens 仍会检查隐藏维度、激活位置和源层映射，并在产物中同时记录
+R-lens 来源模型与目标指令模型。由于指令微调改变了中间权重，这类读出应视为近似结果。
+
 ### 完整产物包含什么
 
 完成拟合和画像后，产物包含：

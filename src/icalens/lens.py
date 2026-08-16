@@ -73,6 +73,7 @@ class ICALens:
         self._layers: dict[int, LayerArtifact] = {}
         self._local_root: Path | None = None
         self._hub_source: dict[str, Any] | None = None
+        self._r_lens_profiles: dict[str, Any] = {}
         self._analysis_model: torch.nn.Module | None = None
         self._analysis_tokenizer: Any = None
         self._analysis_device: str | None = None
@@ -471,6 +472,12 @@ class ICALens:
         lens._layers = {
             int(key): layer_from_manifest(key, value) for key, value in manifest["layers"].items()
         }
+        stored_r_lens_profiles = manifest.get("r_lens_profiles", {})
+        lens._r_lens_profiles = (
+            copy.deepcopy(stored_r_lens_profiles)
+            if isinstance(stored_r_lens_profiles, dict)
+            else {}
+        )
         lens._local_root = root
         lens._hub_source = hub_source
         return lens
@@ -579,6 +586,13 @@ class ICALens:
             hidden_size = 0
         else:
             hidden_size = self._hidden_size
+        r_lens_layers: dict[str, Any] = copy.deepcopy(self._r_lens_profiles)
+        for layer, artifact in sorted(self._layers.items()):
+            if artifact.profile is None:
+                continue
+            provenance = artifact.profile.get("r_lens_provenance")
+            if isinstance(provenance, dict):
+                r_lens_layers[str(layer)] = copy.deepcopy(provenance)
         return {
             "format": FORMAT_NAME,
             "format_version": FORMAT_VERSION,
@@ -596,6 +610,7 @@ class ICALens:
                 "row_normalization": "l2" if self.row_normalize else "none",
                 "norm_eps": self.norm_eps,
             },
+            **({"r_lens_profiles": r_lens_layers} if r_lens_layers else {}),
             "layers": {
                 str(layer): {
                     "file": artifact.file,

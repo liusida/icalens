@@ -282,6 +282,7 @@ profile = lens.add_r_lens_profile(
     batch_size=8,
     device="auto",
     progress=True,
+    allow_base_model_transfer=False,
 )
 lens.checkpoint_component_profile("icalens-output/my-icalens", layer=6)
 ```
@@ -294,12 +295,16 @@ lens.checkpoint_component_profile("icalens-output/my-icalens", layer=6)
 | `batch_size` | `int = 8` | Component directions processed together |
 | `device` | `str \| torch.device \| None = "auto"` | Language-model device |
 | `progress` | `bool = False` | Display R-lens projection progress |
+| `allow_base_model_transfer` | `bool = False` | Explicitly permit a dimension-compatible base-model R-lens to be reused for an instruct ICA Lens and record the transfer provenance |
 | **Returns** | `dict` | Updated per-layer profile, also attached to the lens |
 
 The method preserves existing sign statistics, examples, and Logit Lens
 entries. The R-lens must match the analyzed model and hidden size and provide a
 source map for the requested `resid_post` layer. Use `save()` or
 `checkpoint_component_profile()` afterward to persist the update.
+Exact model provenance is required by default. Base-to-instruct reuse must be
+explicitly enabled; hidden-size, activation-site, and layer-map checks still
+apply, and the source and target model identities are stored in the profile.
 
 ### `component_profile(...)`
 

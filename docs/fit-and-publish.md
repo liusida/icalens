@@ -322,6 +322,23 @@ source-layer map for each requested `resid_post` layer. R-lens tokens account
 for an average linear approximation of the remaining transformer blocks, but
 they remain diagnostic associations rather than exact input-specific effects.
 
+To reuse a base model's R-lens for its architecture-compatible instruction-tuned
+checkpoint, opt in explicitly:
+
+```bash
+icalens profile add-r-lens \
+  --lens icalens-output/my-instruct-icalens \
+  --layers all \
+  --r-lens local-r-lens-models/base-model/lens.pt \
+  --allow-base-model-transfer
+```
+
+This saves R-lens fitting compute while retaining the instruction model's own
+final normalization and unembedding. ICALens still checks the hidden size,
+activation site, and source-layer maps, and records both source and target model
+identities in the artifact. Because instruction tuning changes the intervening
+weights, transferred readouts should be treated as an approximation.
+
 ### Complete artifact contents
 
 After fitting and profiling, the artifact contains:

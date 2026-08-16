@@ -264,6 +264,30 @@ def _model_card(manifest: dict[str, Any]) -> str:
     package_version = manifest.get("package_version", "unknown")
     preprocessing = manifest.get("input_preprocessing", {})
     normalization = preprocessing.get("row_normalization", "unknown")
+    r_lens_profiles = manifest.get("r_lens_profiles", {})
+    transfer_entries = [
+        (layer, provenance)
+        for layer, provenance in r_lens_profiles.items()
+        if isinstance(provenance, dict) and isinstance(provenance.get("transfer"), dict)
+    ] if isinstance(r_lens_profiles, dict) else []
+    if transfer_entries:
+        first_provenance = transfer_entries[0][1]
+        first_transfer = first_provenance["transfer"]
+        transfer_layers = ", ".join(
+            str(layer) for layer, _ in sorted(transfer_entries, key=lambda item: int(item[0]))
+        )
+        r_lens_note = f"""
+## R-lens readouts
+
+R-lens component-token readouts for layers {transfer_layers} reuse the R-lens
+fitted for base model `{first_provenance.get('model_id', 'unknown')}`. They were
+transferred to this instruction-tuned model to reduce fitting compute. The
+transfer was explicitly requested and passed hidden-size, activation-site, and
+layer-map compatibility checks; its complete provenance is stored in
+`icalens.json` and each component-profile file.
+"""
+    else:
+        r_lens_note = ""
     layer_details = []
     provenances = []
     for layer, entry in sorted(manifest["layers"].items(), key=lambda item: int(item[0])):
@@ -373,6 +397,8 @@ layer indexing, and preprocessing recorded in `icalens.json`.
 Signed scores are the centered, whitened activations followed by the learned
 orthogonal ICA rotation. No post-ICA source scaling is applied to v0.2 fits.
 For a token, component energy share is `score² / sum(all component scores²)`.
+
+{r_lens_note}
 
 ## Fitting
 

@@ -197,6 +197,7 @@ profile = lens.add_r_lens_profile(
     batch_size=8,
     device="auto",
     progress=True,
+    allow_base_model_transfer=False,
 )
 lens.checkpoint_component_profile("icalens-output/my-icalens", layer=6)
 ```
@@ -209,11 +210,14 @@ lens.checkpoint_component_profile("icalens-output/my-icalens", layer=6)
 | `batch_size` | `int = 8` | 同时处理的成分方向数 |
 | `device` | `str \| torch.device \| None = "auto"` | 语言模型设备 |
 | `progress` | `bool = False` | 是否显示 R-lens 投影进度 |
+| `allow_base_model_transfer` | `bool = False` | 显式允许把维度兼容的基座模型 R-lens 复用于指令模型，并记录迁移来源 |
 | **返回** | `dict` | 更新后的逐层画像，同时附加到当前 Lens |
 
 该方法保留已有的符号统计、样例和 Logit Lens 条目。R-lens 必须与待分析模型及隐藏维度
 匹配，并为请求的 `resid_post` 层提供源层映射。之后调用 `save()` 或
 `checkpoint_component_profile()` 持久化更新。
+默认要求模型来源完全一致。启用基座到指令模型的复用后，隐藏维度、激活位置和层映射
+检查仍然生效，画像中也会保存来源模型与目标模型的信息。
 
 ### `component_profile(...)`
 

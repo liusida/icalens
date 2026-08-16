@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 
 from icalens import ICALens
@@ -103,6 +104,7 @@ def test_add_r_lens_profile_preserves_existing_information(monkeypatch) -> None:
         },
         top_k=2,
         batch_size=1,
+        device="cpu",
     )
 
     assert enriched["components"][0]["examples"] == original_examples
@@ -111,3 +113,52 @@ def test_add_r_lens_profile_preserves_existing_information(monkeypatch) -> None:
     )
     assert len(enriched["components"][0]["r_lens"]["dominant"]["top_tokens"]) == 2
     assert enriched["selection"]["r_lens_top_k"] == 2
+
+
+def test_add_r_lens_profile_records_explicit_base_to_instruct_transfer(
+    monkeypatch,
+) -> None:
+    signals = np.asarray(
+        [[1.0, 0.0], [0.0, 1.0], [-1.0, 0.2], [0.1, -1.0]], dtype=np.float32
+    )
+    lens = ICALens(
+        model_id="example/model-instruct",
+        model_revision="instruct-revision",
+        model_type="instruct",
+    ).fit(signals, layer=1, n_components=2, max_iter=2)
+    lens._analysis_model = TinyModel()
+    lens._analysis_tokenizer = TinyTokenizer()
+    lens._analysis_device = "cpu"
+    result = SimpleNamespace(
+        scores=torch.tensor([[2.0, -1.0], [-3.0, 0.5]]),
+        energy=torch.tensor([[0.8, 0.2], [0.97, 0.03]]),
+        tokens=("A", "B"),
+        token_texts=(" alpha", " beta"),
+        token_ids=torch.tensor([10, 11]),
+        positions=torch.tensor([4, 5]),
+    )
+    monkeypatch.setattr(lens, "analyze", lambda *args, **kwargs: result)
+    lens.profile_components(["example"], layer=1, min_energy=0.1, top_k_examples=2)
+    r_lens = {
+        "J": {1: torch.eye(2)},
+        "d_model": 2,
+        "provenance": {
+            "model_id": "example/model-base",
+            "model_revision": "base-revision",
+        },
+    }
+
+    with pytest.raises(ValueError, match="allow_base_model_transfer"):
+        lens.add_r_lens_profile(layer=1, r_lens=r_lens, device="cpu")
+
+    enriched = lens.add_r_lens_profile(
+        layer=1,
+        r_lens=r_lens,
+        allow_base_model_transfer=True,
+        top_k=2,
+        device="cpu",
+    )
+    provenance = enriched["r_lens_provenance"]
+    assert provenance["model_id"] == "example/model-base"
+    assert provenance["transfer"]["kind"] == "base_to_instruct"
+    assert provenance["transfer"]["target_model_id"] == "example/model-instruct"

@@ -22,6 +22,7 @@ def add_r_lens_profile(
     batch_size: int = 8,
     device: str | torch.device | None = "auto",
     progress: bool = False,
+    allow_base_model_transfer: bool = False,
 ) -> dict[str, Any]:
     """Enrich a stored component profile with R-lens vocabulary readouts."""
     if top_k <= 0 or batch_size <= 0:
@@ -41,7 +42,12 @@ def add_r_lens_profile(
     from .analysis import _resolve_model_and_tokenizer
 
     _resolve_model_and_tokenizer(lens, None, None, device)
-    r_lens_artifact, r_lens_provenance = _load_r_lens(lens, artifact, r_lens)
+    r_lens_artifact, r_lens_provenance = _load_r_lens(
+        lens,
+        artifact,
+        r_lens,
+        allow_base_model_transfer=allow_base_model_transfer,
+    )
     source_map = _r_lens_source_map(r_lens_artifact, layer)
     if source_map is None:
         raise ValueError(f"R-lens has no source map for layer {layer}")
@@ -296,6 +302,8 @@ def _load_r_lens(
     lens: Any,
     layer_artifact: Any,
     source: str | Path | dict[str, Any],
+    *,
+    allow_base_model_transfer: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if isinstance(source, dict):
         artifact = source
@@ -312,15 +320,24 @@ def _load_r_lens(
     if not isinstance(provenance, dict):
         raise ValueError("R-lens artifact has no provenance metadata")
     model_id = provenance.get("model_id")
-    if model_id != lens.model_id:
-        raise ValueError(
-            f"R-lens model {model_id!r} does not match ICA Lens model {lens.model_id!r}"
-        )
+    model_mismatch = model_id != lens.model_id
     r_revision = provenance.get("model_revision")
-    if lens.model_revision and r_revision and r_revision != lens.model_revision:
+    revision_mismatch = bool(
+        lens.model_revision and r_revision and r_revision != lens.model_revision
+    )
+    transfer = model_mismatch or revision_mismatch
+    if transfer and not allow_base_model_transfer:
         raise ValueError(
-            "R-lens model revision does not match the ICA Lens model revision: "
-            f"{r_revision!r} != {lens.model_revision!r}"
+            "R-lens model provenance does not match the ICA Lens model: "
+            f"{model_id!r}@{r_revision!r} != "
+            f"{lens.model_id!r}@{lens.model_revision!r}; use "
+            "allow_base_model_transfer=True only for an intentional compatible "
+            "base-to-instruct transfer"
+        )
+    if transfer and lens.model_type != "instruct":
+        raise ValueError(
+            "base-model R-lens transfer is only allowed for an instruct ICA Lens; "
+            f"target model type is {lens.model_type!r}"
         )
     d_model = int(artifact.get("d_model", 0))
     hidden_size = lens._hidden_size
@@ -339,6 +356,13 @@ def _load_r_lens(
     stored_provenance = dict(provenance)
     if digest is not None:
         stored_provenance["sha256"] = digest
+    if transfer:
+        stored_provenance["transfer"] = {
+            "kind": "base_to_instruct",
+            "target_model_id": lens.model_id,
+            "target_model_revision": lens.model_revision,
+            "validation": "explicit opt-in; hidden size, activation site, and layer map checked",
+        }
     return artifact, stored_provenance
 
 

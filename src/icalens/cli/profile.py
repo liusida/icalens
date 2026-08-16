@@ -56,6 +56,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--r-lens-top-k", type=int, default=20)
     parser.add_argument("--r-lens-batch-size", type=int, default=8)
+    parser.add_argument(
+        "--allow-base-model-transfer",
+        action="store_true",
+        help=(
+            "Explicitly allow a dimension-compatible base-model R-lens to enrich "
+            "an instruct-model ICA Lens and record the transfer in provenance."
+        ),
+    )
     parser.add_argument("--no-progress", action="store_true")
     parser.add_argument("--device", default="auto")
     parser.add_argument(
@@ -85,6 +93,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 batch_size=args.r_lens_batch_size,
                 device=args.device,
                 progress=not args.no_progress,
+                allow_base_model_transfer=args.allow_base_model_transfer,
             )
             saved_to = lens.checkpoint_component_profile(output, layer=layer)
             print(
