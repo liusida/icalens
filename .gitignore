@@ -14,8 +14,9 @@ htmlcov/
 site/
 site-zh/
 demo/
-experiments/output/
-experiments/
+/results/
+pilot-experiments/output/
+/pilot-experiments/
 .worktrees/
 
 .ipynb_checkpoints/
@@ -23,3 +24,10 @@ icalens-output/
 three-icalens-fit/
 local-icalens-models/
 local-r-lens-models/
+
+.agents/
+.codex/
+
+results/
+
+*-smoke.*

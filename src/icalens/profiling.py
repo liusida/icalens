@@ -7,7 +7,7 @@ import heapq
 from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import torch
 from tqdm.auto import tqdm
@@ -74,7 +74,7 @@ def add_r_lens_profile(
     selection["r_lens_batch_size"] = batch_size
     profile["r_lens_provenance"] = r_lens_provenance
     artifact.profile = profile
-    return profile
+    return cast(dict[str, Any], profile)
 
 
 def profile_components(

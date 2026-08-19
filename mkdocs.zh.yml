@@ -41,6 +41,7 @@ nav:
   - 引导: steering.md
   - 重构: reconstruction.md
   - 拟合与发布: fit-and-publish.md
+  - 实验: experiments.md
   - Python API: api.md
 
 markdown_extensions:

@@ -1512,7 +1512,7 @@ wheels = [
 
 [[package]]
 name = "icalens"
-version = "0.3.3"
+version = "0.3.4.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },
@@ -1522,6 +1522,7 @@ dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "python-dotenv" },
+    { name = "rich" },
     { name = "safetensors" },
     { name = "torch" },
     { name = "tqdm" },
@@ -1557,6 +1558,7 @@ requires-dist = [
     { name = "huggingface-hub", specifier = ">=0.25" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "rich", specifier = ">=13" },
     { name = "safetensors", specifier = ">=0.4" },
     { name = "torch", specifier = ">=2.1" },
     { name = "tqdm", specifier = ">=4.66" },

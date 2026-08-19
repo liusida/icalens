@@ -272,7 +272,6 @@ def _model_card(manifest: dict[str, Any]) -> str:
     ] if isinstance(r_lens_profiles, dict) else []
     if transfer_entries:
         first_provenance = transfer_entries[0][1]
-        first_transfer = first_provenance["transfer"]
         transfer_layers = ", ".join(
             str(layer) for layer, _ in sorted(transfer_entries, key=lambda item: int(item[0]))
         )
