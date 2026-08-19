@@ -494,6 +494,28 @@ print(lens.metadata)
 
 `metadata` 返回可移植 manifest 的独立字典副本。
 
+## `ActivationDataset`
+
+打开由 `icalens capture text` 或 `icalens capture chat` 保存的可复用激活值：
+
+```python
+from icalens import ActivationDataset
+
+captured = ActivationDataset("/mnt/external/icalens-activations/gpt2-pile10k-1m")
+values = captured.layer(6)
+```
+
+| 成员 | 类型 | 含义 |
+| --- | --- | --- |
+| `path` | `Path` | 激活值数据目录的绝对路径 |
+| `available_layers` | `tuple[int, ...]` | 已捕获的 Transformer 层 |
+| `sample_count` | `int` | 每层对齐的 token 行数 |
+| `hidden_size` | `int` | 每行激活值的宽度 |
+| `dtype` | `torch.dtype` | 磁盘中的激活值类型 |
+| `model` | `dict` | 记录的模型标识、版本与类型 |
+| `provenance` | `dict` | 数据集、采样、文档边界和格式来源 |
+| `layer(layer)` | `torch.Tensor` | 磁盘映射的 `[sample_count, hidden_size]` 张量 |
+
 ## 异常
 
 ```python

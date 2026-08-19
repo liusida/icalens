@@ -15,7 +15,7 @@ def test_top_level_help(capsys: pytest.CaptureFixture[str]) -> None:
 def test_fit_help(capsys: pytest.CaptureFixture[str]) -> None:
     cli.main(["fit", "--help"])
     output = capsys.readouterr().out
-    assert "icalens fit {text,chat}" in output
+    assert "icalens fit {text,chat,activations}" in output
 
 
 def test_dispatches_text_fit(monkeypatch: pytest.MonkeyPatch) -> None:

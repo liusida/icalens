@@ -1,5 +1,47 @@
 # Fit and publish
 
+## Capture once and reuse activations
+
+For large refits, capture all requested layers directly to an external disk first. The command
+streams each document through the model once and appends `bfloat16` rows to per-layer files; it
+does not retain all layers in CPU memory.
+
+```bash
+icalens capture text \
+  --model openai-community/gpt2 \
+  --dataset NeelNanda/pile-10k \
+  --layers all \
+  --candidate-tokens 1000000 \
+  --token-budget 1000000 \
+  --capture-layers-at-once all \
+  --output /mnt/external/icalens-activations/gpt2-pile10k-1m
+```
+
+Then fit any preprocessing variant without another language-model forward pass:
+
+```bash
+icalens fit activations \
+  --input /mnt/external/icalens-activations/gpt2-pile10k-1m \
+  --layers all \
+  --icalens-preprocessing none \
+  --max-iter 20 \
+  --fit-batch-size 8192 \
+  --output local-icalens-models/refit-raw/icalens-gpt2-small-pile10k
+```
+
+Capture is resumable by layer. Re-run the same command after an interruption; completed layer
+files are retained and only missing layers are captured. `fit activations` memory-maps one layer
+at a time, while FastICA transfers bounded batches to CUDA.
+
+The same files are available to other Python analyses without loading the full dataset:
+
+```python
+from icalens import ActivationDataset
+
+captured = ActivationDataset("/mnt/external/icalens-activations/gpt2-pile10k-1m")
+layer_6 = captured.layer(6)  # disk-backed [tokens, hidden_size] tensor
+```
+
 Producing a complete ICA Lens follows one workflow:
 
 **Fit → Profile every fitted layer → Publish**

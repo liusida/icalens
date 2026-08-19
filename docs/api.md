@@ -664,6 +664,28 @@ print(lens.metadata)
 
 `metadata` returns a detached dictionary representing the portable manifest.
 
+## `ActivationDataset`
+
+Open reusable activations captured by `icalens capture text` or `icalens capture chat`:
+
+```python
+from icalens import ActivationDataset
+
+captured = ActivationDataset("/mnt/external/icalens-activations/gpt2-pile10k-1m")
+values = captured.layer(6)
+```
+
+| Member | Type | Meaning |
+| --- | --- | --- |
+| `path` | `Path` | Resolved activation-dataset directory |
+| `available_layers` | `tuple[int, ...]` | Captured transformer layers |
+| `sample_count` | `int` | Number of aligned token rows per layer |
+| `hidden_size` | `int` | Width of every activation row |
+| `dtype` | `torch.dtype` | On-disk activation dtype |
+| `model` | `dict` | Recorded model identity, revision, and type |
+| `provenance` | `dict` | Dataset, sampling, framing, and format provenance |
+| `layer(layer)` | `torch.Tensor` | Disk-backed `[sample_count, hidden_size]` tensor |
+
 ## Exceptions
 
 ```python

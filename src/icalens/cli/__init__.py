@@ -16,6 +16,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     command = args.pop(0)
     if command == "fit":
         _dispatch_fit(args)
+    elif command == "capture":
+        _dispatch_capture(args)
     elif command == "publish":
         from .publish import main as publish_main
 
@@ -89,8 +91,26 @@ def _dispatch_fit(args: list[str]) -> None:
         from .fit_chat import main as fit_chat_main
 
         fit_chat_main(args)
+    elif kind == "activations":
+        from .fit_activations import main as fit_activations_main
+
+        fit_activations_main(args)
     else:
-        raise SystemExit(f"icalens fit: unknown input type {kind!r}; use 'text' or 'chat'")
+        raise SystemExit(
+            f"icalens fit: unknown input type {kind!r}; use 'text', 'chat', or 'activations'"
+        )
+
+
+def _dispatch_capture(args: list[str]) -> None:
+    if not args or args[0] in {"-h", "--help"}:
+        print(_CAPTURE_HELP)
+        return
+    kind = args.pop(0)
+    if kind not in {"text", "chat"}:
+        raise SystemExit(f"icalens capture: unknown input type {kind!r}; use 'text' or 'chat'")
+    from .capture import main as capture_main
+
+    capture_main(kind, args)
 
 
 _TOP_HELP = """usage: icalens COMMAND [OPTIONS]
@@ -98,8 +118,11 @@ _TOP_HELP = """usage: icalens COMMAND [OPTIONS]
 Fit, profile, publish, and verify ICA Lens artifacts.
 
 commands:
+  capture text Capture reusable activations from raw text
+  capture chat Capture reusable activations from conversations
   fit text     Fit from a raw-text dataset
   fit chat     Fit from a conversation dataset
+  fit activations  Fit from a reusable activation dataset
   profile      Add component statistics, examples, and logit-lens tokens
   publish      Publish a local artifact to Hugging Face
   smoke-test   Verify installed text and chat analysis paths
@@ -107,15 +130,26 @@ commands:
 
 Run 'icalens COMMAND --help' for command-specific options."""
 
-_FIT_HELP = """usage: icalens fit {text,chat} [OPTIONS]
+_FIT_HELP = """usage: icalens fit {text,chat,activations} [OPTIONS]
 
 Fit an ICA Lens from model activations.
 
 input types:
   text         Raw-text dataset fitting
   chat         Conversation dataset fitting
+  activations  Reusable disk-backed activation fitting
 
 Run 'icalens fit INPUT_TYPE --help' for fitting options."""
+
+_CAPTURE_HELP = """usage: icalens capture {text,chat} [OPTIONS]
+
+Capture model activations once, stream them to disk, and reuse them across fits.
+
+input types:
+  text         Capture from a raw-text dataset
+  chat         Capture from a conversation dataset
+
+Run 'icalens capture INPUT_TYPE --help' for capture options."""
 
 _EXPERIMENT_HELP = """usage: icalens experiment COMMAND [OPTIONS]
 

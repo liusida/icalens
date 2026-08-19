@@ -6,6 +6,7 @@ import icalens
 def test_public_api_is_small() -> None:
     assert icalens.__all__ == [
         "AnalysisResult",
+        "ActivationDataset",
         "ArtifactError",
         "CaptureResult",
         "ICALens",
