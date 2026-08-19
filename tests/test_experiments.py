@@ -9,7 +9,6 @@ import pytest
 import torch
 
 from icalens.experiments._saebench_environment import resolve_backend
-from icalens.experiments._source_provenance import source_provenance, warn_if_dirty
 from icalens.experiments._saebench_multilayer_worker import (
     _capture_layers,
     _hook_aliases,
@@ -21,6 +20,7 @@ from icalens.experiments._saebench_worker import (
     _merge_dataset_results,
     _remove_dataset_artifacts,
 )
+from icalens.experiments._source_provenance import source_provenance, warn_if_dirty
 from icalens.experiments.figure import parse_args as parse_figure_args
 from icalens.experiments.figure import (
     render_sparse_probing_figure,
@@ -36,12 +36,16 @@ from icalens.experiments.reconstruction import (
     _parse_capture_layers_at_once,
     _remove_activation_cache,
     _save_activation_cache,
+)
+from icalens.experiments.reconstruction import (
     parse_args as parse_reconstruction_args,
 )
 from icalens.experiments.reconstruction_figure import (
     _dataset_title,
     _mean_curve,
     _same_plot_point,
+)
+from icalens.experiments.reconstruction_figure import (
     render as render_reconstruction,
 )
 from icalens.experiments.saebench_sparse_probing import (

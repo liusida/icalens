@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import math
 import os
 import tempfile
-import math
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any

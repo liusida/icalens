@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
@@ -64,6 +66,48 @@ def test_fit_transform_and_inverse(mixed_signals: np.ndarray) -> None:
     assert lens.hidden_size == 3
     assert scores.shape == mixed_signals.shape
     np.testing.assert_allclose(reconstructed, normalized, atol=2e-5)
+
+
+def test_geometric_median_preprocessing_round_trip(
+    mixed_signals: np.ndarray, tmp_path: Path
+) -> None:
+    shifted = mixed_signals + np.array([8.0, -3.0, 5.0], dtype=np.float32)
+    lens = ICALens(
+        model_id="example/model",
+        icalens_preprocessing="geometric-median-l2",
+    ).fit(shifted, layer=1, random_state=3, max_iter=50)
+    artifact = lens._get_layer(1)
+    assert artifact.preprocessing_center is not None
+
+    reconstructed = lens.inverse_transform(lens.transform(shifted, layer=1), layer=1)
+    centered = shifted - artifact.preprocessing_center
+    expected = centered / np.maximum(
+        np.linalg.norm(centered, axis=-1, keepdims=True), lens.norm_eps
+    )
+    np.testing.assert_allclose(reconstructed, expected, atol=3e-5)
+
+    restored = ICALens.from_pretrained(lens.save(tmp_path / "robust-lens"))
+    assert restored.icalens_preprocessing == "geometric-median-l2"
+    restored_artifact = restored._get_layer(1)
+    assert restored_artifact.preprocessing_center is not None
+    np.testing.assert_allclose(
+        restored_artifact.preprocessing_center,
+        artifact.preprocessing_center,
+    )
+
+
+def test_icalens_preprocessing_compatibility_arguments() -> None:
+    assert ICALens(model_id="example/model").icalens_preprocessing == "l2"
+    assert (
+        ICALens(model_id="example/model", row_normalize=False).icalens_preprocessing
+        == "none"
+    )
+    with pytest.raises(ValueError, match="conflicts"):
+        ICALens(
+            model_id="example/model",
+            row_normalize=False,
+            icalens_preprocessing="l2",
+        )
 
 
 def test_leading_dimensions_are_preserved(mixed_signals: np.ndarray) -> None:

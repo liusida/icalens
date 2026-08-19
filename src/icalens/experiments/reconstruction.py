@@ -294,7 +294,13 @@ def _run_dataset_first(
 
 
 def _dataset_result_path(output: Path, layer: int, dataset_index: int) -> Path:
-    return output / "checkpoints" / "datasets" / f"dataset_{dataset_index:02d}" / f"layer_{layer:02d}.json"
+    return (
+        output
+        / "checkpoints"
+        / "datasets"
+        / f"dataset_{dataset_index:02d}"
+        / f"layer_{layer:02d}.json"
+    )
 
 
 def _dataset_cache_dir(output: Path, dataset_index: int) -> Path:
@@ -556,21 +562,37 @@ def _evaluate_layer(
     assert artifact.reading_matrix is not None
     assert artifact.writing_matrix is not None
     target = activations.to(device=device, dtype=torch.float32)
-    norm = target.norm(dim=-1, keepdim=True)
-    work = F.normalize(target, dim=-1, eps=lens.norm_eps) if lens.row_normalize else target
+    preprocessing_center = (
+        torch.as_tensor(
+            artifact.preprocessing_center, device=device, dtype=torch.float32
+        )
+        if artifact.preprocessing_center is not None
+        else None
+    )
+    centered_target = (
+        target - preprocessing_center if preprocessing_center is not None else target
+    )
+    norm = centered_target.norm(dim=-1, keepdim=True)
+    work = (
+        F.normalize(centered_target, dim=-1, eps=lens.norm_eps)
+        if lens.row_normalize
+        else centered_target
+    )
     center = torch.as_tensor(artifact.center, device=device, dtype=torch.float32)
     reading = torch.as_tensor(artifact.reading_matrix, device=device, dtype=torch.float32)
     writing = torch.as_tensor(artifact.writing_matrix, device=device, dtype=torch.float32)
     methods: dict[str, dict[str, Any]] = {}
     methods["ica"] = _linear_dictionary_metrics_batched(
-        target, work, norm, center, reading, writing.T, k_values, restore_norm=lens.row_normalize
+        target, work, norm, center, reading, writing.T, k_values,
+        restore_norm=lens.row_normalize, restore_center=preprocessing_center,
     )
     if "pca" in baselines:
         covariance = writing.double() @ writing.double().T
         _, vectors = torch.linalg.eigh(covariance)
         basis = vectors.flip(1).T.float()
         methods["pca"] = _linear_dictionary_metrics_batched(
-            target, work, norm, center, basis, basis, k_values, restore_norm=lens.row_normalize
+            target, work, norm, center, basis, basis, k_values,
+            restore_norm=lens.row_normalize, restore_center=preprocessing_center,
         )
     if "random" in baselines:
         generator = torch.Generator(device=device).manual_seed(
@@ -581,7 +603,8 @@ def _evaluate_layer(
         )
         basis = torch.linalg.qr(matrix).Q.T
         methods["random"] = _linear_dictionary_metrics_batched(
-            target, work, norm, center, basis, basis, k_values, restore_norm=lens.row_normalize
+            target, work, norm, center, basis, basis, k_values,
+            restore_norm=lens.row_normalize, restore_center=preprocessing_center,
         )
     if "sae" in baselines:
         prepared = _prepare_layer_baselines({"sae": baselines["sae"]}, layer=layer)
@@ -621,6 +644,7 @@ def _linear_dictionary_metrics(
     k_values: list[int],
     *,
     restore_norm: bool,
+    restore_center: torch.Tensor | None = None,
 ) -> dict[str, Any]:
     scores = (work - center) @ encoder.T
     contribution = scores.abs() * decoder.norm(dim=-1)
@@ -632,6 +656,8 @@ def _linear_dictionary_metrics(
         reconstructed = selected @ decoder + center
         if restore_norm:
             reconstructed = F.normalize(reconstructed, dim=-1) * norm
+        if restore_center is not None:
+            reconstructed = reconstructed + restore_center
         curves[str(k)] = _metrics(target, reconstructed)
     return {"curve": curves, "full_k": int(scores.shape[-1])}
 
@@ -646,6 +672,7 @@ def _linear_dictionary_metrics_batched(
     k_values: list[int],
     *,
     restore_norm: bool,
+    restore_center: torch.Tensor | None = None,
     batch_size: int = 2048,
 ) -> dict[str, Any]:
     collected: dict[str, dict[str, list[torch.Tensor]]] = {}
@@ -660,6 +687,8 @@ def _linear_dictionary_metrics_batched(
             reconstructed = selected @ decoder + center
             if restore_norm:
                 reconstructed = F.normalize(reconstructed, dim=-1) * norm[start:end]
+            if restore_center is not None:
+                reconstructed = reconstructed + restore_center
             error, cosine = _metric_values(target[start:end], reconstructed)
             entry = collected.setdefault(str(k), {"nmse": [], "cosine": []})
             entry["nmse"].append(error.cpu())

@@ -30,6 +30,59 @@ class FastICAResult:
     gaussian_objective: float
 
 
+def geometric_median(
+    values: torch.Tensor,
+    *,
+    device: str | torch.device | None = None,
+    batch_size: int = 8192,
+    max_iter: int = 50,
+    tol: float = 1e-5,
+    eps: float = 1e-12,
+    progress: bool = False,
+) -> torch.Tensor:
+    """Estimate the geometric median with blockwise Weiszfeld iterations."""
+    if values.ndim != 2 or not values.is_floating_point():
+        raise TypeError("geometric median input must be a two-dimensional floating tensor")
+    if batch_size <= 0 or max_iter <= 0 or tol <= 0 or eps <= 0:
+        raise ValueError("geometric median controls must be positive")
+    target = values.device if device is None else torch.device(device)
+    dtype = torch.float64 if values.dtype == torch.float64 else torch.float32
+    total = torch.zeros(values.shape[1], device=target, dtype=torch.float64)
+    count = 0
+    for start in range(0, int(values.shape[0]), batch_size):
+        batch = values[start : start + batch_size].to(device=target, dtype=dtype)
+        if not bool(torch.isfinite(batch).all()):
+            raise ValueError("geometric median input contains non-finite values")
+        total += batch.to(torch.float64).sum(dim=0)
+        count += int(batch.shape[0])
+    estimate = (total / count).to(dtype)
+    iterations = tqdm(
+        range(max_iter),
+        desc="Geometric median",
+        unit="iter",
+        dynamic_ncols=True,
+        disable=not progress,
+    )
+    for _ in iterations:
+        weighted = torch.zeros_like(total)
+        weight_sum = torch.zeros((), device=target, dtype=torch.float64)
+        for start in range(0, int(values.shape[0]), batch_size):
+            batch = values[start : start + batch_size].to(device=target, dtype=dtype)
+            distances = torch.linalg.vector_norm(batch - estimate, dim=1).clamp_min(eps)
+            weights = distances.reciprocal().to(torch.float64)
+            weighted += (batch.to(torch.float64) * weights[:, None]).sum(dim=0)
+            weight_sum += weights.sum()
+        updated = (weighted / weight_sum).to(dtype)
+        change = torch.linalg.vector_norm(updated - estimate)
+        scale = torch.linalg.vector_norm(estimate).clamp_min(1.0)
+        estimate = updated
+        if progress:
+            iterations.set_postfix(change=f"{float(change):.2e}")
+        if float(change / scale) <= tol:
+            break
+    return estimate
+
+
 OBJECTIVE_PERCENTILES = tuple(range(0, 101, 10))
 GAUSSIAN_OBJECTIVES = {
     "logcosh": 0.374567207491457,
@@ -50,6 +103,7 @@ def fit_fastica(
     device: str | torch.device | None = None,
     batch_size: int = 8192,
     row_normalize: bool = True,
+    preprocessing_center: torch.Tensor | None = None,
     norm_eps: float = 1e-12,
     objective_every: int = 1,
 ) -> FastICAResult:
@@ -76,6 +130,7 @@ def fit_fastica(
         dtype=fit_dtype,
         batch_size=batch_size,
         row_normalize=row_normalize,
+        preprocessing_center=preprocessing_center,
         norm_eps=norm_eps,
         progress=progress,
     )
@@ -86,6 +141,7 @@ def fit_fastica(
         dtype=fit_dtype,
         batch_size=batch_size,
         row_normalize=row_normalize,
+        preprocessing_center=preprocessing_center,
         norm_eps=norm_eps,
         progress=progress,
     )
@@ -119,6 +175,7 @@ def fit_fastica(
         "dtype": fit_dtype,
         "batch_size": batch_size,
         "row_normalize": row_normalize,
+        "preprocessing_center": preprocessing_center,
         "norm_eps": norm_eps,
     }
     if algorithm == "parallel":
@@ -214,6 +271,7 @@ def _mean(
     dtype: torch.dtype,
     batch_size: int,
     row_normalize: bool,
+    preprocessing_center: torch.Tensor | None,
     norm_eps: float,
     progress: bool,
 ) -> torch.Tensor:
@@ -234,6 +292,7 @@ def _mean(
             dtype=dtype,
             batch_size=batch_size,
             row_normalize=row_normalize,
+            preprocessing_center=preprocessing_center,
             norm_eps=norm_eps,
         ):
             total += batch.to(torch.float64).sum(dim=0)
@@ -253,6 +312,7 @@ def _covariance(
     dtype: torch.dtype,
     batch_size: int,
     row_normalize: bool,
+    preprocessing_center: torch.Tensor | None,
     norm_eps: float,
     progress: bool,
 ) -> torch.Tensor:
@@ -273,6 +333,7 @@ def _covariance(
             dtype=dtype,
             batch_size=batch_size,
             row_normalize=row_normalize,
+            preprocessing_center=preprocessing_center,
             norm_eps=norm_eps,
         ):
             centered64 = (batch - center).to(torch.float64)
@@ -424,6 +485,7 @@ def _source_std(
     dtype: torch.dtype,
     batch_size: int,
     row_normalize: bool,
+    preprocessing_center: torch.Tensor | None,
     norm_eps: float,
 ) -> torch.Tensor:
     source_sum = torch.zeros(components.shape[0], dtype=torch.float64, device=device)
@@ -435,6 +497,7 @@ def _source_std(
         dtype=dtype,
         batch_size=batch_size,
         row_normalize=row_normalize,
+        preprocessing_center=preprocessing_center,
         norm_eps=norm_eps,
     ):
         sources64 = ((batch - center) @ components.T).to(torch.float64)
@@ -452,12 +515,15 @@ def _preprocessed_batches(
     dtype: torch.dtype,
     batch_size: int,
     row_normalize: bool,
+    preprocessing_center: torch.Tensor | None,
     norm_eps: float,
 ) -> Iterator[torch.Tensor]:
     for start in range(0, int(values.shape[0]), batch_size):
         batch = values[start : start + batch_size].to(device=device, dtype=dtype)
         if not bool(torch.isfinite(batch).all()):
             raise ValueError("FastICA input contains non-finite values")
+        if preprocessing_center is not None:
+            batch = batch - preprocessing_center.to(device=device, dtype=dtype)
         if row_normalize:
             norms = torch.linalg.vector_norm(batch, dim=1, keepdim=True)
             batch = batch / norms.clamp_min(norm_eps)
@@ -473,6 +539,7 @@ def _whitened_batches(
     dtype: object,
     batch_size: object,
     row_normalize: object,
+    preprocessing_center: object,
     norm_eps: object,
 ) -> Iterator[torch.Tensor]:
     assert isinstance(center, torch.Tensor)
@@ -481,6 +548,7 @@ def _whitened_batches(
     assert isinstance(dtype, torch.dtype)
     assert isinstance(batch_size, int)
     assert isinstance(row_normalize, bool)
+    assert preprocessing_center is None or isinstance(preprocessing_center, torch.Tensor)
     assert isinstance(norm_eps, float)
     for batch in _preprocessed_batches(
         values,
@@ -488,6 +556,7 @@ def _whitened_batches(
         dtype=dtype,
         batch_size=batch_size,
         row_normalize=row_normalize,
+        preprocessing_center=preprocessing_center,
         norm_eps=norm_eps,
     ):
         yield whitening @ (batch - center).T

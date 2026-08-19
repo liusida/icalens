@@ -80,7 +80,7 @@ def test_rejects_unsupported_format_version(tmp_path) -> None:
         ICALens.from_pretrained(target)
 
 
-def test_v3_manifest_records_minimum_package_version(
+def test_v4_manifest_records_minimum_package_version(
     tmp_path, mixed_signals: np.ndarray
 ) -> None:
     artifact_dir = (
@@ -88,11 +88,11 @@ def test_v3_manifest_records_minimum_package_version(
     )
     manifest = json.loads((artifact_dir / "icalens.json").read_text(encoding="utf-8"))
 
-    assert manifest["format_version"] == 3
-    assert manifest["minimum_package_version"] == "0.3.2"
+    assert manifest["format_version"] == 4
+    assert manifest["minimum_package_version"] == "0.3.4"
 
 
-def test_rejects_v3_manifest_without_minimum_package_version(
+def test_rejects_v4_manifest_without_minimum_package_version(
     tmp_path, mixed_signals: np.ndarray
 ) -> None:
     artifact_dir = (

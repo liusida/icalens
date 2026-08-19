@@ -29,7 +29,7 @@ from ._artifact import (
     save_directory,
     save_profile_checkpoint,
 )
-from ._fastica import OBJECTIVE_PERCENTILES, fit_fastica
+from ._fastica import OBJECTIVE_PERCENTILES, fit_fastica, geometric_median
 from .exceptions import ArtifactError, NotFittedError
 
 
@@ -46,7 +46,8 @@ class ICALens:
         base_model_revision: str | None = None,
         activation_site: str = "resid_post",
         layer_indexing: str = "hidden_states",
-        row_normalize: bool = True,
+        row_normalize: bool | None = None,
+        icalens_preprocessing: Literal["none", "l2", "geometric-median-l2"] | None = None,
         norm_eps: float = 1e-12,
     ) -> None:
         model_id = _resolve_compatibility_argument("model_id", model_id, "base_model", base_model)
@@ -67,7 +68,18 @@ class ICALens:
         self.model_type = model_type
         self.activation_site = activation_site.strip()
         self.layer_indexing = layer_indexing.strip()
-        self.row_normalize = bool(row_normalize)
+        if icalens_preprocessing is None:
+            icalens_preprocessing = "l2" if row_normalize is not False else "none"
+        if icalens_preprocessing not in {"none", "l2", "geometric-median-l2"}:
+            raise ValueError(
+                "icalens_preprocessing must be 'none', 'l2', or 'geometric-median-l2'"
+            )
+        if row_normalize is not None:
+            expected = icalens_preprocessing != "none"
+            if bool(row_normalize) != expected:
+                raise ValueError("row_normalize conflicts with icalens_preprocessing")
+        self.icalens_preprocessing = icalens_preprocessing
+        self.row_normalize = icalens_preprocessing != "none"
         self.norm_eps = float(norm_eps)
         self._hidden_size: int | None = None
         self._layers: dict[int, LayerArtifact] = {}
@@ -145,6 +157,17 @@ class ICALens:
             raise ValueError("objective_every must be positive")
         provenance = _validate_provenance(provenance)
 
+        preprocessing_center = None
+        if self.icalens_preprocessing == "geometric-median-l2":
+            if progress:
+                print("Estimating geometric-median center before L2 normalization...", flush=True)
+            preprocessing_center = geometric_median(
+                values,
+                device=device,
+                batch_size=batch_size,
+                progress=progress,
+            )
+
         result = fit_fastica(
             values,
             n_components=components,
@@ -156,6 +179,7 @@ class ICALens:
             device=device,
             batch_size=batch_size,
             row_normalize=self.row_normalize,
+            preprocessing_center=preprocessing_center,
             norm_eps=self.norm_eps,
             objective_every=objective_every,
         )
@@ -202,6 +226,7 @@ class ICALens:
                 "fit_device": str(result.center.device),
                 "batch_size": int(batch_size),
                 "memory_strategy": "blockwise_multi_pass",
+                "icalens_preprocessing": self.icalens_preprocessing,
                 "stored_dtype": "float32",
                 "component_id_convention": (
                     "descending absolute contrast deviation from Gaussian; "
@@ -212,6 +237,9 @@ class ICALens:
             center=center,
             reading_matrix=reading,
             writing_matrix=writing,
+            preprocessing_center=(
+                _to_numpy(preprocessing_center) if preprocessing_center is not None else None
+            ),
         )
         self._hidden_size = hidden_size
         self._local_root = None
@@ -227,6 +255,7 @@ class ICALens:
             activations,
             matrix=artifact.reading_matrix,
             offset=artifact.center,
+            pre_offset=artifact.preprocessing_center,
             normalize=self.row_normalize,
             norm_eps=self.norm_eps,
         )
@@ -454,13 +483,16 @@ class ICALens:
             raise ArtifactError(f"unsupported row_normalization: {normalization!r}")
         format_version = int(manifest["format_version"])
         model = manifest["base_model"] if format_version == 1 else manifest["model"]
+        preprocessing_mode = preprocessing.get("icalens_preprocessing")
+        if preprocessing_mode is None:
+            preprocessing_mode = "l2" if normalization == "l2" else "none"
         lens = cls(
             model_id=str(model["repo_id"]),
             model_revision=str(model.get("revision") or "unknown"),
             model_type=_validate_model_type(str(model.get("type", "base"))),
             activation_site=str(manifest["activation_site"]),
             layer_indexing=str(manifest.get("layer_indexing", "hidden_states")),
-            row_normalize=normalization == "l2",
+            icalens_preprocessing=preprocessing_mode,
             norm_eps=float(preprocessing.get("norm_eps", 1e-12)),
         )
         try:
@@ -607,7 +639,13 @@ class ICALens:
             "layer_indexing": self.layer_indexing,
             "hidden_size": hidden_size,
             "input_preprocessing": {
+                "icalens_preprocessing": self.icalens_preprocessing,
                 "row_normalization": "l2" if self.row_normalize else "none",
+                "pre_normalization_center": (
+                    "geometric_median"
+                    if self.icalens_preprocessing == "geometric-median-l2"
+                    else "none"
+                ),
                 "norm_eps": self.norm_eps,
             },
             **({"r_lens_profiles": r_lens_layers} if r_lens_layers else {}),

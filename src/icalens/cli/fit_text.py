@@ -84,6 +84,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument(
+        "--icalens-preprocessing",
+        choices=("none", "l2", "geometric-median-l2"),
+        default="l2",
+        help=(
+            "Activation transform before standard FastICA centering and whitening "
+            "(default: l2)."
+        ),
+    )
+    parser.add_argument(
         "--max-iter",
         type=int,
         default=20,
@@ -212,6 +221,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         model_type="base",
         activation_site="resid_post",
         layer_indexing="transformer_blocks_zero_based",
+        icalens_preprocessing=args.icalens_preprocessing,
     )
     output = args.output.expanduser().resolve()
 

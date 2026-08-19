@@ -18,9 +18,9 @@ from safetensors.numpy import load_file, save_file
 from .exceptions import ArtifactError
 
 FORMAT_NAME = "icalens"
-FORMAT_VERSION = 3
-MINIMUM_PACKAGE_VERSION = "0.3.2"
-SUPPORTED_FORMAT_VERSIONS = (1, 2, 3)
+FORMAT_VERSION = 4
+MINIMUM_PACKAGE_VERSION = "0.3.4"
+SUPPORTED_FORMAT_VERSIONS = (1, 2, 3, 4)
 MANIFEST_FILENAME = "icalens.json"
 
 
@@ -37,6 +37,7 @@ class LayerArtifact:
     center: NDArray[np.float32] | None = None
     reading_matrix: NDArray[np.float32] | None = None
     writing_matrix: NDArray[np.float32] | None = None
+    preprocessing_center: NDArray[np.float32] | None = None
 
     @property
     def loaded(self) -> bool:
@@ -54,10 +55,11 @@ def parse_manifest(data: Any) -> dict[str, Any]:
             f"unsupported artifact format version: {format_version!r}; "
             f"this package supports versions {SUPPORTED_FORMAT_VERSIONS}"
         )
-    if format_version == 3 and data.get("minimum_package_version") != MINIMUM_PACKAGE_VERSION:
+    expected_minimum = "0.3.2" if format_version == 3 else MINIMUM_PACKAGE_VERSION
+    if format_version >= 3 and data.get("minimum_package_version") != expected_minimum:
         raise ArtifactError(
             "format version 3 requires "
-            f"minimum_package_version={MINIMUM_PACKAGE_VERSION!r}"
+            f"minimum_package_version={expected_minimum!r}"
         )
     model_key = "base_model" if format_version == 1 else "model"
     required = (model_key, "activation_site", "hidden_size", "input_preprocessing", "layers")
@@ -135,6 +137,11 @@ def load_layer(path: Path, artifact: LayerArtifact, hidden_size: int) -> None:
         center = _tensor(tensors, "center", (hidden_size,))
         reading = _tensor(tensors, "reading_matrix", (artifact.n_components, hidden_size))
         writing = _tensor(tensors, "writing_matrix", (hidden_size, artifact.n_components))
+        preprocessing_center = (
+            _tensor(tensors, "preprocessing_center", (hidden_size,))
+            if "preprocessing_center" in tensors
+            else None
+        )
     except ArtifactError:
         raise
     except Exception as error:
@@ -142,6 +149,7 @@ def load_layer(path: Path, artifact: LayerArtifact, hidden_size: int) -> None:
     artifact.center = center
     artifact.reading_matrix = reading
     artifact.writing_matrix = writing
+    artifact.preprocessing_center = preprocessing_center
 
 
 def save_directory(path: Path, manifest: dict[str, Any], layers: dict[int, LayerArtifact]) -> None:
@@ -160,14 +168,14 @@ def save_directory(path: Path, manifest: dict[str, Any], layers: dict[int, Layer
             assert artifact.writing_matrix is not None
             tensor_path = stage / artifact.file
             tensor_path.parent.mkdir(parents=True, exist_ok=True)
-            save_file(
-                {
-                    "center": artifact.center,
-                    "reading_matrix": artifact.reading_matrix,
-                    "writing_matrix": artifact.writing_matrix,
-                },
-                tensor_path,
-            )
+            tensors = {
+                "center": artifact.center,
+                "reading_matrix": artifact.reading_matrix,
+                "writing_matrix": artifact.writing_matrix,
+            }
+            if artifact.preprocessing_center is not None:
+                tensors["preprocessing_center"] = artifact.preprocessing_center
+            save_file(tensors, tensor_path)
             if artifact.profile_file is not None and artifact.profile is not None:
                 profile_path = stage / artifact.profile_file
                 profile_path.parent.mkdir(parents=True, exist_ok=True)

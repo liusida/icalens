@@ -13,6 +13,7 @@ def transform_array(
     *,
     matrix: NDArray[np.float32],
     offset: NDArray[np.float32],
+    pre_offset: NDArray[np.float32] | None = None,
     normalize: bool,
     norm_eps: float,
 ) -> Any:
@@ -27,6 +28,10 @@ def transform_array(
         if not bool(torch.isfinite(values).all()):
             raise ValueError("input must contain only finite values")
         work = values
+        if pre_offset is not None:
+            work = work - torch.as_tensor(
+                pre_offset, dtype=work.dtype, device=work.device
+            )
         if normalize:
             norms = torch.linalg.vector_norm(work, dim=-1, keepdim=True).clamp_min(norm_eps)
             work = work / norms
@@ -42,6 +47,8 @@ def transform_array(
     if not np.all(np.isfinite(array)):
         raise ValueError("input must contain only finite values")
     work = array
+    if pre_offset is not None:
+        work = work - pre_offset
     if normalize:
         norms = np.linalg.norm(work, axis=-1, keepdims=True)
         work = work / np.maximum(norms, norm_eps)
