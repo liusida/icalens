@@ -13,4 +13,4 @@ def test_public_api_is_small() -> None:
         "ICALensError",
         "NotFittedError",
     ]
-    assert icalens.__version__ == "0.3.4.dev0"
+    assert icalens.__version__ == "0.3.4"
