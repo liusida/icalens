@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -11,9 +12,10 @@ import torch
 from gb10_load_llm import load_model_to_cuda  # type: ignore[import-untyped]
 from huggingface_hub import HfApi
 from tqdm.auto import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from .._activation_dataset import (
+    ActivationDataset,
     ActivationDatasetWriter,
     check_disk_space,
     sample_metadata,
@@ -48,6 +50,10 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
     if model_revision is None or dataset_revision is None:
         raise RuntimeError("Could not resolve exact model and dataset revisions.")
     tokenizer = AutoTokenizer.from_pretrained(args.model, revision=model_revision, use_fast=True)
+    config = AutoConfig.from_pretrained(
+        args.model, revision=model_revision, trust_remote_code=True
+    )
+    layers = parse_layers(args.layers, layer_count=int(config.num_hidden_layers))
     documents: Any
 
     if kind == "text":
@@ -58,6 +64,18 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
             refresh_registry=args.refresh_model_registry,
         )
         candidates = getattr(args, "candidate_tokens", args.token_budget)
+        if _preflight_capture(
+            args,
+            kind=kind,
+            model_revision=str(model_revision),
+            dataset_revision=str(dataset_revision),
+            model_type="base",
+            layers=layers,
+            hidden_size=int(config.hidden_size),
+            candidate_tokens=candidates,
+            framing=framing,
+        ):
+            return
         documents = load_pile_documents(
             tokenizer,
             dataset_id=args.dataset,
@@ -90,6 +108,18 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
         if not tokenizer.is_fast or tokenizer.chat_template is None:
             raise RuntimeError("chat capture requires a fast tokenizer with a chat template")
         candidates = args.token_budget if args.candidate_tokens is None else args.candidate_tokens
+        if _preflight_capture(
+            args,
+            kind=kind,
+            model_revision=str(model_revision),
+            dataset_revision=str(dataset_revision),
+            model_type="instruct",
+            layers=layers,
+            hidden_size=int(config.hidden_size),
+            candidate_tokens=candidates,
+            framing=None,
+        ):
+            return
         documents = load_chat_documents(
             tokenizer,
             dataset_id=args.dataset,
@@ -128,7 +158,6 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
         revision=model_revision,
     )
     model.eval()
-    layers = parse_layers(args.layers, layer_count=int(model.config.num_hidden_layers))
     writer = ActivationDatasetWriter(
         args.output,
         model={"repo_id": args.model, "revision": str(model_revision), "type": model_type},
@@ -147,6 +176,7 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
         f"{available / 1024**3:.1f} GiB is available."
     )
     missing = writer.missing_layers
+    log(f"Requested layers: {','.join(map(str, layers))}")
     if not missing:
         writer.finish()
         log(f"Activation dataset is already complete: {writer.path}")
@@ -177,8 +207,93 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
                     progress.update(int(positions_cpu.numel()))
             finally:
                 progress.close()
+        for layer in group:
+            log(f"Checkpointed activation layer {layer} to {writer.path}")
     writer.finish()
     log(f"Saved reusable activation dataset to {writer.path}")
+
+
+def _preflight_capture(
+    args: argparse.Namespace,
+    *,
+    kind: str,
+    model_revision: str,
+    dataset_revision: str,
+    model_type: str,
+    layers: tuple[int, ...],
+    hidden_size: int,
+    candidate_tokens: int | None,
+    framing: dict[str, Any] | None,
+) -> bool:
+    """Validate an existing capture before replaying or loading expensive data."""
+    manifest_path = args.output.expanduser().resolve() / "activations.json"
+    if not manifest_path.is_file():
+        return False
+    existing = json.loads(manifest_path.read_text())
+    provenance = existing.get("provenance", {})
+    expected: dict[str, Any] = {
+        "model": {
+            "repo_id": args.model,
+            "revision": model_revision,
+            "type": model_type,
+        },
+        "activation_site": "resid_post",
+        "layer_indexing": "transformer_blocks_zero_based",
+        "hidden_size": hidden_size,
+        "layers": set(map(str, layers)),
+        "dataset": {
+            "repo_id": args.dataset,
+            "revision": dataset_revision,
+            "split": args.split,
+        },
+        "fitting_tokens": args.token_budget,
+        "sampling_seed": args.seed,
+        "context_length": args.context_length,
+        "token_scope": "all" if kind == "text" else args.token_scope,
+    }
+    actual: dict[str, Any] = {
+        "model": existing.get("model"),
+        "activation_site": existing.get("activation_site"),
+        "layer_indexing": existing.get("layer_indexing"),
+        "hidden_size": existing.get("hidden_size"),
+        "layers": set(existing.get("layers", {})),
+        "dataset": provenance.get("dataset"),
+        "fitting_tokens": provenance.get("fitting_tokens"),
+        "sampling_seed": provenance.get("sampling_seed"),
+        "context_length": provenance.get("context_length"),
+        "token_scope": provenance.get("token_scope"),
+    }
+    if candidate_tokens is not None:
+        expected["candidate_tokens"] = candidate_tokens
+        actual["candidate_tokens"] = provenance.get("candidate_tokens")
+    if kind == "text":
+        expected["text_field"] = args.text_field
+        expected["document_framing"] = framing
+        actual["text_field"] = provenance.get("text_field")
+        actual["document_framing"] = provenance.get("document_framing")
+    else:
+        expected["messages_field"] = args.messages_field
+        actual["messages_field"] = provenance.get("messages_field")
+    mismatches = [name for name, value in expected.items() if actual.get(name) != value]
+    if mismatches:
+        raise ValueError(
+            "existing activation dataset is incompatible before capture "
+            f"({', '.join(mismatches)}): {manifest_path}"
+        )
+    if existing.get("status") != "complete":
+        log(
+            f"Validated compatible partial activation dataset at {manifest_path.parent}; "
+            "continuing with its missing layers."
+        )
+        return False
+    # This verifies every declared layer file and the token metadata before the
+    # completed dataset is accepted as a durable checkpoint.
+    completed = ActivationDataset(manifest_path.parent)
+    for layer in layers:
+        completed.layer(layer)
+    completed.samples()
+    log(f"Activation dataset is already complete and compatible: {completed.path}")
+    return True
 
 
 def _parse_args(kind: str, argv: Sequence[str] | None) -> argparse.Namespace:

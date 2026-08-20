@@ -12,6 +12,8 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any, cast
 
+from icalens.cli._status import log
+
 CUDA_TORCH_INDEX = "https://download.pytorch.org/whl/cu130"
 CUDA_TORCH_VERSION = "2.11.0"
 CUDA_TORCHVISION_VERSION = "0.26.0"
@@ -160,7 +162,7 @@ def _existing_python(root: Path) -> Path | None:
 
 
 def _create_environment(root: Path, python_version: str) -> Path:
-    print(f"Preparing isolated SAEBench environment with Python {python_version}...")
+    log(f"Preparing isolated SAEBench environment with Python {python_version}...")
     environment = root / ".venv"
     if environment.exists():
         shutil.rmtree(environment)
@@ -198,7 +200,7 @@ def _ensure_cuda_torch(python: Path) -> None:
     ).returncode == 0
     if available:
         return
-    print(
+    log(
         f"Installing CUDA-enabled PyTorch {CUDA_TORCH_VERSION} in the isolated "
         "SAEBench environment..."
     )
@@ -269,7 +271,7 @@ def _ensure_modern_transformers(python: Path) -> None:
     )
     if compatible.returncode == 0:
         return
-    print("Installing a Qwen3.5-capable Transformers release in the SAEBench environment...")
+    log("Installing a Qwen3.5-capable Transformers release in the SAEBench environment...")
     subprocess.run(
         [
             "uv",

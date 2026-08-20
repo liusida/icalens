@@ -8,7 +8,6 @@ import sys
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +22,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from icalens import ICALens
 from icalens._capture import capture_resid_post
 from icalens._model_framing import resolve_framing_policy
+
+from ._status import log
 
 MODEL_ID = "openai-community/gpt2"
 DATASET_ID = "NeelNanda/pile-10k"
@@ -215,6 +216,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     # Direct block hooks capture resid_post, including the last transformer block.
     layers = parse_layers(args.layers, layer_count=int(model.config.num_hidden_layers))
+    log(f"Requested layers: {','.join(map(str, layers))}")
     lens = ICALens(
         model_id=args.model,
         model_revision=str(revision),
@@ -555,12 +557,6 @@ def parse_layers(value: str, *, layer_count: int) -> tuple[int, ...]:
     if invalid:
         raise ValueError(f"layer indices out of range 0..{layer_count - 1}: {invalid}")
     return layers
-
-
-def log(message: str) -> None:
-    """Print a timestamped progress message immediately."""
-    timestamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-    print(f"[{timestamp}] {message}", flush=True)
 
 
 def peak_rss_gib() -> float:

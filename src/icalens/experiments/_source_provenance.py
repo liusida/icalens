@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from icalens.cli._status import log
+
 
 def source_provenance() -> dict[str, Any]:
     """Return Git provenance when this package is running from a checkout."""
@@ -29,11 +31,10 @@ def source_provenance() -> dict[str, Any]:
 def warn_if_dirty(provenance: dict[str, Any]) -> None:
     """Warn without blocking an experiment started from uncommitted source."""
     if provenance.get("dirty"):
-        print(
+        log(
             "WARNING: The ICALens Git worktree has uncommitted changes. "
             "This run will record dirty=true, but the exact source cannot be "
-            "reproduced from the recorded commit alone.",
-            flush=True,
+            "reproduced from the recorded commit alone."
         )
 
 

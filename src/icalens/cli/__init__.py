@@ -23,9 +23,11 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         publish_main(args)
     elif command == "profile":
+        from ._live_output import compact_output
         from .profile import main as profile_main
 
-        profile_main(args)
+        with compact_output("ICA Lens · component profiling", args):
+            profile_main(args)
     elif command == "smoke-test":
         from ..smoke_test import main as smoke_test_main
 
@@ -84,17 +86,23 @@ def _dispatch_fit(args: list[str]) -> None:
         return
     kind = args.pop(0)
     if kind == "text":
+        from ._live_output import compact_output
         from .fit_text import main as fit_text_main
 
-        fit_text_main(args)
+        with compact_output("ICA Lens · text fitting", args):
+            fit_text_main(args)
     elif kind == "chat":
+        from ._live_output import compact_output
         from .fit_chat import main as fit_chat_main
 
-        fit_chat_main(args)
+        with compact_output("ICA Lens · chat fitting", args):
+            fit_chat_main(args)
     elif kind == "activations":
+        from ._live_output import compact_output
         from .fit_activations import main as fit_activations_main
 
-        fit_activations_main(args)
+        with compact_output("ICA Lens · activation fitting", args):
+            fit_activations_main(args)
     else:
         raise SystemExit(
             f"icalens fit: unknown input type {kind!r}; use 'text', 'chat', or 'activations'"
@@ -108,9 +116,11 @@ def _dispatch_capture(args: list[str]) -> None:
     kind = args.pop(0)
     if kind not in {"text", "chat"}:
         raise SystemExit(f"icalens capture: unknown input type {kind!r}; use 'text' or 'chat'")
+    from ._live_output import compact_output
     from .capture import main as capture_main
 
-    capture_main(kind, args)
+    with compact_output(f"ICA Lens · {kind} activation capture", args):
+        capture_main(kind, args)
 
 
 _TOP_HELP = """usage: icalens COMMAND [OPTIONS]

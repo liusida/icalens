@@ -8,7 +8,6 @@ import sys
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +21,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from icalens import ICALens
 from icalens._capture import capture_resid_post
+
+from ._status import log
 
 MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -196,6 +197,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     model.eval()
 
     layers = parse_layers(args.layers, layer_count=int(model.config.num_hidden_layers))
+    log(f"Requested layers: {','.join(map(str, layers))}")
     lens = ICALens(
         model_id=args.model,
         model_revision=str(model_revision),
@@ -564,11 +566,6 @@ def parse_layers(value: str, *, layer_count: int) -> tuple[int, ...]:
     if invalid:
         raise ValueError(f"layer indices out of range 0..{layer_count - 1}: {invalid}")
     return layers
-
-
-def log(message: str) -> None:
-    timestamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-    print(f"[{timestamp}] {message}", flush=True)
 
 
 def peak_rss_gib() -> float:

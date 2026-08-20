@@ -13,7 +13,7 @@ __pycache__/
 htmlcov/
 site/
 site-zh/
-demo/
+misc/
 /results/
 pilot-experiments/output/
 /pilot-experiments/
@@ -27,6 +27,7 @@ local-r-lens-models/
 
 .agents/
 .codex/
+.icalens-runs/
 
 results/
 

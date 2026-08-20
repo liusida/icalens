@@ -46,20 +46,40 @@ def main(argv: Sequence[str] | None = None) -> None:
     torch.cuda.reset_peak_memory_stats()
 
     dataset = ActivationDataset(args.input)
-    layers = _parse_layers(args.layers, dataset.available_layers)
+    requested_layers = _parse_layers(args.layers, dataset.available_layers)
+    log(f"Requested layers: {','.join(map(str, requested_layers))}")
     model = dataset.model
     model_type = str(model.get("type") or "base")
     if model_type not in {"base", "instruct"}:
         raise ValueError(f"unsupported captured model type: {model_type!r}")
-    lens = ICALens(
-        model_id=str(model["repo_id"]),
-        model_revision=str(model.get("revision") or "unknown"),
-        model_type=cast(Literal["base", "instruct"], model_type),
-        activation_site=str(dataset.manifest["activation_site"]),
-        layer_indexing=str(dataset.manifest["layer_indexing"]),
-        icalens_preprocessing=args.icalens_preprocessing,
-    )
     output = args.output.expanduser().resolve()
+    manifest = output / "icalens.json"
+    if manifest.is_file():
+        lens = ICALens.from_pretrained(output)
+        _validate_resume(lens, dataset, args.icalens_preprocessing)
+        # ``fit`` detaches a lens from its source artifact. Materialize every
+        # existing layer first so the next checkpoint can preserve their tensors.
+        for completed_layer in lens.available_layers:
+            lens._get_layer(completed_layer)
+        layers = tuple(layer for layer in requested_layers if layer not in lens.available_layers)
+        log(
+            f"Resuming {output}; preserving completed layers {lens.available_layers}. "
+            f"Remaining requested layers: {layers or 'none'}."
+        )
+    else:
+        if output.is_dir() and any(output.iterdir()):
+            raise FileExistsError(
+                f"output directory is non-empty but has no ICA Lens manifest: {output}"
+            )
+        lens = ICALens(
+            model_id=str(model["repo_id"]),
+            model_revision=str(model.get("revision") or "unknown"),
+            model_type=cast(Literal["base", "instruct"], model_type),
+            activation_site=str(dataset.manifest["activation_site"]),
+            layer_indexing=str(dataset.manifest["layer_indexing"]),
+            icalens_preprocessing=args.icalens_preprocessing,
+        )
+        layers = requested_layers
     for layer in layers:
         values = dataset.layer(layer)
         minimum = dataset.hidden_size + 1
@@ -93,6 +113,27 @@ def main(argv: Sequence[str] | None = None) -> None:
     log(f"Available layers: {lens.available_layers}")
     log(f"Peak PyTorch CUDA memory reserved: {torch.cuda.max_memory_reserved() / 1024**3:.2f} GiB")
     log(f"Peak process resident memory (RSS): {peak_rss_gib():.2f} GiB")
+
+
+def _validate_resume(lens: ICALens, dataset: ActivationDataset, preprocessing: str) -> None:
+    model = dataset.model
+    expected = {
+        "model_id": str(model["repo_id"]),
+        "model_revision": str(model.get("revision") or "unknown"),
+        "model_type": str(model.get("type") or "base"),
+        "activation_site": str(dataset.manifest["activation_site"]),
+        "layer_indexing": str(dataset.manifest["layer_indexing"]),
+        "icalens_preprocessing": preprocessing,
+    }
+    mismatches = [
+        f"{name}: {getattr(lens, name)!r} != {value!r}"
+        for name, value in expected.items()
+        if getattr(lens, name) != value
+    ]
+    if lens._hidden_size is not None and lens._hidden_size != dataset.hidden_size:
+        mismatches.append(f"hidden_size: {lens._hidden_size!r} != {dataset.hidden_size!r}")
+    if mismatches:
+        raise ValueError("cannot resume from incompatible artifact: " + "; ".join(mismatches))
 
 
 def _parse_layers(value: str, available: tuple[int, ...]) -> tuple[int, ...]:

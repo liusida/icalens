@@ -144,11 +144,14 @@ FastICA iterations, and `--fit-batch-size 16384`:
 | --- | ---: | ---: |
 | Tokenization, revision resolution, and model loading | 1 run × 47s | 47s |
 | Capture activations directly to disk | 1M tokens across 32 layers | 50m 57s |
-| Fit the captured activations | 32 layers × 12m 44s/layer | 6h 47m 40s |
+| Fit the captured activations | 32 layers × 50 iterations; 12m 44s/layer ≈ 15s/iteration | 6h 47m 40s |
 | **Complete capture-and-fit run** | **including stage transitions** | **7h 39m 40s** |
 
-Most fitting time was spent in the 50 FastICA updates; covariance computation
-took 1m 25s per layer, while whitening itself took 2s. These numbers are
+Thus, the apparently long 6h 47m total is 32 sequential layer fits: each layer
+took 12m 44s for 50 iterations, or about 15s per iteration when the full
+per-layer fitting time is averaged across them. Covariance computation took
+1m 25s per layer and whitening itself took 2s; excluding that setup, each
+FastICA update took about 14s. These numbers are
 illustrative rather than a hardware or storage-speed guarantee, but they give
 the expected scale of a full-width, full-layer 9B run. Capturing once is
 especially useful when several fitting variants will reuse the same activations.

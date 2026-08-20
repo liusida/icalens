@@ -29,10 +29,8 @@ class TinyModel(torch.nn.Module):
 
 
 def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> None:
-    signals = np.asarray(
-        [[1.0, 0.0], [0.0, 1.0], [-1.0, 0.2], [0.1, -1.0]], dtype=np.float32
-    )
-    lens = ICALens(model_id="example/model").fit(
+    signals = np.asarray([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.2], [0.1, -1.0]], dtype=np.float32)
+    lens = ICALens(model_id="example/model", model_revision="revision").fit(
         signals, layer=1, n_components=2, max_iter=2
     )
     lens._analysis_model = TinyModel()
@@ -47,9 +45,7 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     )
     monkeypatch.setattr(lens, "analyze", lambda *args, **kwargs: result)
 
-    profile = lens.profile_components(
-        ["example"], layer=1, min_energy=0.1, top_k_examples=2
-    )
+    profile = lens.profile_components(["example"], layer=1, min_energy=0.1, top_k_examples=2)
 
     assert profile["n_tokens"] == 2
     assert profile["components"][0]["sign_statistics"]["positive_fraction"] == 0.5
@@ -68,10 +64,47 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     assert profile["format_version"] == 1
 
 
-def test_add_r_lens_profile_preserves_existing_information(monkeypatch) -> None:
-    signals = np.asarray(
-        [[1.0, 0.0], [0.0, 1.0], [-1.0, 0.2], [0.1, -1.0]], dtype=np.float32
+def test_profiles_from_cached_activations_without_analyze(monkeypatch) -> None:
+    signals = np.asarray([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.2], [0.1, -1.0]], dtype=np.float32)
+    lens = ICALens(model_id="example/model", model_revision="revision").fit(
+        signals, layer=1, n_components=2, max_iter=2
     )
+    lens._analysis_model = TinyModel()
+    lens._analysis_tokenizer = TinyTokenizer()
+    lens._analysis_device = "cpu"
+    monkeypatch.setattr(
+        lens,
+        "analyze",
+        lambda *args, **kwargs: pytest.fail("cached profiling must not call analyze"),
+    )
+    records = [
+        {
+            "token": f"T{index}",
+            "text": f" token-{index}",
+            "token_id": index,
+            "position": index,
+            "context": "cached context",
+            "source_index": index // 2,
+        }
+        for index in range(4)
+    ]
+
+    profile = lens.profile_components_from_activations(
+        torch.from_numpy(signals),
+        records,
+        layer=1,
+        batch_size=2,
+        min_energy=0.0,
+        device="cpu",
+    )
+
+    assert profile["n_tokens"] == 4
+    assert profile["n_inputs"] == 2
+    assert profile["components"][0]["examples"]["positive"]["occurrences"]
+
+
+def test_add_r_lens_profile_preserves_existing_information(monkeypatch) -> None:
+    signals = np.asarray([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.2], [0.1, -1.0]], dtype=np.float32)
     lens = ICALens(model_id="example/model", model_revision="revision").fit(
         signals, layer=1, n_components=2, max_iter=2
     )
@@ -87,9 +120,7 @@ def test_add_r_lens_profile_preserves_existing_information(monkeypatch) -> None:
         positions=torch.tensor([4, 5]),
     )
     monkeypatch.setattr(lens, "analyze", lambda *args, **kwargs: result)
-    original = lens.profile_components(
-        ["example"], layer=1, min_energy=0.1, top_k_examples=2
-    )
+    original = lens.profile_components(["example"], layer=1, min_energy=0.1, top_k_examples=2)
     original_examples = original["components"][0]["examples"]
 
     enriched = lens.add_r_lens_profile(
@@ -108,9 +139,7 @@ def test_add_r_lens_profile_preserves_existing_information(monkeypatch) -> None:
     )
 
     assert enriched["components"][0]["examples"] == original_examples
-    assert enriched["components"][0]["r_lens"]["method"] == (
-        "relp_then_final_norm_then_unembed"
-    )
+    assert enriched["components"][0]["r_lens"]["method"] == ("relp_then_final_norm_then_unembed")
     assert len(enriched["components"][0]["r_lens"]["dominant"]["top_tokens"]) == 2
     assert enriched["selection"]["r_lens_top_k"] == 2
 
@@ -118,9 +147,7 @@ def test_add_r_lens_profile_preserves_existing_information(monkeypatch) -> None:
 def test_add_r_lens_profile_records_explicit_base_to_instruct_transfer(
     monkeypatch,
 ) -> None:
-    signals = np.asarray(
-        [[1.0, 0.0], [0.0, 1.0], [-1.0, 0.2], [0.1, -1.0]], dtype=np.float32
-    )
+    signals = np.asarray([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.2], [0.1, -1.0]], dtype=np.float32)
     lens = ICALens(
         model_id="example/model-instruct",
         model_revision="instruct-revision",
@@ -150,6 +177,20 @@ def test_add_r_lens_profile_records_explicit_base_to_instruct_transfer(
 
     with pytest.raises(ValueError, match="allow_base_model_transfer"):
         lens.add_r_lens_profile(layer=1, r_lens=r_lens, device="cpu")
+
+    directly_profiled = lens.profile_components(
+        ["example"],
+        layer=1,
+        min_energy=0.1,
+        top_k_examples=2,
+        r_lens=r_lens,
+        r_lens_top_k=2,
+        device="cpu",
+        allow_base_model_transfer=True,
+    )
+    assert directly_profiled["r_lens_provenance"]["transfer"]["kind"] == (
+        "base_to_instruct"
+    )
 
     enriched = lens.add_r_lens_profile(
         layer=1,

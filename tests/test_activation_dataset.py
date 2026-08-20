@@ -48,6 +48,10 @@ def test_activation_dataset_round_trip_and_resume(tmp_path) -> None:
     assert dataset.available_layers == (0, 1)
     torch.testing.assert_close(dataset.layer(0), layer_zero)
     torch.testing.assert_close(dataset.layer(1), layer_one)
+    metadata = dataset.samples()
+    assert metadata["document_index"].tolist() == [0, 0, 1]
+    assert metadata["position"].tolist() == [0, 2, 1]
+    assert metadata["token_id"].tolist() == [10, 12, 21]
     assert "manifest_sha256" in dataset.provenance["activation_dataset"]
 
 

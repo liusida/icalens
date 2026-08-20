@@ -71,9 +71,7 @@ class ICALens:
         if icalens_preprocessing is None:
             icalens_preprocessing = "l2" if row_normalize is not False else "none"
         if icalens_preprocessing not in {"none", "l2", "geometric-median-l2"}:
-            raise ValueError(
-                "icalens_preprocessing must be 'none', 'l2', or 'geometric-median-l2'"
-            )
+            raise ValueError("icalens_preprocessing must be 'none', 'l2', or 'geometric-median-l2'")
         if row_normalize is not None:
             expected = icalens_preprocessing != "none"
             if bool(row_normalize) != expected:
@@ -335,6 +333,21 @@ class ICALens:
 
         return profile_components(self, inputs, layer=layer, **kwargs)
 
+    def profile_components_from_activations(
+        self,
+        activations: torch.Tensor,
+        records: list[dict[str, Any]],
+        *,
+        layer: int,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Profile components from token-aligned activations captured earlier."""
+        from .profiling import profile_components_from_activations
+
+        return profile_components_from_activations(
+            self, activations, records, layer=layer, **kwargs
+        )
+
     def add_r_lens_profile(self, *, layer: int, r_lens: Any, **kwargs: Any) -> dict[str, Any]:
         """Add R-lens token readouts to an existing component profile."""
         from .profiling import add_r_lens_profile
@@ -358,9 +371,7 @@ class ICALens:
         """Write one completed profile into an existing local lens artifact."""
         artifact = self._get_layer(layer)
         if artifact.profile is None:
-            raise NotFittedError(
-                f"layer {layer} has no in-memory component profile to checkpoint"
-            )
+            raise NotFittedError(f"layer {layer} has no in-memory component profile to checkpoint")
         destination = Path(path).expanduser().resolve()
         save_profile_checkpoint(destination, self._manifest(), artifact)
         return destination

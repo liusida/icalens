@@ -24,6 +24,7 @@ from huggingface_hub import hf_hub_download
 from safetensors.torch import save_file
 
 from icalens import ICALens, __version__
+from icalens.cli._status import log
 
 from ._saebench_environment import (
     backend_description,
@@ -122,7 +123,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         layer for layer in layers if not set(expected_methods).issubset(completed_by_layer[layer])
     ]
     if not pending_layers:
-        print("All requested layers are already complete; rebuilding summary files.")
+        log("All requested layers are already complete; rebuilding summary files.")
         _finish_run(output, run_path, run, resolved, layers)
         return
     if not torch.cuda.is_available():
@@ -141,14 +142,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             allow_low_disk=bool(args.allow_low_disk),
         )
 
-    print(f"Selected {backend.name}@{backend.commit[:8]} for {lens.model_id}.")
+    log(f"Selected {backend.name}@{backend.commit[:8]} for {lens.model_id}.")
     prepared = prepare_backend(
         backend,
         cache_dir=args.cache_dir,
         saebench_path=args.saebench_path,
         refresh=bool(args.refresh_environment),
     )
-    print(f"Using SAEBench at {prepared.root}")
+    log(f"Using SAEBench at {prepared.root}")
     config_path = output / "experiment-config.json"
     _write_json(config_path, settings)
     methods_per_layer = len(expected_methods)
@@ -174,7 +175,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         completed_methods = _completed_methods(output, layer)
         missing_methods = [name for name in expected_methods if name not in completed_methods]
         if not missing_methods:
-            print(f"Layer {layer}: all methods already complete; reusing saved results.")
+            log(f"Layer {layer}: all methods already complete; reusing saved results.")
             continue
         layer_state.update({"status": "running", "started_at": _timestamp(), "completed_at": None})
         _write_json(run_path, run)
@@ -195,7 +196,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "methods": missing_methods,
             }
         )
-        print(
+        log(
             f"Layer {layer}: queued {args.preset} sparse probing for {', '.join(missing_methods)}."
         )
         _write_json(run_path, run)
@@ -223,7 +224,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         str(run_started_at),
     ]
     try:
-        print(
+        log(
             "Running dataset-first sparse probing with shared activation capture for layers "
             + ",".join(str(job["layer"]) for job in jobs)
             + "..."
@@ -247,8 +248,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     _write_json(run_path, run)
 
     _finish_run(output, run_path, run, resolved, layers)
-    print(f"Experiment complete: {output}")
-    print(f"Create a figure with: icalens experiment figure sparse-probing {output}")
+    log(f"Experiment complete: {output}")
+    log(f"Create a figure with: icalens experiment figure sparse-probing {output}")
 
 
 def _parse_k_values(value: str) -> list[int]:
@@ -498,7 +499,7 @@ def _check_activation_cache_space(
     # running exactly at the raw tensor estimate unsafe.
     safety_target = int(estimate * 1.20)
     free = shutil.disk_usage(output).free
-    print(
+    log(
         f"Activation-cache disk preflight ({layers_at_once} layer"
         f"{'s' if layers_at_once != 1 else ''} captured together): "
         f"estimated {_format_bytes(estimate)}, "
@@ -514,7 +515,7 @@ def _check_activation_cache_space(
         )
         if not allow_low_disk:
             raise RuntimeError(message)
-        print(f"WARNING: {message}", file=sys.stderr)
+        log(f"WARNING: {message}")
 
 
 def _format_bytes(value: int) -> str:

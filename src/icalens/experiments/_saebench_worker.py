@@ -6,12 +6,14 @@ import argparse
 import io
 import json
 import re
+import shlex
 import shutil
 import sys
 import threading
 import time
 from collections import deque
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -101,6 +103,13 @@ class _BenchmarkDisplay:
         self.thread: threading.Thread | None = None
 
     def __enter__(self) -> _BenchmarkDisplay:
+        self.detail.write(
+            "# ICA Lens experiment run\n"
+            f"started_at: {datetime.now().astimezone().isoformat(timespec='seconds')}\n"
+            f"working_directory: {Path.cwd()}\n"
+            f"command: {shlex.join(sys.argv)}\n\n"
+        )
+        self.detail.flush()
         if self.interactive:
             self.live = Live(
                 self.render(),
@@ -115,7 +124,7 @@ class _BenchmarkDisplay:
             sys.stderr = self.stream
         return self
 
-    def __exit__(self, *_: Any) -> None:
+    def __exit__(self, error_type: Any, error: Any, traceback: Any) -> None:
         if self.interactive:
             sys.stdout = self.terminal_out
             sys.stderr = self.terminal_err
@@ -124,7 +133,13 @@ class _BenchmarkDisplay:
                 self.thread.join()
             if self.live is not None:
                 self.live.update(self.render(), refresh=True)
-                self.live.__exit__(None, None, None)
+                self.live.__exit__(error_type, error, traceback)
+        self.detail.write(
+            "\n# ICA Lens experiment run ended\n"
+            f"ended_at: {datetime.now().astimezone().isoformat(timespec='seconds')}\n"
+            f"status: {'failed' if error is not None else 'complete'}\n"
+        )
+        self.detail.flush()
         self.detail.close()
         if self.interactive:
             print(f"Full output: {self.detail_path}")

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, cast
 
 import torch
-from safetensors.torch import save_file
+from safetensors.torch import load_file, save_file
 
 FORMAT = "icalens.activations"
 FORMAT_VERSION = 1
@@ -93,6 +93,25 @@ class ActivationDataset:
             dtype=self.dtype,
         )
         return values.reshape(self.sample_count, self.hidden_size)
+
+    def samples(self) -> dict[str, torch.Tensor]:
+        """Return validated token-position metadata aligned with activation rows."""
+        path = self.path / str(self.manifest["samples_file"])
+        if not path.is_file():
+            raise FileNotFoundError(f"activation sample metadata not found: {path}")
+        values = load_file(path)
+        required = {"document_index", "position", "token_id"}
+        missing = required - values.keys()
+        if missing:
+            raise ValueError(f"activation sample metadata is missing: {sorted(missing)}")
+        for name in required:
+            tensor = values[name]
+            if tensor.ndim != 1 or int(tensor.shape[0]) != self.sample_count:
+                raise ValueError(
+                    f"sample metadata {name!r} has shape {tuple(tensor.shape)}; "
+                    f"expected ({self.sample_count},)"
+                )
+        return values
 
 
 class ActivationDatasetWriter:

@@ -25,6 +25,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from icalens import ICALens, __version__
 from icalens._capture import transformer_blocks
 from icalens.analysis import _document_framing_for_layer
+from icalens.cli._status import log
 
 from ._saebench_worker import SAEFeatureEncoder, _BenchmarkDisplay
 from ._source_provenance import source_provenance, warn_if_dirty
@@ -115,7 +116,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     pending = [layer for layer in layers if not _layer_path(output, layer).is_file()]
     if not pending:
         _finish(output, run_path, run, resolved, layers)
-        print(f"All requested layers are already complete: {output}")
+        log(f"All requested layers are already complete: {output}")
         return
     if args.device.startswith("cuda") and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but is unavailable")
@@ -150,8 +151,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         _write_json(run_path, run)
         raise
     _finish(output, run_path, run, resolved, layers)
-    print(f"Experiment complete: {output}")
-    print(f"Create figures with: icalens experiment figure reconstruction {output}")
+    log(f"Experiment complete: {output}")
+    log(f"Create figures with: icalens experiment figure reconstruction {output}")
 
 
 def _load_model(lens: ICALens, *, device: str) -> torch.nn.Module:

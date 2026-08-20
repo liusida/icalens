@@ -91,6 +91,7 @@ def profile_components(
     r_lens: str | Path | dict[str, Any] | None = None,
     r_lens_top_k: int = 20,
     r_lens_batch_size: int = 8,
+    allow_base_model_transfer: bool = False,
     provenance: dict[str, Any] | None = None,
     context_length: int | None = 1024,
     device: str | torch.device | None = "auto",
@@ -185,32 +186,178 @@ def profile_components(
         source_count += 1
         iterator.set_postfix(tokens=token_count)
 
+    return _finish_profile(
+        lens,
+        artifact,
+        layer=layer,
+        token_count=token_count,
+        source_count=source_count,
+        positive_count=positive_count,
+        negative_count=negative_count,
+        positive_energy=positive_energy,
+        negative_energy=negative_energy,
+        total_energy=total_energy,
+        examples=examples,
+        top_k_examples=top_k_examples,
+        min_energy=min_energy,
+        logit_lens_top_k=logit_lens_top_k,
+        logit_lens_batch_size=logit_lens_batch_size,
+        r_lens=r_lens,
+        r_lens_top_k=r_lens_top_k,
+        r_lens_batch_size=r_lens_batch_size,
+        allow_base_model_transfer=allow_base_model_transfer,
+        provenance=provenance,
+        progress=progress,
+    )
+
+
+def profile_components_from_activations(
+    lens: Any,
+    activations: torch.Tensor,
+    records: list[dict[str, Any]],
+    *,
+    layer: int,
+    batch_size: int = 8192,
+    top_k_examples: int = 20,
+    min_energy: float = 0.05,
+    logit_lens_top_k: int = 20,
+    logit_lens_batch_size: int = 64,
+    r_lens: str | Path | dict[str, Any] | None = None,
+    r_lens_top_k: int = 20,
+    r_lens_batch_size: int = 8,
+    allow_base_model_transfer: bool = False,
+    provenance: dict[str, Any] | None = None,
+    device: str | torch.device | None = "auto",
+    progress: bool = False,
+) -> dict[str, Any]:
+    """Profile a layer from token-aligned, previously captured activations."""
+    if activations.ndim != 2 or len(records) != int(activations.shape[0]):
+        raise ValueError("activations and profiling records must have matching rows")
+    if batch_size <= 0 or not 0 <= min_energy <= 1:
+        raise ValueError("batch_size must be positive and min_energy must be in [0, 1]")
+    artifact = lens._get_layer(layer)
+    n_components = artifact.n_components
+    positive_count = torch.zeros(n_components, dtype=torch.int64)
+    negative_count = torch.zeros(n_components, dtype=torch.int64)
+    positive_energy = torch.zeros(n_components, dtype=torch.float64)
+    negative_energy = torch.zeros(n_components, dtype=torch.float64)
+    total_energy = torch.zeros(n_components, dtype=torch.float64)
+    examples: list[dict[str, list[tuple[float, int, dict[str, Any]]]]] = [
+        {"positive": [], "negative": []} for _ in range(n_components)
+    ]
+    target = _profiling_device(device)
+    iterator = tqdm(
+        range(0, len(records), batch_size),
+        desc="Profile cached activations",
+        unit="batch",
+        disable=not progress,
+    )
+    serial = 0
+    for start in iterator:
+        end = min(len(records), start + batch_size)
+        scores = lens.transform(activations[start:end].to(target), layer=layer)
+        energy = lens.energy(scores)
+        scores_cpu = scores.detach().to(device="cpu", dtype=torch.float64)
+        energy_cpu = energy.detach().to(device="cpu", dtype=torch.float64)
+        squared = scores_cpu.square()
+        positive = scores_cpu > 0
+        negative = scores_cpu < 0
+        positive_count += positive.sum(dim=0)
+        negative_count += negative.sum(dim=0)
+        positive_energy += (squared * positive).sum(dim=0)
+        negative_energy += (squared * negative).sum(dim=0)
+        total_energy += squared.sum(dim=0)
+        for row, component in torch.nonzero(energy_cpu >= min_energy).tolist():
+            score = float(scores_cpu[row, component])
+            if score == 0:
+                continue
+            sign = "positive" if score > 0 else "negative"
+            record = dict(records[start + row])
+            record.update(score=score, energy=float(energy_cpu[row, component]))
+            item = (record["energy"], serial, record)
+            serial += 1
+            heap = examples[component][sign]
+            if len(heap) < top_k_examples:
+                heapq.heappush(heap, item)
+            elif item[0] > heap[0][0]:
+                heapq.heapreplace(heap, item)
+
+    from .analysis import _resolve_model_and_tokenizer
+
+    _resolve_model_and_tokenizer(lens, None, None, device)
+    return _finish_profile(
+        lens,
+        artifact,
+        layer=layer,
+        token_count=len(records),
+        source_count=len({int(record["source_index"]) for record in records}),
+        positive_count=positive_count,
+        negative_count=negative_count,
+        positive_energy=positive_energy,
+        negative_energy=negative_energy,
+        total_energy=total_energy,
+        examples=examples,
+        top_k_examples=top_k_examples,
+        min_energy=min_energy,
+        logit_lens_top_k=logit_lens_top_k,
+        logit_lens_batch_size=logit_lens_batch_size,
+        r_lens=r_lens,
+        r_lens_top_k=r_lens_top_k,
+        r_lens_batch_size=r_lens_batch_size,
+        allow_base_model_transfer=allow_base_model_transfer,
+        provenance=provenance,
+        progress=progress,
+    )
+
+
+def _profiling_device(device: str | torch.device | None) -> torch.device:
+    if device is None or str(device) == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return torch.device(device)
+
+
+def _finish_profile(
+    lens: Any,
+    artifact: Any,
+    *,
+    layer: int,
+    token_count: int,
+    source_count: int,
+    positive_count: torch.Tensor,
+    negative_count: torch.Tensor,
+    positive_energy: torch.Tensor,
+    negative_energy: torch.Tensor,
+    total_energy: torch.Tensor,
+    examples: list[dict[str, list[tuple[float, int, dict[str, Any]]]]],
+    top_k_examples: int,
+    min_energy: float,
+    logit_lens_top_k: int,
+    logit_lens_batch_size: int,
+    r_lens: str | Path | dict[str, Any] | None,
+    r_lens_top_k: int,
+    r_lens_batch_size: int,
+    allow_base_model_transfer: bool,
+    provenance: dict[str, Any] | None,
+    progress: bool,
+) -> dict[str, Any]:
     if token_count == 0:
         raise ValueError("profiling inputs produced no tokens")
-
     if progress:
         tqdm.write("Profiling logit-lens vocabulary associations...")
     logit_lens = _logit_lens(
-        lens,
-        artifact,
-        top_k=logit_lens_top_k,
-        batch_size=logit_lens_batch_size,
-        progress=progress,
+        lens, artifact, top_k=logit_lens_top_k, batch_size=logit_lens_batch_size, progress=progress
     )
     r_lens_result = None
     r_lens_provenance = None
     if r_lens is not None:
-        r_lens_artifact, r_lens_provenance = _load_r_lens(lens, artifact, r_lens)
+        r_lens_artifact, r_lens_provenance = _load_r_lens(
+            lens,
+            artifact,
+            r_lens,
+            allow_base_model_transfer=allow_base_model_transfer,
+        )
         source_map = _r_lens_source_map(r_lens_artifact, layer)
-        if source_map is None:
-            if progress:
-                tqdm.write(
-                    f"R-lens has no source map for layer {layer}; "
-                    "omitting R-lens tokens for this layer."
-                )
-        else:
-            if progress:
-                tqdm.write("Profiling R-lens vocabulary associations...")
+        if source_map is not None:
             r_lens_result = _r_lens_tokens(
                 lens,
                 artifact,
@@ -220,18 +367,12 @@ def profile_components(
                 progress=progress,
             )
     components = []
-    for component in range(n_components):
+    for component in range(artifact.n_components):
         sign_total = int(positive_count[component] + negative_count[component])
         squared_total = float(total_energy[component])
-        positive_energy_fraction = (
-            float(positive_energy[component]) / squared_total if squared_total else 0.0
-        )
-        negative_energy_fraction = (
-            float(negative_energy[component]) / squared_total if squared_total else 0.0
-        )
-        dominant = (
-            "positive" if positive_energy_fraction >= negative_energy_fraction else "negative"
-        )
+        pos_fraction = float(positive_energy[component]) / squared_total if squared_total else 0.0
+        neg_fraction = float(negative_energy[component]) / squared_total if squared_total else 0.0
+        dominant = "positive" if pos_fraction >= neg_fraction else "negative"
         component_examples: dict[str, Any] = {}
         for sign in ("positive", "negative"):
             retained = [item[2] for item in sorted(examples[component][sign], reverse=True)]
@@ -243,36 +384,35 @@ def profile_components(
                     for text, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
                 ],
             }
-        component_profile = {
-                "component": component,
-                "dominant_sign": dominant,
-                "sign_statistics": {
-                    "positive_fraction": float(positive_count[component]) / sign_total
-                    if sign_total
-                    else 0.0,
-                    "negative_fraction": float(negative_count[component]) / sign_total
-                    if sign_total
-                    else 0.0,
-                    "positive_energy_fraction": positive_energy_fraction,
-                    "negative_energy_fraction": negative_energy_fraction,
-                },
-                "examples": component_examples,
-                "logit_lens": {
-                    "method": "final_norm_then_unembed",
-                    "positive": logit_lens[component]["positive"],
-                    "negative": logit_lens[component]["negative"],
-                    "dominant": logit_lens[component][dominant],
-                },
-            }
+        entry: dict[str, Any] = {
+            "component": component,
+            "dominant_sign": dominant,
+            "sign_statistics": {
+                "positive_fraction": float(positive_count[component]) / sign_total
+                if sign_total
+                else 0.0,
+                "negative_fraction": float(negative_count[component]) / sign_total
+                if sign_total
+                else 0.0,
+                "positive_energy_fraction": pos_fraction,
+                "negative_energy_fraction": neg_fraction,
+            },
+            "examples": component_examples,
+            "logit_lens": {
+                "method": "final_norm_then_unembed",
+                "positive": logit_lens[component]["positive"],
+                "negative": logit_lens[component]["negative"],
+                "dominant": logit_lens[component][dominant],
+            },
+        }
         if r_lens_result is not None:
-            component_profile["r_lens"] = {
+            entry["r_lens"] = {
                 "method": "relp_then_final_norm_then_unembed",
                 "positive": r_lens_result[component]["positive"],
                 "negative": r_lens_result[component]["negative"],
                 "dominant": r_lens_result[component][dominant],
             }
-        components.append(component_profile)
-
+        components.append(entry)
     profile = {
         "format": "icalens-component-profile",
         "format_version": 1,
@@ -291,9 +431,7 @@ def profile_components(
         "r_lens_provenance": r_lens_provenance,
         "components": components,
     }
-    artifact.profile_file = (
-        f"component_profiles/{lens.activation_site}/layer_{layer:02d}.json.gz"
-    )
+    artifact.profile_file = f"component_profiles/{lens.activation_site}/layer_{layer:02d}.json.gz"
     artifact.profile = profile
     return profile
 
@@ -345,8 +483,7 @@ def _load_r_lens(
         raise ValueError("ICA Lens artifact has no recorded hidden size")
     if d_model != int(hidden_size):
         raise ValueError(
-            f"R-lens hidden size {d_model} does not match ICA layer hidden size "
-            f"{hidden_size}"
+            f"R-lens hidden size {d_model} does not match ICA layer hidden size {hidden_size}"
         )
     if lens.activation_site != "resid_post":
         raise ValueError(
