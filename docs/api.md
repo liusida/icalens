@@ -454,6 +454,29 @@ Rescales each reconstructed vector to the norm of its corresponding reference
 activation. `values` and `reference` must have identical shapes and must both
 be PyTorch tensors or both be NumPy arrays.
 
+## Inspect fitting
+
+### `plot_fitting_curve(...)`
+
+```python
+figure = lens.plot_fitting_curve(layer=6)
+figure  # displays inline in Jupyter
+
+# Individual layer panels in one figure
+figure = lens.plot_fitting_curve(layers=[0, 6, 11], columns=3)
+figure = lens.plot_fitting_curve(layers="all", columns=4)
+```
+
+| Argument | Type / default | Meaning |
+| --- | --- | --- |
+| `layer` | `int \| None = None` | One fitted layer; mutually exclusive with `layers` |
+| `layers` | `list[int] \| tuple[int, ...] \| "all" \| None` | Multiple fitted layers; mutually exclusive with `layer` |
+| `columns` | `int \| None = None` | Subplot columns; defaults to 2 and is capped at the selected layer count |
+| **Returns** | Matplotlib `Figure` | Nested component-percentile bands and the median objective curve |
+
+The plot is generated entirely from the artifact metadata. It does not load the
+language model, fitting activations, or layer tensors.
+
 ## Fit activation tensors
 
 ### `fit(...)`

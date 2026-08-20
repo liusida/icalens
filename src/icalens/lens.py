@@ -113,6 +113,49 @@ class ICALens:
         """A detached copy of the portable artifact manifest."""
         return copy.deepcopy(self._manifest())
 
+    def plot_fitting_curve(
+        self,
+        *,
+        layer: int | None = None,
+        layers: list[int] | tuple[int, ...] | Literal["all"] | None = None,
+        columns: int | None = None,
+    ) -> Any:
+        """Plot saved FastICA objective distributions for fitted layers.
+
+        Returns a Matplotlib figure. In Jupyter, leave the returned figure as the
+        final expression in a cell to display it inline.
+        """
+        from ._plotting import plot_fitting_curves
+
+        if (layer is None) == (layers is None):
+            raise ValueError("pass exactly one of layer or layers")
+        if columns is not None and (isinstance(columns, bool) or not isinstance(columns, int)):
+            raise TypeError("columns must be a positive integer or None")
+        if columns is not None and columns <= 0:
+            raise ValueError("columns must be positive")
+        if layer is not None:
+            selected = [_validate_layer(layer)]
+        elif layers == "all":
+            selected = list(self.available_layers)
+        elif isinstance(layers, (list, tuple)):
+            selected = [_validate_layer(value) for value in layers]
+        else:
+            raise TypeError("layers must be a list, tuple, or 'all'")
+        if not selected:
+            raise ValueError("layers must not be empty")
+        if len(set(selected)) != len(selected):
+            raise ValueError("layers must not contain duplicates")
+        missing = [value for value in selected if value not in self._layers]
+        if missing:
+            raise NotFittedError(
+                f"layers {missing} are unavailable; available layers: {self.available_layers}"
+            )
+        return plot_fitting_curves(
+            layers=[(value, self._layers[value].fitting) for value in selected],
+            model_id=self.model_id,
+            columns=columns,
+        )
+
     def fit(
         self,
         activations: Any,

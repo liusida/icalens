@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "icalens"
-version = "0.3.5.dev0"
+version = "0.3.5"
 description = "Fit, share, and apply ICA lenses for language-model activations."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,6 +22,7 @@ dependencies = [
     "datasets>=4.0",
     "gb10-load-llm>=0.1.2",
     "huggingface-hub>=0.25",
+    "matplotlib>=3.9",
     "numpy>=1.24",
     "python-dotenv>=1.0",
     "rich>=13",
@@ -48,7 +49,6 @@ dev = [
     "datasets>=4.0",
     "gb10-load-llm>=0.1.2",
     "hatchling>=1.27",
-    "matplotlib>=3.9",
     "mypy>=1.11",
     "python-dotenv>=1.0",
     "pytest>=8.0",

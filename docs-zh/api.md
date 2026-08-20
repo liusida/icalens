@@ -314,6 +314,28 @@ CLI 使用它逐层保存 checkpoint。普通的一次性 Python 流程调用 `s
 | `reference` | 同类型、同形状，必填 | 用于提供每个向量目标范数的原始激活 |
 | **返回** | 同输入数组类型 | 按 `reference` 恢复范数后的 `values` |
 
+## 查看拟合过程
+
+### `plot_fitting_curve(...)`
+
+```python
+figure = lens.plot_fitting_curve(layer=6)
+figure  # 在 Jupyter 中直接显示
+
+# 在同一张图中绘制多个独立的层面板
+figure = lens.plot_fitting_curve(layers=[0, 6, 11], columns=3)
+figure = lens.plot_fitting_curve(layers="all", columns=4)
+```
+
+| 参数 | 类型／默认值 | 含义 |
+| --- | --- | --- |
+| `layer` | `int \| None = None` | 绘制一个已拟合层；不能与 `layers` 同时使用 |
+| `layers` | `list[int] \| tuple[int, ...] \| "all" \| None` | 绘制多个已拟合层；不能与 `layer` 同时使用 |
+| `columns` | `int \| None = None` | 子图列数；默认为 2，且不会超过所选层数 |
+| **返回值** | Matplotlib `Figure` | 分量百分位嵌套区间和目标函数中位数曲线 |
+
+该图完全由模型文件中的元数据生成，不会加载语言模型、拟合激活或层张量。
+
 ## 拟合激活张量
 
 ### `fit(...)`

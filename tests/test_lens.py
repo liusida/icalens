@@ -235,6 +235,53 @@ def test_fit_records_objective_percentile_history(mixed_signals: np.ndarray) -> 
     assert any(row[0] < row[-1] for row in history["values"])
 
 
+def test_plot_fitting_curve_returns_matplotlib_figure(mixed_signals: np.ndarray) -> None:
+    plt = pytest.importorskip("matplotlib.pyplot")
+    lens = make_lens().fit(
+        mixed_signals,
+        layer=2,
+        n_components=3,
+        max_iter=4,
+        objective_every=1,
+    )
+
+    figure = lens.plot_fitting_curve(layer=2)
+
+    assert len(figure.axes) == 1
+    assert figure.axes[0].get_xlabel() == "Iteration"
+    assert "layer 2" in figure.axes[0].get_title()
+    assert not plt.fignum_exists(figure.number)
+    plt.close(figure)
+
+
+def test_plot_fitting_curve_requires_available_layer() -> None:
+    with pytest.raises(NotFittedError, match=r"layers \[2\] are unavailable"):
+        make_lens().plot_fitting_curve(layer=2)
+
+
+def test_plot_fitting_curve_supports_multiple_and_all_layers(
+    mixed_signals: np.ndarray,
+) -> None:
+    plt = pytest.importorskip("matplotlib.pyplot")
+    lens = make_lens()
+    for layer in (1, 2, 3):
+        lens.fit(mixed_signals, layer=layer, n_components=3, max_iter=2)
+
+    selected = lens.plot_fitting_curve(layers=[1, 3], columns=2)
+    all_layers = lens.plot_fitting_curve(layers="all", columns=3)
+
+    assert [axis.get_title() for axis in selected.axes] == ["Layer 1", "Layer 3"]
+    assert len(all_layers.axes) == 3
+    assert not plt.fignum_exists(selected.number)
+    assert not plt.fignum_exists(all_layers.number)
+
+
+@pytest.mark.parametrize("columns", [0, -1])
+def test_plot_fitting_curve_rejects_nonpositive_columns(columns: int) -> None:
+    with pytest.raises(ValueError, match="columns must be positive"):
+        make_lens().plot_fitting_curve(layers="all", columns=columns)
+
+
 def test_torch_transform_preserves_tensor_properties(mixed_signals: np.ndarray) -> None:
     values = torch.from_numpy(mixed_signals)
     lens = make_lens().fit(values, layer=2, n_components=2)
