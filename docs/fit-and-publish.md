@@ -264,6 +264,27 @@ print(f"Saved layer {lens.available_layers} to {output}")
 Calling `fit()` again adds or replaces a layer in the same lens. Pass
 `n_components` to fit fewer components than the hidden size.
 
+### Inspect the fitting curves
+
+Every completed layer stores objective percentiles throughout FastICA. Inspect
+one layer directly in a notebook:
+
+```python
+lens.plot_fitting_curve(layer=6)
+```
+
+Or compare the individual curves for several fitted layers:
+
+```python
+lens.plot_fitting_curve(layers=[0, 6, 11], columns=3)
+lens.plot_fitting_curve(layers="all", columns=4)
+```
+
+The method reads only the saved metadata and returns a Matplotlib figure. It
+does not reload the language model or captured activations. Use
+`--objective-every N` in a CLI fit, or `objective_every=N` in `fit()`, to change
+the recording interval.
+
 ## 2. Profile every fitted layer
 
 Fitting determines the directions; profiling gives each direction the evidence

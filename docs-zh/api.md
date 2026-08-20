@@ -11,7 +11,25 @@ from icalens import ICALens
 ### `ICALens(...)`
 
 ```python
-lens = ICALens(model_id="openai-community/gpt2", model_type="base")
+lens = ICALens(
+    model_id="openai-community/gpt2",
+    model_type="base",
+    icalens_preprocessing="none",
+)
+```
+
+```python
+ICALens(
+    *,
+    model_id=None,
+    model_revision=None,
+    model_type="base",
+    activation_site="resid_post",
+    layer_indexing="hidden_states",
+    row_normalize=None,
+    icalens_preprocessing=None,
+    norm_eps=1e-12,
+)
 ```
 
 | 参数 | 类型 / 默认值 | 含义 |
@@ -21,9 +39,15 @@ lens = ICALens(model_id="openai-community/gpt2", model_type="base")
 | `model_type` | `"base" \| "instruct" = "base"` | 基础模型或指令/聊天模型 |
 | `activation_site` | `str = "resid_post"` | 激活位置名称 |
 | `layer_indexing` | `str = "hidden_states"` | 产物中记录的层编号约定 |
-| `row_normalize` | `bool = True` | 中心化和 ICA 前进行逐 token L2 归一化 |
+| `icalens_preprocessing` | `"none" \| "l2" \| "geometric-median-l2" \| None = None` | 标准 FastICA 中心化与白化之前使用的变换；`None` 保留旧版的 L2 默认行为 |
+| `row_normalize` | `bool \| None = None` | 兼容旧代码的参数；新代码应使用 `icalens_preprocessing` |
 | `norm_eps` | `float = 1e-12` | 归一化数值下限 |
 | **返回** | `ICALens` | 尚未拟合的新 Lens |
+
+`icalens_preprocessing="none"` 将原始激活直接交给标准 FastICA 做中心化和白化；
+`"l2"` 会先把每个 token 激活归一化到单位长度；`"geometric-median-l2"`
+则先减去稳健中心，再做 L2 归一化。所选模式会写入产物，并由 `transform()`、
+`inverse_transform()` 和 `analyze()` 自动复用。
 
 ### `ICALens.from_pretrained(...)`
 
@@ -318,6 +342,8 @@ CLI 使用它逐层保存 checkpoint。普通的一次性 Python 流程调用 `s
 
 ### `plot_fitting_curve(...)`
 
+绘制拟合期间记录的、跨 ICA 成分的目标函数分布：
+
 ```python
 figure = lens.plot_fitting_curve(layer=6)
 figure  # 在 Jupyter 中直接显示
@@ -327,6 +353,15 @@ figure = lens.plot_fitting_curve(layers=[0, 6, 11], columns=3)
 figure = lens.plot_fitting_curve(layers="all", columns=4)
 ```
 
+```python
+lens.plot_fitting_curve(
+    *,
+    layer=None,
+    layers=None,
+    columns=None,
+) -> matplotlib.figure.Figure
+```
+
 | 参数 | 类型／默认值 | 含义 |
 | --- | --- | --- |
 | `layer` | `int \| None = None` | 绘制一个已拟合层；不能与 `layers` 同时使用 |
@@ -334,7 +369,13 @@ figure = lens.plot_fitting_curve(layers="all", columns=4)
 | `columns` | `int \| None = None` | 子图列数；默认为 2，且不会超过所选层数 |
 | **返回值** | Matplotlib `Figure` | 分量百分位嵌套区间和目标函数中位数曲线 |
 
-该图完全由模型文件中的元数据生成，不会加载语言模型、拟合激活或层张量。
+必须且只能传入 `layer` 或 `layers` 其中一个。选择多层时，每层使用独立子图，不会
+聚合在一起。每个面板展示每个记录迭代中跨成分的最小值、第 10 至第 90 百分位数、
+最大值和中位数。
+
+该图完全由产物元数据生成，不会加载语言模型、拟合激活或层张量。所选层必须包含
+`objective_history`；当前拟合命令默认记录该信息，记录间隔由 `--objective-every`
+或 `objective_every` 控制。
 
 ## 拟合激活张量
 

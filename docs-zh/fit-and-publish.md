@@ -247,6 +247,26 @@ print(f"Saved layer {lens.available_layers} to {output}")
 再次调用 `fit()` 会在同一个 Lens 中添加或替换一层。传入 `n_components` 可以拟合少于
 隐藏维度的成分。
 
+### 查看拟合曲线
+
+每个已完成层都会保存 FastICA 迭代过程中的目标函数分位数。在 Notebook 中可直接查看
+单层曲线：
+
+```python
+lens.plot_fitting_curve(layer=6)
+```
+
+也可以把多个层分别画在同一张图中：
+
+```python
+lens.plot_fitting_curve(layers=[0, 6, 11], columns=3)
+lens.plot_fitting_curve(layers="all", columns=4)
+```
+
+该方法只读取已保存的元数据并返回 Matplotlib Figure，不会重新加载语言模型或捕获的
+激活。CLI 拟合可用 `--objective-every N`，Python `fit()` 可用
+`objective_every=N` 调整记录间隔。
+
 ## 2. 为每个已拟合层建立画像
 
 拟合确定方向，画像则为每个方向提供解释所需的证据。发布前，应使用具有代表性的语料

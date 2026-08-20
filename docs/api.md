@@ -18,6 +18,21 @@ lens = ICALens(
     model_id="openai-community/gpt2",
     model_type="base",
     activation_site="resid_post",
+    icalens_preprocessing="none",
+)
+```
+
+```python
+ICALens(
+    *,
+    model_id=None,
+    model_revision=None,
+    model_type="base",
+    activation_site="resid_post",
+    layer_indexing="hidden_states",
+    row_normalize=None,
+    icalens_preprocessing=None,
+    norm_eps=1e-12,
 )
 ```
 
@@ -28,9 +43,16 @@ lens = ICALens(
 | `model_type` | `"base" \| "instruct" = "base"` | Whether the checkpoint is a base or instruction/chat model |
 | `activation_site` | `str = "resid_post"` | Named activation location; the built-in capture path supports post-block residual streams |
 | `layer_indexing` | `str = "hidden_states"` | Convention recorded in the artifact for interpreting layer numbers |
-| `row_normalize` | `bool = True` | Apply per-token L2 normalization before centering and ICA |
+| `icalens_preprocessing` | `"none" \| "l2" \| "geometric-median-l2" \| None = None` | Transform applied before standard FastICA centering and whitening; `None` preserves the legacy L2 default |
+| `row_normalize` | `bool \| None = None` | Compatibility option; prefer `icalens_preprocessing` in new code |
 | `norm_eps` | `float = 1e-12` | Numerical floor used during normalization |
 | **Returns** | `ICALens` | A new, unfitted lens |
+
+`icalens_preprocessing="none"` passes raw activations to standard FastICA
+centering and whitening. `"l2"` first normalizes every token activation to unit
+length. `"geometric-median-l2"` subtracts a robust center before that L2
+normalization. The selected mode is stored in the artifact and automatically
+reused by `transform()`, `inverse_transform()`, and `analyze()`.
 
 `model_revision` identifies the analyzed language-model weights. It is
 different from the `revision` argument of `from_pretrained()`, which selects a
@@ -458,6 +480,8 @@ be PyTorch tensors or both be NumPy arrays.
 
 ### `plot_fitting_curve(...)`
 
+Plot the component-wise FastICA objective distribution recorded during fitting:
+
 ```python
 figure = lens.plot_fitting_curve(layer=6)
 figure  # displays inline in Jupyter
@@ -467,6 +491,15 @@ figure = lens.plot_fitting_curve(layers=[0, 6, 11], columns=3)
 figure = lens.plot_fitting_curve(layers="all", columns=4)
 ```
 
+```python
+lens.plot_fitting_curve(
+    *,
+    layer=None,
+    layers=None,
+    columns=None,
+) -> matplotlib.figure.Figure
+```
+
 | Argument | Type / default | Meaning |
 | --- | --- | --- |
 | `layer` | `int \| None = None` | One fitted layer; mutually exclusive with `layers` |
@@ -474,8 +507,15 @@ figure = lens.plot_fitting_curve(layers="all", columns=4)
 | `columns` | `int \| None = None` | Subplot columns; defaults to 2 and is capped at the selected layer count |
 | **Returns** | Matplotlib `Figure` | Nested component-percentile bands and the median objective curve |
 
-The plot is generated entirely from the artifact metadata. It does not load the
-language model, fitting activations, or layer tensors.
+Pass exactly one of `layer` and `layers`. Multiple layers are shown as separate
+subplots; they are not aggregated. Each panel shows the saved minimum, 10th
+through 90th percentiles, maximum, and median across components at every
+recorded iteration.
+
+The plot is generated entirely from artifact metadata. It does not load the
+language model, fitting activations, or layer tensors. The selected layers must
+contain `objective_history`; current fitting commands record it by default, at
+the interval selected by `--objective-every` or `objective_every`.
 
 ## Fit activation tensors
 
