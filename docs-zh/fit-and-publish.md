@@ -1,46 +1,5 @@
 # 拟合与发布
 
-## 只捕获一次，重复使用激活值
-
-需要多次重新拟合时，可以先把所有目标层的激活值直接写入外接磁盘。下面的命令只需让
-每篇文档通过模型一次，并把各层的 `bfloat16` 激活值追加到磁盘；它不会把所有层同时
-保存在 CPU 内存中。
-
-```bash
-icalens capture text \
-  --model openai-community/gpt2 \
-  --dataset NeelNanda/pile-10k \
-  --layers all \
-  --candidate-tokens 1000000 \
-  --token-budget 1000000 \
-  --capture-layers-at-once all \
-  --output /mnt/external/icalens-activations/gpt2-pile10k-1m
-```
-
-之后可以直接从这些激活值拟合不同的预处理版本，不必再次运行语言模型：
-
-```bash
-icalens fit activations \
-  --input /mnt/external/icalens-activations/gpt2-pile10k-1m \
-  --layers all \
-  --icalens-preprocessing none \
-  --max-iter 20 \
-  --fit-batch-size 8192 \
-  --output local-icalens-models/refit-raw/icalens-gpt2-small-pile10k
-```
-
-捕获过程可以按层续跑。中断后重复同一条命令，程序会保留已经完成的层，只捕获缺失的
-层。`fit activations` 每次只映射一个层，FastICA 仍按有限批次传入 CUDA。
-
-其他 Python 分析也可以直接读取这些文件，而不必把整个数据集载入内存：
-
-```python
-from icalens import ActivationDataset
-
-captured = ActivationDataset("/mnt/external/icalens-activations/gpt2-pile10k-1m")
-layer_6 = captured.layer(6)  # disk-backed [tokens, hidden_size] tensor
-```
-
 制作一个完整的 ICA Lens 遵循同一套流程：
 
 **拟合 → 为每个已拟合层建立画像 → 发布**
@@ -125,6 +84,65 @@ checkpoint。
 
 使用 `--token-budget all` 可以利用所选数据集中的全部可用 token 进行拟合。tokenize
 完成后，命令会输出最终解析得到的 token 数量。
+
+### 只捕获一次，重复使用激活值
+
+需要多次重新拟合时，可以先把所有目标层的激活值直接写入外接磁盘。下面的命令只需让
+每篇文档通过模型一次，并把各层的 `bfloat16` 激活值追加到磁盘；它不会把所有层同时
+保存在 CPU 内存中。
+
+```bash
+icalens capture text \
+  --model openai-community/gpt2 \
+  --dataset NeelNanda/pile-10k \
+  --layers all \
+  --candidate-tokens 1000000 \
+  --token-budget 1000000 \
+  --capture-layers-at-once all \
+  --output /mnt/external/icalens-activations/gpt2-pile10k-1m
+```
+
+之后可以直接从这些激活值拟合不同的预处理版本，不必再次运行语言模型：
+
+```bash
+icalens fit activations \
+  --input /mnt/external/icalens-activations/gpt2-pile10k-1m \
+  --layers all \
+  --icalens-preprocessing none \
+  --max-iter 20 \
+  --fit-batch-size 8192 \
+  --output local-icalens-models/refit-raw/icalens-gpt2-small-pile10k
+```
+
+捕获过程可以按层续跑。中断后重复同一条命令，程序会保留已经完成的层，只捕获缺失的
+层。`fit activations` 每次只映射一个层，FastICA 仍按有限批次传入 CUDA。
+
+其他 Python 分析也可以直接读取这些文件，而不必把整个数据集载入内存：
+
+```python
+from icalens import ActivationDataset
+
+captured = ActivationDataset("/mnt/external/icalens-activations/gpt2-pile10k-1m")
+layer_6 = captured.layer(6)  # disk-backed [tokens, hidden_size] tensor
+```
+
+#### 较大模型的实际耗时示例
+
+下面给出一个具体参考：这次 `Qwen/Qwen3.5-9B-Base` 完整运行使用一台配备 128 GB
+统一内存的 NVIDIA GB10 机器。PyTorch 在 CUDA 上拟合，32 层 `bfloat16` 激活则以
+流式方式写入外接 SSD。该运行使用 Pile-10k 的 100 万个 token 激活，每层拟合 4,096
+个成分，执行 50 次 FastICA 迭代，并设置 `--fit-batch-size 16384`：
+
+| 阶段 | 计算方式 | 小计 |
+| --- | ---: | ---: |
+| tokenize、解析 revision 和加载模型 | 1 次 × 47s | 47s |
+| 将激活直接捕获到磁盘 | 100 万 token，覆盖 32 层 | 50m 57s |
+| 从已捕获激活进行拟合 | 32 层 × 12m 44s/层 | 6h 47m 40s |
+| **完整捕获与拟合流程** | **包含阶段切换时间** | **7h 39m 40s** |
+
+拟合时间主要用于 50 次 FastICA 更新；每层协方差计算需要 1m 25s，而白化本身需要
+2s。这些数字用于展示实际量级，并不构成对其他硬件或存储设备的速度保证。如果要尝试
+多种拟合设置，先捕获一次再重复利用激活值尤其划算。
 
 ### 从对话拟合
 
