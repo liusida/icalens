@@ -379,7 +379,13 @@ profile = lens.component_profile(layer=5, component=188)
 print(profile["dominant_sign"])
 print(profile["examples"]["negative"]["tokens"])
 print(profile["logit_lens"]["dominant"]["top_tokens"])
+
+# In Jupyter or Colab, display the complete profile panel:
+profile
 ```
+
+The returned object remains dictionary-compatible. Outside a notebook, use
+`profile.to_html("component-188.html")` to save the same panel.
 
 The logit-lens entries are diagnostic associations: at an intermediate layer,
 they skip the remaining transformer blocks and therefore are not exact causal

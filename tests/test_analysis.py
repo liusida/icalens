@@ -257,6 +257,52 @@ def test_generate_clamps_multiple_components_at_every_position(
     torch.testing.assert_close(model.block_output, expected)
 
 
+def test_generate_empty_text_uses_recorded_document_framing(
+    mixed_signals: np.ndarray,
+) -> None:
+    lens = ICALens(model_id="example/model", model_revision="abc").fit(
+        mixed_signals,
+        layer=0,
+        provenance={
+            "document_framing": {
+                "strategy": "prepend-bos",
+                "token": "<bos>",
+                "token_id": 42,
+            }
+        },
+    )
+    model = DummyGenerationModel()
+
+    output = lens.generate(
+        "",
+        max_new_tokens=1,
+        device="cpu",
+        model=model,
+        tokenizer=DummyGenerationTokenizer(),
+    )
+
+    assert output == "t9"
+    assert model.block_output is not None
+    expected = torch.tensor([[[43.0, 1765.0, 44.0]]])
+    torch.testing.assert_close(model.block_output, expected)
+
+
+def test_generate_empty_text_requires_recorded_document_framing(
+    mixed_signals: np.ndarray,
+) -> None:
+    lens = ICALens(model_id="example/model", model_revision="abc").fit(
+        mixed_signals, layer=0
+    )
+    with pytest.raises(ValueError, match="requires a recorded BOS/EOS"):
+        lens.generate(
+            "",
+            max_new_tokens=1,
+            device="cpu",
+            model=DummyGenerationModel(),
+            tokenizer=DummyGenerationTokenizer(),
+        )
+
+
 def test_generate_validates_clamp_arguments() -> None:
     lens = ICALens(model_id="example/model", model_revision="abc")
     with pytest.raises(ValueError, match="layer is required"):

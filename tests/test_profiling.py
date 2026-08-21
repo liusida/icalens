@@ -61,6 +61,15 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     component = loaded.component_profile(layer=1, component=0)
     assert component["dominant_sign"] == "negative"
     assert component["logit_lens"]["method"] == "final_norm_then_unembed"
+    assert component.component == 0
+    assert component.layer == 1
+    rendered = component._repr_html_()
+    assert rendered.startswith('<iframe title="ICA Lens Component Profile"')
+    assert "Component profile — C0 · layer 1 · dominant negative" in rendered
+    assert "Logit-lens tokens · negative" in rendered
+    report = component.to_html(tmp_path / "component-profile.html")
+    assert report.is_file()
+    assert "High-energy occurrences · negative" in report.read_text()
     assert profile["format_version"] == 1
 
 
@@ -188,9 +197,7 @@ def test_add_r_lens_profile_records_explicit_base_to_instruct_transfer(
         device="cpu",
         allow_base_model_transfer=True,
     )
-    assert directly_profiled["r_lens_provenance"]["transfer"]["kind"] == (
-        "base_to_instruct"
-    )
+    assert directly_profiled["r_lens_provenance"]["transfer"]["kind"] == ("base_to_instruct")
 
     enriched = lens.add_r_lens_profile(
         layer=1,

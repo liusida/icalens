@@ -247,18 +247,21 @@ lens.checkpoint_component_profile("icalens-output/my-icalens", layer=6)
 
 ```python
 component = lens.component_profile(layer=5, component=188)
+component  # 在 Jupyter 或 Colab 中显示画像面板
 ```
 
 | 参数 | 类型／默认值 | 含义 |
 | --- | --- | --- |
 | `layer` | `int`，必填 | 已建立画像的层 |
 | `component` | `int`，必填 | 成分编号 |
-| **返回** | `dict` | 该成分的符号统计、样例、Logit Lens 条目和可选 R-lens 条目 |
+| **返回** | `ComponentProfile` | 可按字典使用的画像对象，支持 notebook 显示和 `to_html()` |
 
 从本地或 Hugging Face 载入产物时，画像文件会按需延迟加载。
 
-返回的成分字典包含上文所述的 `dominant_sign`、`sign_statistics`、`examples`、
-`logit_lens` 和可选的 `r_lens`。四项符号统计的含义如下：
+返回的成分画像仍支持普通字典索引，并包含上文所述的 `dominant_sign`、
+`sign_statistics`、`examples`、`logit_lens` 和可选的 `r_lens`。在 notebook 中，
+把 `component` 放在单元格末尾即可显示画像面板；也可调用
+`component.to_html("component-188.html")` 保存。四项符号统计的含义如下：
 
 | 字段 | 含义 |
 | --- | --- |

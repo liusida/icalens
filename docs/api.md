@@ -332,19 +332,21 @@ apply, and the source and target model identities are stored in the profile.
 
 ```python
 component = lens.component_profile(layer=5, component=188)
+component  # displays the profile panel in Jupyter or Colab
 ```
 
 | Argument | Type / default | Meaning |
 | --- | --- | --- |
 | `layer` | `int`, required | Profiled layer |
 | `component` | `int`, required | Component ID |
-| **Returns** | `dict` | Sign statistics, examples, Logit Lens entries, and optional R-lens entries |
+| **Returns** | `ComponentProfile` | Dictionary-compatible profile with notebook display and `to_html()` |
 
 Profiles are loaded lazily when reading a local or Hugging Face artifact.
 
-The returned component dictionary has the same `dominant_sign`,
+The returned component profile supports ordinary dictionary indexing and has the same `dominant_sign`,
 `sign_statistics`, `examples`, `logit_lens`, and optional `r_lens` fields
-described above. Its
+described above. A final `component` expression displays the profile panel in a
+notebook; `component.to_html("component-188.html")` saves it. Its
 four sign statistics are:
 
 | Field | Meaning |

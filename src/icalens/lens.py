@@ -8,7 +8,7 @@ import re
 import tempfile
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import torch
@@ -31,6 +31,9 @@ from ._artifact import (
 )
 from ._fastica import OBJECTIVE_PERCENTILES, fit_fastica, geometric_median
 from .exceptions import ArtifactError, NotFittedError
+
+if TYPE_CHECKING:
+    from .analysis import ComponentProfile
 
 
 class ICALens:
@@ -397,8 +400,10 @@ class ICALens:
 
         return add_r_lens_profile(self, layer=layer, r_lens=r_lens, **kwargs)
 
-    def component_profile(self, *, layer: int, component: int) -> dict[str, Any]:
-        """Return the stored profile for one fitted component."""
+    def component_profile(self, *, layer: int, component: int) -> ComponentProfile:
+        """Return a dictionary-compatible, notebook-displayable component profile."""
+        from .analysis import ComponentProfile
+
         artifact = self._get_layer(layer)
         profile = self._get_profile(artifact)
         if isinstance(component, bool) or not isinstance(component, (int, np.integer)):
@@ -408,7 +413,7 @@ class ICALens:
             raise ValueError(
                 f"component must be between 0 and {artifact.n_components - 1}, got {index}"
             )
-        return copy.deepcopy(profile["components"][index])
+        return ComponentProfile(copy.deepcopy(profile["components"][index]), layer=layer)
 
     def checkpoint_component_profile(self, path: str | Path, *, layer: int) -> Path:
         """Write one completed profile into an existing local lens artifact."""

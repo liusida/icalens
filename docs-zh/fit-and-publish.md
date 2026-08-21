@@ -352,7 +352,13 @@ profile = lens.component_profile(layer=5, component=188)
 print(profile["dominant_sign"])
 print(profile["examples"]["negative"]["tokens"])
 print(profile["logit_lens"]["dominant"]["top_tokens"])
+
+# In Jupyter or Colab, display the complete profile panel:
+profile
 ```
+
+返回对象仍可像字典一样使用。在 notebook 之外，可以通过
+`profile.to_html("component-188.html")` 保存同一个面板。
 
 Logit Lens 结果只是诊断性关联：对于中间层，它跳过了后续 Transformer 块，不能视为
 对生成 token 的精确因果预测。

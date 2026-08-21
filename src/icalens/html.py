@@ -62,6 +62,118 @@ def write_analysis_html(
     return destination
 
 
+def component_profile_html(profile: Any, *, layer: int) -> str:
+    """Return a standalone HTML document for one component profile."""
+    return _component_profile_document(profile, layer=layer)
+
+
+def component_profile_iframe(profile: Any, *, layer: int, height: int = 520) -> str:
+    """Return an isolated notebook representation for one component profile."""
+    if height <= 0:
+        raise ValueError("height must be positive")
+    source = html.escape(_component_profile_document(profile, layer=layer), quote=True)
+    return (
+        '<iframe title="ICA Lens Component Profile" sandbox="allow-scripts allow-same-origin" '
+        f'srcdoc="{source}" style="width:100%;height:{height}px;border:0;overflow:hidden;" '
+        'scrolling="no" loading="lazy"></iframe>'
+    )
+
+
+def write_component_profile_html(profile: Any, output_file: str | Path, *, layer: int) -> Path:
+    """Write one component profile panel to a standalone HTML file."""
+    destination = Path(output_file).expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(component_profile_html(profile, layer=layer), encoding="utf-8")
+    return destination
+
+
+def _component_profile_document(profile: Any, *, layer: int) -> str:
+    component = int(profile["component"])
+    sign = str(profile["dominant_sign"])
+    statistics = profile["sign_statistics"]
+    examples = profile["examples"][sign]
+    occurrences = examples.get("occurrences", [])
+    logit_tokens = profile.get("logit_lens", {}).get("dominant", {}).get("top_tokens", [])[:10]
+    r_lens_tokens = profile.get("r_lens", {}).get("dominant", {}).get("top_tokens", [])[:10]
+
+    def percentage(value: Any) -> str:
+        return f"{float(value) * 100:.1f}%"
+
+    def token_chips(tokens: list[dict[str, Any]]) -> str:
+        return "".join(
+            '<span class="profile-token-chip"><span class="profile-value">'
+            f"#{index}</span><strong>{html.escape(json.dumps(str(item.get('text', '')), ensure_ascii=False))}</strong></span>"
+            for index, item in enumerate(tokens, start=1)
+        )
+
+    def highlighted_context(item: dict[str, Any]) -> str:
+        target = str(item.get("text", ""))
+        context = (
+            str(item.get("context", "")).replace("\r\n", "↵").replace("\r", "↵").replace("\n", "↵")
+        )
+        index = context.find(target) if target else -1
+        if index < 0:
+            return html.escape(context)
+        return (
+            html.escape(context[:index])
+            + '<span class="profile-target">'
+            + html.escape(context[index : index + len(target)])
+            + "</span>"
+            + html.escape(context[index + len(target) :])
+        )
+
+    occurrence_items = "".join(
+        "<li>"
+        f'<span class="profile-occurrence-token">{html.escape(json.dumps(str(item.get("text", "")), ensure_ascii=False))}</span>'
+        f'<span class="profile-context">{highlighted_context(item)}</span>'
+        '<span class="profile-occurrence-metrics">'
+        f'<span title="Signed ICA score">↕ {float(item.get("score", 0)):+.2f}</span> · '
+        f'<span title="Component energy">⚡ {percentage(item.get("energy", 0))}</span>'
+        "</span></li>"
+        for item in occurrences
+    )
+    r_lens = ""
+    if r_lens_tokens:
+        r_lens = (
+            f'<div class="profile-token-row"><h3>R-lens tokens · {html.escape(sign)}</h3>'
+            f'<div class="profile-chips">{token_chips(r_lens_tokens)}</div></div>'
+        )
+
+    position_positive = percentage(statistics["positive_fraction"])
+    position_negative = percentage(statistics["negative_fraction"])
+    energy_positive = percentage(statistics["positive_energy_fraction"])
+    energy_negative = percentage(statistics["negative_energy_fraction"])
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ICA Lens component C{component}</title>
+<style>
+  :root {{--bg:#f6f7f9;--panel:#fff;--text:#151922;--muted:#647084;--border:#cbd3df}}
+  * {{box-sizing:border-box}} body {{margin:0;padding:6px;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden}}
+  .panel {{padding:12px;background:var(--panel);border:1px solid var(--border);border-radius:8px}}
+  summary {{cursor:pointer;font-weight:800}} .profile-grid {{display:grid;grid-template-columns:minmax(280px,.55fr) minmax(0,1.8fr);gap:16px 24px;margin-top:12px}}
+  h3 {{margin:0 0 7px;font-size:13px}} .profile-wide {{grid-column:1/-1;padding-top:12px;border-top:1px solid #e1e6ee}}
+  .profile-token-row + .profile-token-row {{margin-top:13px}} .profile-stat-row {{display:grid;grid-template-columns:62px 48px minmax(80px,1fr) 48px;gap:7px;align-items:center;margin:7px 0;color:#435066;font-size:11px}}
+  .profile-stat-primary {{margin-bottom:10px;color:#273244;font-size:12px}} .profile-stat-secondary {{opacity:.65}} .profile-bar {{display:flex;height:9px;overflow:hidden;border-radius:999px;background:#e6e9ef}}
+  .profile-stat-primary .profile-bar {{height:14px}} .positive {{background:#f59e0b}} .negative {{flex:1;background:#1e3a8a}}
+  .profile-chips {{display:flex;flex-wrap:wrap;gap:6px}} .profile-token-chip {{display:inline-flex;gap:6px;padding:4px 7px;border:1px solid #d5dce7;border-radius:999px;background:#f8fafc;font-size:11px}}
+  .profile-value {{color:var(--muted);font-variant-numeric:tabular-nums}} ol {{margin:0;padding-left:20px;columns:3 360px;column-gap:32px}} li {{break-inside:avoid;margin:0 0 8px;overflow-wrap:anywhere}}
+  .profile-occurrence-token {{color:#435066;font-size:11px}} .profile-context {{display:block;color:#3f4a5c;font-size:13px;line-height:1.5}} .profile-occurrence-metrics {{display:block;margin-top:2px;color:#929bab;font-size:9px}}
+  .profile-target {{padding:0 1px;border-radius:2px;background:#fff1a8;color:#273244;text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:2px}}
+  @media(max-width:700px){{.profile-grid{{grid-template-columns:1fr}}.profile-wide{{grid-column:auto}}}}
+</style></head><body>
+<details class="panel" open><summary>Component profile — C{component} · layer {int(layer)} · dominant {html.escape(sign)}</summary>
+<div class="profile-grid">
+  <section><h3>Sign distribution</h3>
+    <div class="profile-stat-row profile-stat-primary"><strong>Energy</strong><span>+{energy_positive}</span><span class="profile-bar"><span class="positive" style="width:{energy_positive}"></span><span class="negative"></span></span><span>−{energy_negative}</span></div>
+    <div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+{position_positive}</span><span class="profile-bar"><span class="positive" style="width:{position_positive}"></span><span class="negative"></span></span><span>−{position_negative}</span></div>
+  </section>
+  <section><div class="profile-token-row"><h3>Logit-lens tokens · {html.escape(sign)}</h3><div class="profile-chips">{token_chips(logit_tokens)}</div></div>{r_lens}</section>
+  <section class="profile-wide"><h3>High-energy occurrences · {html.escape(sign)}</h3><ol>{occurrence_items}</ol></section>
+</div></details>
+<script>const resize=()=>{{if(window.frameElement)window.frameElement.style.height=Math.max(document.documentElement.scrollHeight+4,180)+"px"}};addEventListener("load",resize);new ResizeObserver(resize).observe(document.body);</script>
+</body></html>"""
+
+
 def _analysis_payload(
     result: Any,
     *,

@@ -13,6 +13,45 @@ import torch
 from ._capture import capture_resid_post, clamp_resid_post
 
 
+class ComponentProfile(dict[str, Any]):
+    """Stored metadata for one ICA component, with notebook rendering."""
+
+    def __init__(self, values: Mapping[str, Any], *, layer: int) -> None:
+        super().__init__(values)
+        self.layer = int(layer)
+
+    @property
+    def component(self) -> int:
+        """Component index represented by this profile."""
+        return int(self["component"])
+
+    def to_html(self, output_file: str | Path) -> Path:
+        """Write the component profile panel to a standalone HTML file."""
+        from .html import write_component_profile_html
+
+        return write_component_profile_html(self, output_file, layer=self.layer)
+
+    def _repr_html_(self) -> str:
+        """Render the component profile panel in Jupyter and Colab."""
+        from .html import component_profile_iframe
+
+        return component_profile_iframe(self, layer=self.layer)
+
+    def display(self, *, height: int = 520) -> None:
+        """Display the component profile panel in a notebook."""
+        try:
+            from IPython.display import HTML, display
+        except ImportError as error:
+            raise ImportError(
+                "ComponentProfile.display() requires IPython; use to_html() outside a notebook"
+            ) from error
+        from .html import component_profile_iframe
+
+        display(  # type: ignore[no-untyped-call]
+            HTML(component_profile_iframe(self, layer=self.layer, height=height))  # type: ignore[no-untyped-call]
+        )
+
+
 @dataclass(frozen=True)
 class CaptureResult:
     """Tokens and aligned activations captured from one model input."""
@@ -105,9 +144,7 @@ def capture(
     """Capture activations for raw text or a completed chat conversation."""
     started = perf_counter()
     _analysis_log(verbose, f"Preparing {lens.model_id}...")
-    model, tokenizer = _resolve_model_and_tokenizer(
-        lens, model, tokenizer, device, verbose=verbose
-    )
+    model, tokenizer = _resolve_model_and_tokenizer(lens, model, tokenizer, device, verbose=verbose)
     if isinstance(inputs, str):
         framing = _document_framing_for_layer(lens, layer)
         prefix_id = framing.get("token_id") if framing.get("strategy") != "none" else None
@@ -127,9 +164,7 @@ def capture(
             prefix = torch.tensor([[int(prefix_id)]], dtype=encoded["input_ids"].dtype)
             encoded["input_ids"] = torch.cat((prefix, encoded["input_ids"]), dim=1)
             if "attention_mask" in encoded:
-                prefix_mask = torch.ones(
-                    (1, 1), dtype=encoded["attention_mask"].dtype
-                )
+                prefix_mask = torch.ones((1, 1), dtype=encoded["attention_mask"].dtype)
                 encoded["attention_mask"] = torch.cat(
                     (prefix_mask, encoded["attention_mask"]), dim=1
                 )
@@ -139,9 +174,7 @@ def capture(
                 "the prefix is excluded from reported tokens.",
             )
         offset = 1 if prefix_id is not None else 0
-        positions = torch.arange(
-            offset, encoded["input_ids"].shape[1], dtype=torch.long
-        )
+        positions = torch.arange(offset, encoded["input_ids"].shape[1], dtype=torch.long)
         token_groups: tuple[str, ...] = ()
     else:
         encoded, positions, token_groups = _encode_chat(
@@ -331,9 +364,7 @@ def add_logit_effects(
             # computed bf16 logits creates quantized deltas such as repeated 0.5.
             delta_hidden = edited_normed.float() - original_normed.float()
             count = min(effect_tokens_per_component, int(weight.shape[0]))
-            best_abs = torch.empty(
-                (stop - start, 0), device=device, dtype=torch.float32
-            )
+            best_abs = torch.empty((stop - start, 0), device=device, dtype=torch.float32)
             signed_values = best_abs
             ids = torch.empty((stop - start, 0), device=device, dtype=torch.long)
             for vocabulary_start in range(0, int(weight.shape[0]), vocabulary_batch_size):
@@ -346,9 +377,7 @@ def add_logit_effects(
                     bias=None,
                 )
                 chunk_count = min(count, int(chunk_logits.shape[-1]))
-                chunk_abs, chunk_ids = torch.topk(
-                    chunk_logits.abs(), k=chunk_count, dim=-1
-                )
+                chunk_abs, chunk_ids = torch.topk(chunk_logits.abs(), k=chunk_count, dim=-1)
                 chunk_signed = chunk_logits.gather(1, chunk_ids)
                 chunk_ids = chunk_ids + vocabulary_start
                 candidate_abs = torch.cat((best_abs, chunk_abs), dim=1)
@@ -392,14 +421,11 @@ def generate(
     **generation_kwargs: Any,
 ) -> str:
     """Generate text, optionally clamping one signed ICA score at resid_post."""
-    if isinstance(prompt, str):
-        if not prompt:
-            raise ValueError("prompt must be a non-empty string")
-    elif isinstance(prompt, list):
+    if isinstance(prompt, list):
         prompt = _normalize_messages(prompt)
         if not prompt:
             raise ValueError("prompt messages cannot be empty")
-    else:
+    elif not isinstance(prompt, str):
         raise TypeError("prompt must be a string or a list of messages")
     if max_new_tokens <= 0:
         raise ValueError("max_new_tokens must be positive")
@@ -425,9 +451,10 @@ def generate(
                 raise ValueError("clamp targets must be finite numbers")
 
     model, tokenizer = _resolve_model_and_tokenizer(lens, model, tokenizer, device)
+    is_text_prompt = isinstance(prompt, str)
     rendered_prompt = (
         prompt
-        if isinstance(prompt, str)
+        if is_text_prompt
         else tokenizer.apply_chat_template(
             prompt,
             tokenize=False,
@@ -435,6 +462,29 @@ def generate(
         )
     )
     encoded = tokenizer(rendered_prompt, add_special_tokens=False, return_tensors="pt")
+    if is_text_prompt:
+        framing_layer = layer
+        if framing_layer is None:
+            available_layers = tuple(lens.available_layers)
+            framing_layer = available_layers[0] if available_layers else None
+        framing = (
+            _document_framing_for_layer(lens, framing_layer)
+            if framing_layer is not None
+            else {"strategy": "none", "token": None, "token_id": None}
+        )
+        prefix_id = framing.get("token_id") if framing.get("strategy") != "none" else None
+        if prefix_id is not None:
+            prefix = torch.tensor([[int(prefix_id)]], dtype=encoded["input_ids"].dtype)
+            encoded["input_ids"] = torch.cat((prefix, encoded["input_ids"]), dim=1)
+            if "attention_mask" in encoded:
+                prefix_mask = torch.ones((1, 1), dtype=encoded["attention_mask"].dtype)
+                encoded["attention_mask"] = torch.cat(
+                    (prefix_mask, encoded["attention_mask"]), dim=1
+                )
+        elif not prompt:
+            raise ValueError(
+                "an empty prompt requires a recorded BOS/EOS document-framing token"
+            )
     model_device = next(model.parameters()).device
     model_inputs = {
         name: value.to(model_device)
@@ -484,7 +534,7 @@ def generate(
     if not isinstance(sequences, torch.Tensor):
         raise TypeError("model.generate() must return token IDs or an object with .sequences")
     continuation = sequences[0, prompt_length:].detach().cpu()
-    return str(tokenizer.decode(continuation, skip_special_tokens=True)).strip()
+    return str(tokenizer.decode(continuation, skip_special_tokens=True))
 
 
 def _token_presentations(
