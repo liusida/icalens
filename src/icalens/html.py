@@ -1,13 +1,18 @@
 """Write self-contained interactive ICA Lens HTML reports."""
 
-# ruff: noqa: E501 -- Long lines keep the embedded HTML/JavaScript template readable.
-
 from __future__ import annotations
 
 import html
 import json
 from pathlib import Path
 from typing import Any
+
+# ruff: noqa: E501 -- Long lines keep the embedded HTML/JavaScript template readable.
+
+
+# VS Code applies a larger visual scale to nested notebook webviews than JupyterLab.
+# Users may override this module setting before displaying a result.
+VSCODE_NOTEBOOK_SCALE = 0.6
 
 
 def analysis_html(
@@ -38,6 +43,7 @@ def analysis_iframe(
     source = html.escape(document, quote=True)
     return (
         '<iframe title="ICA Lens Explorer" sandbox="allow-scripts allow-same-origin" '
+        'data-icalens-nested-frame="true" '
         f'srcdoc="{source}" style="width:100%;height:{height}px;border:0;overflow:hidden;" '
         'scrolling="no" '
         'loading="lazy"></iframe>'
@@ -74,6 +80,7 @@ def component_profile_iframe(profile: Any, *, layer: int, height: int = 520) -> 
     source = html.escape(_component_profile_document(profile, layer=layer), quote=True)
     return (
         '<iframe title="ICA Lens Component Profile" sandbox="allow-scripts allow-same-origin" '
+        'data-icalens-nested-frame="true" '
         f'srcdoc="{source}" style="width:100%;height:{height}px;border:0;overflow:hidden;" '
         'scrolling="no" loading="lazy"></iframe>'
     )
@@ -170,7 +177,30 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
   <section><div class="profile-token-row"><h3>Logit-lens tokens · {html.escape(sign)}</h3><div class="profile-chips">{token_chips(logit_tokens)}</div></div>{r_lens}</section>
   <section class="profile-wide"><h3>High-energy occurrences · {html.escape(sign)}</h3><ol>{occurrence_items}</ol></section>
 </div></details>
-<script>const resize=()=>{{if(window.frameElement)window.frameElement.style.height=Math.max(document.documentElement.scrollHeight+4,180)+"px"}};addEventListener("load",resize);new ResizeObserver(resize).observe(document.body);</script>
+<script>
+const vscodeHost=(()=>{{
+  if(/Electron|Code[/]/.test(navigator.userAgent))return true;
+  try{{
+    const parentDocument=window.parent.document;
+    const parentStyle=window.parent.getComputedStyle(parentDocument.body||parentDocument.documentElement);
+    return /vscode-webview|vscode-resource/.test(window.parent.location.href)||
+      Boolean(parentStyle.getPropertyValue("--vscode-font-family").trim())||
+      Boolean(parentDocument.querySelector(".vscode-body"));
+  }}catch(_error){{return false}}
+}})();
+const isNestedFrame=()=>window.frameElement?.dataset.icalensNestedFrame==="true";
+const notebookScale=()=>isNestedFrame()&&vscodeHost?{VSCODE_NOTEBOOK_SCALE}:1;
+const applyVSCodeScale=()=>{{
+  if(isNestedFrame()&&vscodeHost)document.documentElement.style.zoom="{VSCODE_NOTEBOOK_SCALE}";
+}};
+const resize=()=>{{
+  if(!isNestedFrame())return;
+  const panel=document.querySelector(".panel");
+  const intrinsicHeight=panel?panel.scrollHeight+12:document.body.scrollHeight;
+  window.frameElement.style.height=Math.max(Math.ceil(intrinsicHeight*notebookScale())+4,180)+"px";
+}};
+applyVSCodeScale();addEventListener("load",resize);new ResizeObserver(resize).observe(document.body);
+</script>
 </body></html>"""
 
 
@@ -429,6 +459,20 @@ def _document(payload: str) -> str:
   </main>
   <script>
     const data = {payload};
+    const vscodeHost = (() => {{
+      if (/Electron|Code[/]/.test(navigator.userAgent)) return true;
+      try {{
+        const parentDocument = window.parent.document;
+        const parentStyle = window.parent.getComputedStyle(
+          parentDocument.body || parentDocument.documentElement
+        );
+        return /vscode-webview|vscode-resource/.test(window.parent.location.href) ||
+          Boolean(parentStyle.getPropertyValue("--vscode-font-family").trim()) ||
+          Boolean(parentDocument.querySelector(".vscode-body"));
+      }} catch (_error) {{
+        return false;
+      }}
+    }})();
     const esc = value => String(value).replace(/[&<>"']/g, char => ({{
       "&":"&amp;", "<":"&lt;", ">":"&gt;", "\\\"":"&quot;", "'":"&#39;"
     }})[char]);
@@ -438,6 +482,13 @@ def _document(payload: str) -> str:
     const cutoff = document.getElementById("cutoff");
 
     document.body.classList.toggle("compact", Boolean(data.compact));
+    const isNestedFrame = () => window.frameElement?.dataset.icalensNestedFrame === "true";
+    const notebookScale = data.compact && isNestedFrame() && vscodeHost
+      ? {VSCODE_NOTEBOOK_SCALE}
+      : 1;
+    if (data.compact && isNestedFrame() && vscodeHost) {{
+      document.documentElement.style.zoom = "{VSCODE_NOTEBOOK_SCALE}";
+    }}
     document.getElementById("analysisContext").open = !data.compact;
     if (data.compact) {{
       document.querySelector("main").append(document.getElementById("analysisContext"));
@@ -674,9 +725,9 @@ def _document(payload: str) -> str:
     }}
 
     function resizeFrame() {{
-      if (!data.compact || !window.frameElement) return;
+      if (!data.compact || !isNestedFrame()) return;
       const main = document.querySelector("main");
-      const contentHeight = main ? Math.ceil(main.getBoundingClientRect().bottom) : 0;
+      const contentHeight = main ? Math.ceil(main.scrollHeight * notebookScale) : 0;
       const height = Math.max(contentHeight + 4, 180);
       window.frameElement.style.height = `${{height}}px`;
     }}
@@ -720,7 +771,7 @@ def _document(payload: str) -> str:
       render();
     }});
     render();
-    if (data.compact && window.ResizeObserver) new ResizeObserver(resizeFrame).observe(document.body);
+    if (data.compact && isNestedFrame() && window.ResizeObserver) new ResizeObserver(resizeFrame).observe(document.body);
   </script>
 </body>
 </html>

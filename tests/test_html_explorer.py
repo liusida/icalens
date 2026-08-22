@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 
 from icalens import AnalysisResult
-from icalens.html import analysis_iframe, write_explorer_html
+from icalens.html import VSCODE_NOTEBOOK_SCALE, analysis_iframe, write_explorer_html
 
 
 def analysis_result() -> AnalysisResult:
@@ -132,7 +132,7 @@ def test_write_explorer_html_is_self_contained_and_escapes_payload(tmp_path) -> 
     assert '<blockquote class="input" id="input"></blockquote>' in html
     assert 'textContent = "Analyzed conversation"' in html
     assert "visible in ${visible}/${tokens.length} tokens" in html
-    assert "main.getBoundingClientRect().bottom" in html
+    assert "main.scrollHeight * notebookScale" in html
     assert "const height = Math.max(contentHeight + 4, 180)" in html
     assert 'replace(/\\r\\n|\\r|\\n/g, "↵")' in html
     assert "max-width: 1680px" in html
@@ -142,6 +142,23 @@ def test_write_explorer_html_is_self_contained_and_escapes_payload(tmp_path) -> 
     assert '<span class="chip-label">User turns:</span>' in html
     assert "card.className = `message ${role}`" in html
     assert html.index('<section class="panel controls">') < html.index('<div id="tokenGroups">')
+
+
+def test_analysis_iframe_scales_only_inside_vscode() -> None:
+    rendered = analysis_iframe(analysis_result())
+
+    assert "vscodeHost" in rendered
+    assert "--vscode-font-family" in rendered
+    assert "vscode-webview|vscode-resource" in rendered
+    assert 0 < VSCODE_NOTEBOOK_SCALE <= 1
+    assert (
+        f'document.documentElement.style.zoom = &quot;{VSCODE_NOTEBOOK_SCALE}&quot;'
+        in rendered
+    )
+    assert "main.scrollHeight * notebookScale" in rendered
+    assert 'data-icalens-nested-frame="true"' in rendered
+    assert "releaseWheelToNotebook" not in rendered
+    assert "pointerEvents" not in rendered
 
 
 def test_write_explorer_html_accepts_energy_metric(tmp_path) -> None:
