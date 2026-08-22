@@ -1,23 +1,20 @@
-# Official reconstruction experiment
+# Upgraded full reconstruction run
 
-These are the reconstruction runs accepted for the paper. Run scripts invoke
-the public CLI with the exact model, layer, preset, and baseline selections used
-to produce the stored results.
+This pilot is the candidate replacement for `experiments/reconstruction/official`.
+It separates durable activation capture from reconstruction measurement. The language
+model is used only by the capture scripts; measurement can be repeated from the HDD
+captures without another model forward pass.
 
-From the repository root, run one model with:
+Durable activations are stored outside the repository under:
 
-```bash
-bash experiments/reconstruction/official/scripts/run-gpt2.sh
+```text
+~/Expansion/research/ICA-data/icalens-reconstruction-activations/
 ```
 
-The corresponding Gemma 2 and Qwen scripts have the same interface. Recreate
-the cross-model figures after all three runs finish with:
+Run the three `capture-*.sh` scripts first. A repeated capture validates the existing
+manifest and resumes missing layers. Then run the three `measure-*.sh` scripts and
+`make-figures.sh`. Measurement uses requested budgets `1,3,10,30,100,300`; complete
+linear-basis endpoints and native SAE reconstruction are added by the evaluator.
 
-```bash
-bash experiments/reconstruction/official/scripts/make-figures.sh
-```
-
-Repeating a run command resumes its existing output. `run.json` records the
-fully resolved configuration and source provenance; `results.json` is the
-aggregate result, and `layers/` contains the durable per-layer results used for
-the layer and dataset breakdown figures.
+Everything in this pilot directory is ignored by Git until it is deliberately promoted.
+Do not copy activation binaries, logs, or temporary checkpoints into `official`.
