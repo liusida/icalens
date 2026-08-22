@@ -1,0 +1,107 @@
+{
+  "completed_at": "2026-08-18T03:13:21.954239+00:00",
+  "layer_runs": {
+    "10": {
+      "completed_at": "2026-08-18T03:13:21.950808+00:00",
+      "result": "/home/liusida/research/ICA-paper/icalens_pypi/results/SAEBench-sparse-probing-official/gpt2/layers/layer_10/raw-result.json",
+      "started_at": "2026-08-18T03:02:02.576532+00:00",
+      "status": "complete"
+    },
+    "6": {
+      "completed_at": "2026-08-18T02:46:06.179474+00:00",
+      "result": "/home/liusida/research/ICA-paper/icalens_pypi/results/SAEBench-sparse-probing-official/gpt2/layers/layer_06/raw-result.json",
+      "started_at": "2026-08-18T02:39:24.662632+00:00",
+      "status": "complete"
+    }
+  },
+  "resolved": {
+    "activation_cache": {
+      "estimated_bytes_per_layer": 4915200000,
+      "estimated_per_layer": "4.6 GiB",
+      "recommended_free": "5.5 GiB",
+      "recommended_free_bytes": 5898240000,
+      "used_when_multiple_methods_are_pending": true
+    },
+    "activation_site": "resid_post",
+    "backend": {
+      "cache_path": "/home/liusida/.cache/icalens/experiments/saebench/paper-standard/2a7480bf67f9f82f79e742be55fc1f5ec404bfa9",
+      "cached": true,
+      "commit": "2a7480bf67f9f82f79e742be55fc1f5ec404bfa9",
+      "name": "paper-standard",
+      "repository": "https://github.com/adamkarvonen/SAEBench.git",
+      "saebench_model_name": "gpt2-small",
+      "status": "verified"
+    },
+    "baselines": {
+      "pca": {
+        "components": "model_hidden_size",
+        "feature_sides": "positive_and_negative",
+        "fit_source": "derived_from_full_rank_ica_whitening",
+        "name": "PCA",
+        "preprocessing": "match_ica_lens"
+      },
+      "random": {
+        "components": "model_hidden_size",
+        "feature_sides": "positive_and_negative",
+        "name": "Random orthogonal basis",
+        "preprocessing": "match_ica_lens",
+        "seed": 0
+      },
+      "sae": {
+        "activation": "relu",
+        "apply_b_dec_to_input": true,
+        "checkpoint_format": "safetensors",
+        "checkpoint_template": "v5_32k_layer_{layer}.pt/sae_weights.safetensors",
+        "feature_source": "encoder",
+        "hook_name_template": "blocks.{layer}.hook_resid_post",
+        "layers": "all_transformer_layers",
+        "name": "GPT2-Small OAI v5 32k",
+        "repo_id": "jbloom/GPT2-Small-OAI-v5-32k-resid-post-SAEs",
+        "revision": "21df74db7b9f690cd2403a20485cf75f46330d0d",
+        "width": 32768
+      }
+    },
+    "experiment": "saebench-sparse-probing",
+    "experiment_schema_version": 1,
+    "icalens_version": "0.3.4.dev0",
+    "layers": [
+      6,
+      10
+    ],
+    "lens": "sida/icalens-gpt2-small-pile10k",
+    "model_id": "openai-community/gpt2",
+    "model_revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e",
+    "output": "/home/liusida/research/ICA-paper/icalens_pypi/experiments/sparse-probing/official/results/gpt2",
+    "preset": {
+      "context_length": 128,
+      "datasets": [
+        "LabHC/bias_in_bios_class_set1",
+        "LabHC/bias_in_bios_class_set2",
+        "LabHC/bias_in_bios_class_set3",
+        "canrager/amazon_reviews_mcauley_1and5",
+        "canrager/amazon_reviews_mcauley_1and5_sentiment",
+        "codeparrot/github-code",
+        "fancyzhx/ag_news",
+        "Helsinki-NLP/europarl"
+      ],
+      "k_values": [
+        1,
+        2,
+        5,
+        10,
+        20,
+        50,
+        100
+      ],
+      "llm_batch_size": 1,
+      "llm_dtype": "float32",
+      "name": "paper",
+      "probe_test_size": 1000,
+      "probe_train_size": 4000,
+      "random_seed": 42,
+      "sae_batch_size": 125
+    }
+  },
+  "started_at": "2026-08-18T02:18:35.212385+00:00",
+  "status": "complete"
+}

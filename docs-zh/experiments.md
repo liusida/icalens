@@ -36,7 +36,7 @@ icalens experiment reconstruction \
   --layers 6 \
   --preset smoke \
   --baselines all \
-  --output results/reconstruction-gpt2-smoke
+  --output experiments/reconstruction/pilot-runs/gpt2-smoke
 ```
 
 完整实验使用 `--layers all --preset paper`。`paper` 预设在六个差异明显的领域中评估
@@ -65,7 +65,7 @@ icalens experiment reconstruction \
 
 ```bash
 icalens experiment figure reconstruction \
-  results/reconstruction-gpt2-smoke
+  experiments/reconstruction/pilot-runs/gpt2-smoke
 ```
 
 命令会在实验目录的 `figures/` 子目录中写入 PNG 和图注文本。除汇总图外，如果结果
@@ -91,7 +91,7 @@ icalens experiment saebench-sparse-probing \
   --lens sida/icalens-gpt2-small-pile10k \
   --layers 6 \
   --preset smoke \
-  --output results/gpt2-smoke
+  --output experiments/sparse-probing/pilot-runs/gpt2-smoke
 ```
 
 `smoke` 预设只用于兼容性检查，不是论文结果。`paper` 预设使用论文中的八个数据集、
@@ -103,7 +103,7 @@ icalens experiment saebench-sparse-probing \
   --layers 6,10 \
   --preset paper \
   --baselines all \
-  --output results/gpt2-paper-comparison
+  --output experiments/sparse-probing/pilot-runs/gpt2-paper-comparison
 ```
 
 随包发布的注册表固定了支持的公开 SAE checkpoint 及其预处理方式，包括 GPT-2 OAI
@@ -127,10 +127,11 @@ v5 ReLU、Gemma Scope JumpReLU 和 Qwen Scope TopK SAE。SAEBench 与所需 chec
 生成图片是离线步骤，不会加载模型或 SAEBench：
 
 ```bash
-icalens experiment figure sparse-probing results/gpt2-smoke
+icalens experiment figure sparse-probing \
+  experiments/sparse-probing/pilot-runs/gpt2-smoke
 ```
 
-默认生成 PNG，写入 `results/gpt2-smoke/figures/`，并附带图注文本。使用
+默认生成 PNG，写入该次运行的 `figures/` 目录，并附带图注文本。使用
 `--format png,pdf` 可同时生成两种格式，`--force` 可覆盖已有文件；图片确认需要纳入
 仓库时，再使用 `--output figures`。传入多个结果目录可以生成对齐的模型比较面板。
 
@@ -139,4 +140,5 @@ icalens experiment figure sparse-probing results/gpt2-smoke
 - 论文实验应在干净的 Git worktree 上运行；源码存在未提交改动时，ICA Lens 会给出
   警告。
 - 每种不同配置使用独立输出目录。只有配置完全一致时，已有 `run.json` 才会被复用。
-- 实验数据放在 `results/`；只有最终选定的图片才发布到仓库顶层的 `figures/`。
+- 探索性运行放在相应实验已被 Git 忽略的 `pilot-runs/` 目录中；只有论文接受的
+  命令、结果和图片才提升到受版本控制的 `official/` 目录。

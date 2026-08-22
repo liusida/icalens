@@ -16,6 +16,12 @@ site/
 site-zh/
 misc/
 /results/
+/experiments/*/pilot-runs/
+/experiments/*/official/results/*/logs/
+/experiments/*/official/results/*/checkpoints/
+/experiments/*/official/results/*/figures/
+/experiments/*/official/results/*/layers/
+/experiments/*/official/results/**/*.log
 pilot-experiments/output/
 /pilot-experiments/
 .worktrees/
@@ -29,7 +35,5 @@ local-r-lens-models/
 .agents/
 .codex/
 .icalens-runs/
-
-results/
 
 *-smoke.*

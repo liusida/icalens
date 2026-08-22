@@ -1,0 +1,111 @@
+{
+  "completed_at": "2026-08-18T20:08:55.771936+00:00",
+  "layer_runs": {
+    "12": {
+      "completed_at": "2026-08-18T20:08:55.732589+00:00",
+      "result": "/home/liusida/research/ICA-paper/icalens_pypi/results/SAEBench-sparse-probing-official/qwen35-9b/layers/layer_12/raw-result.json",
+      "started_at": "2026-08-18T13:08:52.968446+00:00",
+      "status": "complete"
+    },
+    "20": {
+      "completed_at": "2026-08-18T20:08:55.738805+00:00",
+      "result": "/home/liusida/research/ICA-paper/icalens_pypi/results/SAEBench-sparse-probing-official/qwen35-9b/layers/layer_20/raw-result.json",
+      "started_at": "2026-08-18T13:08:53.439230+00:00",
+      "status": "complete"
+    }
+  },
+  "resolved": {
+    "activation_cache": {
+      "estimated_bytes_per_layer": 26214400000,
+      "estimated_peak": "48.8 GiB",
+      "estimated_peak_bytes": 52428800000,
+      "estimated_per_layer": "24.4 GiB",
+      "recommended_free": "58.6 GiB",
+      "recommended_free_bytes": 62914560000,
+      "shared_capture_layers": 2,
+      "used_when_multiple_methods_are_pending": true
+    },
+    "activation_site": "resid_post",
+    "backend": {
+      "cache_path": "/home/liusida/.cache/icalens/experiments/saebench/paper-standard/2a7480bf67f9f82f79e742be55fc1f5ec404bfa9",
+      "cached": true,
+      "commit": "2a7480bf67f9f82f79e742be55fc1f5ec404bfa9",
+      "name": "paper-standard",
+      "repository": "https://github.com/adamkarvonen/SAEBench.git",
+      "saebench_model_name": "Qwen/Qwen3.5-9B-Base",
+      "status": "verified"
+    },
+    "baselines": {
+      "pca": {
+        "components": "model_hidden_size",
+        "feature_sides": "positive_and_negative",
+        "fit_source": "derived_from_full_rank_ica_whitening",
+        "name": "PCA",
+        "preprocessing": "match_ica_lens"
+      },
+      "random": {
+        "components": "model_hidden_size",
+        "feature_sides": "positive_and_negative",
+        "name": "Random orthogonal basis",
+        "preprocessing": "match_ica_lens",
+        "seed": 0
+      },
+      "sae": {
+        "activation": "topk",
+        "apply_b_dec_to_input": false,
+        "checkpoint_format": "torch",
+        "checkpoint_template": "layer{layer}.sae.pt",
+        "feature_source": "encoder",
+        "hook_name_template": "model.layers.{layer}",
+        "layers": "all_transformer_layers",
+        "name": "Qwen Scope 3.5 9B residual width 64k TopK-50",
+        "repo_id": "Qwen/SAE-Res-Qwen3.5-9B-Base-W64K-L0_50",
+        "revision": "7bb2370d360e566b2d8acb8b3d15a0b2b88f52a8",
+        "top_k": 50,
+        "width": 65536
+      }
+    },
+    "experiment": "saebench-sparse-probing",
+    "experiment_schema_version": 1,
+    "icalens_version": "0.3.4.dev0",
+    "layers": [
+      12,
+      20
+    ],
+    "lens": "sida/icalens-qwen3.5-9b-base-pile10k",
+    "model_id": "Qwen/Qwen3.5-9B-Base",
+    "model_revision": "68c46c4b3498877f3ef123c856ecfde50c39f404",
+    "output": "/home/liusida/research/ICA-paper/icalens_pypi/experiments/sparse-probing/official/results/qwen35-9b",
+    "preset": {
+      "context_length": 128,
+      "datasets": [
+        "LabHC/bias_in_bios_class_set1",
+        "LabHC/bias_in_bios_class_set2",
+        "LabHC/bias_in_bios_class_set3",
+        "canrager/amazon_reviews_mcauley_1and5",
+        "canrager/amazon_reviews_mcauley_1and5_sentiment",
+        "codeparrot/github-code",
+        "fancyzhx/ag_news",
+        "Helsinki-NLP/europarl"
+      ],
+      "k_values": [
+        1,
+        2,
+        5,
+        10,
+        20,
+        50,
+        100
+      ],
+      "llm_batch_size": 1,
+      "llm_dtype": "float32",
+      "name": "paper",
+      "probe_test_size": 1000,
+      "probe_train_size": 4000,
+      "random_seed": 42,
+      "sae_batch_size": 125
+    }
+  },
+  "started_at": "2026-08-18T13:06:04.636999+00:00",
+  "status": "complete"
+}

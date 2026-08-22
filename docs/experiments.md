@@ -42,7 +42,7 @@ icalens experiment reconstruction \
   --layers 6 \
   --preset smoke \
   --baselines all \
-  --output results/reconstruction-gpt2-smoke
+  --output experiments/reconstruction/pilot-runs/gpt2-smoke
 ```
 
 For the full experiment, use `--layers all --preset paper`. The paper preset
@@ -76,7 +76,7 @@ corpus. It is useful diagnostically, but it is not a substitute for the held-out
 
 ```bash
 icalens experiment figure reconstruction \
-  results/reconstruction-gpt2-smoke
+  experiments/reconstruction/pilot-runs/gpt2-smoke
 ```
 
 The command writes PNG figures and caption text under the experiment's
@@ -84,6 +84,9 @@ The command writes PNG figures and caption text under the experiment's
 multiple layers or datasets, subplot figures broken down by layer and by
 dataset. Pass several experiment directories to create aligned model panels;
 add `--format png,pdf` when PDF output is also needed.
+
+The source repository retains the exact commands, accepted results, and final
+paper figures under `experiments/reconstruction/official/`.
 
 ## Sparse probing
 
@@ -107,7 +110,7 @@ icalens experiment saebench-sparse-probing \
   --lens sida/icalens-gpt2-small-pile10k \
   --layers 6 \
   --preset smoke \
-  --output results/gpt2-smoke
+  --output experiments/sparse-probing/pilot-runs/gpt2-smoke
 ```
 
 The `smoke` preset is a compatibility check, not a paper result. The `paper`
@@ -120,7 +123,7 @@ icalens experiment saebench-sparse-probing \
   --layers 6,10 \
   --preset paper \
   --baselines all \
-  --output results/gpt2-paper-comparison
+  --output experiments/sparse-probing/pilot-runs/gpt2-paper-comparison
 ```
 
 The packaged registry pins supported public SAE checkpoints and their
@@ -149,13 +152,17 @@ output remains in the experiment's log files.
 Figure generation is offline and does not load the model or SAEBench:
 
 ```bash
-icalens experiment figure sparse-probing results/gpt2-smoke
+icalens experiment figure sparse-probing \
+  experiments/sparse-probing/pilot-runs/gpt2-smoke
 ```
 
-PNG is the default, written to `results/gpt2-smoke/figures/` with caption text.
+PNG is the default, written to the run's `figures/` directory with caption text.
 Use `--format png,pdf` for both formats, `--force` to replace files, or
-`--output figures` when the figure is ready for the repository. Multiple result
-directories create aligned model-comparison panels.
+`--output PATH` to select another destination. Multiple result directories
+create aligned model-comparison panels.
+
+The source repository retains the exact commands, accepted results, and final
+paper figure under `experiments/sparse-probing/official/`.
 
 ## Reproducibility notes
 
@@ -163,5 +170,6 @@ directories create aligned model-comparison panels.
   changes are uncommitted.
 - Keep each distinct configuration in its own output directory. An existing
   `run.json` is reused only when its configuration matches.
-- Experiment data belongs under `results/`; publish only selected figures to
-  the repository's top-level `figures/` directory.
+- Exploratory runs belong under the corresponding experiment's ignored
+  `pilot-runs/` directory. Promote only accepted commands, results, and figures
+  to its tracked `official/` directory.
