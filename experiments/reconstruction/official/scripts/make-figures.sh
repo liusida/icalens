@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="experiments/reconstruction/pilot-runs/upgrade-full-run"
+ROOT="experiments/reconstruction/official"
 
 uv run icalens experiment figure reconstruction \
   "$ROOT/results/gpt2" \
@@ -11,3 +11,18 @@ uv run icalens experiment figure reconstruction \
   --output "$ROOT/figures" \
   --format png,pdf \
   --force
+
+for spec in \
+  "gpt2|GPT-2 Small" \
+  "gemma2|Gemma 2 2B" \
+  "qwen35-9b|Qwen 3.5 9B Base"
+do
+  model="${spec%%|*}"
+  title="${spec#*|}"
+  uv run icalens experiment figure reconstruction \
+    "$ROOT/results/$model" \
+    --panel-titles "$title" \
+    --output "$ROOT/figures/$model-preview" \
+    --format png \
+    --force
+done

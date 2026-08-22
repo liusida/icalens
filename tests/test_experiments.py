@@ -51,6 +51,7 @@ from icalens.experiments.reconstruction import (
 )
 from icalens.experiments.reconstruction_figure import (
     _dataset_title,
+    _legend_order,
     _linear_endpoint_segment,
     _mean_curve,
     _same_plot_point,
@@ -186,6 +187,11 @@ def test_reconstruction_connects_only_linear_full_endpoint() -> None:
     full = (768.0, 1.0)
     assert _linear_endpoint_segment(curve, full, method="ica") == [curve[-1], full]
     assert _linear_endpoint_segment(curve, full, method="sae") is None
+
+
+def test_reconstruction_legend_starts_with_ica_without_changing_draw_order() -> None:
+    assert _legend_order(False) == ("ica", "sae", "pca", "random")
+    assert _legend_order(True) == ("ica", "sae", "sae_context_64", "pca", "random")
 
 
 def test_reconstruction_pile10k_preset_is_labeled_in_distribution() -> None:

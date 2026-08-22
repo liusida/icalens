@@ -183,7 +183,7 @@ def _render_grid(
             axis.set_ylabel(ylabel)
         ordered = [
             handles[name]
-            for name in ("random", "pca", "sae", "sae_context_64", "ica")
+            for name in _legend_order(include_context_control)
             if name in handles
         ]
         figure.legend(ordered, [item.get_label() for item in ordered], loc="upper center",
@@ -212,6 +212,13 @@ def _render_grid(
         encoding="utf-8",
     )
     return [*paths, caption_path]
+
+
+def _legend_order(include_context_control: bool) -> tuple[str, ...]:
+    """Order legend entries independently from the back-to-front drawing order."""
+    if include_context_control:
+        return ("ica", "sae", "sae_context_64", "pca", "random")
+    return ("ica", "sae", "pca", "random")
 
 
 def _breakdown_panels(
