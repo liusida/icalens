@@ -75,6 +75,7 @@ def render(
             stem=f"reconstruction-{metric}", formats=formats, force=force,
             caption=("Held-out token-level top-k reconstruction, averaged equally across "
                      "selected layers and evaluation datasets."),
+            include_context_control=False,
         ))
         if len(payloads) == 1 and payloads[0].get("layer_payloads"):
             layer_panels, dataset_panels = _breakdown_panels(payloads[0])
@@ -82,11 +83,13 @@ def render(
                 plt, layer_panels, metric=metric, ylabel=ylabel, style=style, output=output,
                 stem=f"reconstruction-{metric}-by-layer", formats=formats, force=force,
                 caption="One subplot per layer; each curve is averaged across datasets.",
+                include_context_control=True,
             ))
             outputs.extend(_render_grid(
                 plt, dataset_panels, metric=metric, ylabel=ylabel, style=style, output=output,
                 stem=f"reconstruction-{metric}-by-dataset", formats=formats, force=force,
                 caption="One subplot per dataset; each curve is averaged across layers.",
+                include_context_control=True,
             ))
     return outputs
 
@@ -103,12 +106,13 @@ def _render_grid(
     formats: Sequence[str],
     force: bool,
     caption: str,
+    include_context_control: bool,
 ) -> list[Path]:
     if not panels or any(not rows for _, rows in panels):
         raise ValueError("reconstruction experiment contains no completed rows")
     paths = [output / f"{stem}.{suffix}" for suffix in formats]
     caption_path = output / f"{stem}.txt"
-    has_context_control = any(
+    has_context_control = include_context_control and any(
         str(row.get("method", "")).startswith("sae_context_")
         for _, rows in panels
         for row in rows
@@ -130,13 +134,23 @@ def _render_grid(
         handles: dict[str, Any] = {}
         for axis, (title, rows) in zip(axes.flat, panels, strict=False):
             shared_budgets = _shared_budgets(rows)
-            for method in ("random", "pca", "sae", "sae_context_64", "ica"):
+            methods = ["random", "pca", "sae"]
+            if include_context_control:
+                methods.append("sae_context_64")
+            methods.append("ica")
+            for method in methods:
                 points = _mean_curve(rows, method, metric, budgets=shared_budgets)
                 if not points:
                     continue
                 label, color, marker = style[method]
+                endpoint = (
+                    _native(rows, method, metric)
+                    if method.startswith("sae")
+                    else _full_linear_endpoint(rows, method, metric, shared_budgets)
+                )
                 handles[method] = axis.plot(
-                    [point[0] for point in points], [point[1] for point in points],
+                    [point[0] for point in points],
+                    [point[1] for point in points],
                     color=color,
                     marker=marker,
                     linestyle="--" if method.startswith("sae_context_") else "-",
@@ -144,24 +158,16 @@ def _render_grid(
                     markersize=4,
                     label=label,
                 )[0]
-                endpoint = (
-                    _native(rows, method, metric)
-                    if method.startswith("sae")
-                    else _full_linear_endpoint(rows, method, metric, shared_budgets)
-                )
                 if endpoint is not None:
+                    segment = _linear_endpoint_segment(points, endpoint, method=method)
+                    if segment is not None:
+                        axis.plot(
+                            [point[0] for point in segment],
+                            [point[1] for point in segment],
+                            color=color,
+                            linewidth=1.5,
+                        )
                     axis.scatter(*endpoint, marker="*", s=55, color=color, zorder=6)
-                    if method == "sae":
-                        native_count = endpoint[0]
-                        native_label = (
-                            str(round(native_count))
-                            if math.isclose(native_count, round(native_count), abs_tol=0.05)
-                            else f"{native_count:.1f}"
-                        )
-                        axis.annotate(
-                            f"native {native_label}", endpoint, xytext=(4, 4),
-                            textcoords="offset points", fontsize=6, color=color,
-                        )
             axis.set_xscale("log")
             ticks = _axis_ticks(rows, metric, shared_budgets)
             axis.set_xticks(ticks)
@@ -192,9 +198,13 @@ def _render_grid(
         if has_context_control
         else ""
     )
+    budget_sets = [set(_shared_budgets(rows)) for _, rows in panels]
+    shared_caption_budgets = sorted(set.intersection(*budget_sets))
+    budget_text = ", ".join(str(value) for value in shared_caption_budgets)
     caption_path.write_text(
         f"{caption} The plotted metric is {ylabel}. Linear methods use the requested "
-        "top-k budgets 1, 3, 10, 32, 100, and 300. SAE points are placed at their "
+        f"top-k budgets {budget_text}. Linear curves extend from the largest requested "
+        "budget to their measured complete-basis endpoints. SAE points are placed at their "
         "measured mean number of nonzero features; repeated budgets above native "
         "SAE activity collapse to one point. Stars mark complete-basis reconstruction "
         "for ICA, PCA, and Random, and native sparse reconstruction for SAE."
@@ -280,6 +290,18 @@ def _mean_curve(
         else:
             points.append((x, y))
     return points
+
+
+def _linear_endpoint_segment(
+    points: list[tuple[float, float]],
+    endpoint: tuple[float, float] | None,
+    *,
+    method: str,
+) -> list[tuple[float, float]] | None:
+    """Connect to full basis without applying the regular curve marker there."""
+    if endpoint is None or method.startswith("sae") or _same_plot_point(points[-1], endpoint):
+        return None
+    return [points[-1], endpoint]
 
 
 def _axis_ticks(rows: list[dict[str, Any]], metric: str, budgets: Sequence[int]) -> list[int]:

@@ -51,6 +51,7 @@ from icalens.experiments.reconstruction import (
 )
 from icalens.experiments.reconstruction_figure import (
     _dataset_title,
+    _linear_endpoint_segment,
     _mean_curve,
     _same_plot_point,
 )
@@ -178,6 +179,13 @@ def test_reconstruction_endpoint_marker_overlap_rule() -> None:
     assert _same_plot_point((768.0, 0.999), (768.0, 1.0))
     assert not _same_plot_point((300.0, 0.98), (768.0, 1.0))
     assert not _same_plot_point((768.0, 0.98), (768.0, 1.0))
+
+
+def test_reconstruction_connects_only_linear_full_endpoint() -> None:
+    curve = [(100.0, 0.9), (300.0, 0.98)]
+    full = (768.0, 1.0)
+    assert _linear_endpoint_segment(curve, full, method="ica") == [curve[-1], full]
+    assert _linear_endpoint_segment(curve, full, method="sae") is None
 
 
 def test_reconstruction_pile10k_preset_is_labeled_in_distribution() -> None:
@@ -803,6 +811,9 @@ def test_render_reconstruction_writes_both_metrics(tmp_path: Path) -> None:
         "reconstruction-cosine.png",
         "reconstruction-cosine.txt",
     }
+    caption = (tmp_path / "reconstruction-cosine.txt").read_text(encoding="utf-8")
+    assert "top-k budgets 1, 10" in caption
+    assert "top-k budgets 1, 3, 10, 32" not in caption
 
 
 def test_reconstruction_curve_uses_effective_k_and_collapses_saturation() -> None:
