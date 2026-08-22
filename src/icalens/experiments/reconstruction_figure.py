@@ -129,37 +129,47 @@ def _render_grid(
         )
         handles: dict[str, Any] = {}
         for axis, (title, rows) in zip(axes.flat, panels, strict=False):
-            for method in ("ica", "sae", "sae_context_64", "pca", "random"):
-                points = _mean_curve(rows, method, metric)
+            shared_budgets = _shared_budgets(rows)
+            for method in ("random", "pca", "sae", "sae_context_64", "ica"):
+                points = _mean_curve(rows, method, metric, budgets=shared_budgets)
                 if not points:
                     continue
                 label, color, marker = style[method]
-                native = _native(rows, method, metric)
-                endpoint = (
-                    native
-                    if native is not None
-                    else points[-1] if method in {"ica", "pca", "random"} else None
-                )
-                marker_indices = [
-                    index
-                    for index, point in enumerate(points)
-                    if endpoint is None or not _same_plot_point(point, endpoint)
-                ]
                 handles[method] = axis.plot(
                     [point[0] for point in points], [point[1] for point in points],
                     color=color,
                     marker=marker,
-                    markevery=marker_indices,
                     linestyle="--" if method.startswith("sae_context_") else "-",
                     linewidth=1.5,
                     markersize=4,
                     label=label,
                 )[0]
+                endpoint = (
+                    _native(rows, method, metric)
+                    if method.startswith("sae")
+                    else _full_linear_endpoint(rows, method, metric, shared_budgets)
+                )
                 if endpoint is not None:
-                    axis.scatter(*endpoint, marker="*", s=55, color=color, zorder=4)
+                    axis.scatter(*endpoint, marker="*", s=55, color=color, zorder=6)
+                    if method == "sae":
+                        native_count = endpoint[0]
+                        native_label = (
+                            str(round(native_count))
+                            if math.isclose(native_count, round(native_count), abs_tol=0.05)
+                            else f"{native_count:.1f}"
+                        )
+                        axis.annotate(
+                            f"native {native_label}", endpoint, xytext=(4, 4),
+                            textcoords="offset points", fontsize=6, color=color,
+                        )
             axis.set_xscale("log")
+            ticks = _axis_ticks(rows, metric, shared_budgets)
+            axis.set_xticks(ticks)
+            axis.set_xticklabels(
+                [str(value) for value in ticks], rotation=45, ha="right", fontsize=8
+            )
             axis.set_title(title)
-            axis.set_xlabel("active directions per token")
+            axis.set_xlabel("mean active directions per token")
             axis.grid(axis="y", alpha=0.25)
         for axis in list(axes.flat)[len(panels):]:
             axis.set_visible(False)
@@ -167,7 +177,7 @@ def _render_grid(
             axis.set_ylabel(ylabel)
         ordered = [
             handles[name]
-            for name in ("ica", "sae", "sae_context_64", "pca", "random")
+            for name in ("random", "pca", "sae", "sae_context_64", "ica")
             if name in handles
         ]
         figure.legend(ordered, [item.get_label() for item in ordered], loc="upper center",
@@ -183,9 +193,11 @@ def _render_grid(
         else ""
     )
     caption_path.write_text(
-        f"{caption} The plotted metric is {ylabel}. Stars mark each method's "
-        "untruncated reconstruction: the complete basis for ICA, PCA, and Random, "
-        "and native SAE sparsity."
+        f"{caption} The plotted metric is {ylabel}. Linear methods use the requested "
+        "top-k budgets 1, 3, 10, 32, 100, and 300. SAE points are placed at their "
+        "measured mean number of nonzero features; repeated budgets above native "
+        "SAE activity collapse to one point. Stars mark complete-basis reconstruction "
+        "for ICA, PCA, and Random, and native sparse reconstruction for SAE."
         f"{control_note}\n",
         encoding="utf-8",
     )
@@ -217,10 +229,36 @@ def _dataset_title(config: dict[str, Any]) -> str:
     return str(config["repo_id"])
 
 
-def _mean_curve(rows: list[dict[str, Any]], method: str, metric: str) -> list[tuple[float, float]]:
+def _shared_budgets(rows: list[dict[str, Any]]) -> list[int]:
+    """Return numeric top-k budgets evaluated for every primary method."""
+    method_keys: list[set[int]] = []
+    for method in ("ica", "sae", "pca", "random"):
+        keys = {
+            int(str(row["k"]))
+            for row in rows
+            if row.get("method") == method and str(row.get("k", "")).isdigit()
+        }
+        if keys:
+            method_keys.append(keys)
+    if not method_keys:
+        return []
+    return sorted(set.intersection(*method_keys))
+
+
+def _mean_curve(
+    rows: list[dict[str, Any]],
+    method: str,
+    metric: str,
+    *,
+    budgets: Sequence[int] | None = None,
+) -> list[tuple[float, float]]:
     grouped: dict[str, list[tuple[float, float]]] = {}
+    allowed = set(budgets) if budgets is not None else None
     for row in rows:
         if row.get("method") != method or row.get("k") == "native":
+            continue
+        requested = int(str(row["k"]))
+        if allowed is not None and requested not in allowed:
             continue
         grouped.setdefault(str(row["k"]), []).append(
             (float(row["effective_k"]), float(row[f"{metric}_mean"]))
@@ -230,22 +268,54 @@ def _mean_curve(rows: list[dict[str, Any]], method: str, metric: str) -> list[tu
             sum(x for x, _ in values) / len(values),
             sum(y for _, y in values) / len(values),
         )
-        for _, values in sorted(grouped.items(), key=lambda item: int(item[0]))
+        for key, values in sorted(grouped.items(), key=lambda item: int(item[0]))
     ]
     points: list[tuple[float, float]] = []
     for x, y in requested_points:
-        if points and math.isclose(x, points[-1][0], rel_tol=1e-5, abs_tol=1e-5):
-            # Top-k SAEs cannot use more than their native active count. Requested
-            # budgets above that count reconstruct the identical vector and belong
-            # at one x coordinate, not several nearly vertical floating-point bins.
+        if points and math.isclose(x, points[-1][0], rel_tol=0.03, abs_tol=1e-5):
+            # Sparse encoders cannot retain more than their nonzero native codes.
+            # Budgets beyond that point reconstruct the same vector and should not
+            # appear as fictitious 100- or 300-direction measurements.
             points[-1] = ((points[-1][0] + x) / 2, (points[-1][1] + y) / 2)
         else:
             points.append((x, y))
     return points
 
 
+def _axis_ticks(rows: list[dict[str, Any]], metric: str, budgets: Sequence[int]) -> list[int]:
+    """Label shared budgets and the complete linear width."""
+    ticks = set(int(value) for value in budgets)
+    full = _full_linear_endpoint(rows, "ica", metric, budgets)
+    if full is not None:
+        ticks.add(round(full[0]))
+    return sorted(ticks)
+
+
 def _native(rows: list[dict[str, Any]], method: str, metric: str) -> tuple[float, float] | None:
     selected = [row for row in rows if row.get("method") == method and row.get("k") == "native"]
+    if not selected:
+        return None
+    return (
+        sum(float(row["effective_k"]) for row in selected) / len(selected),
+        sum(float(row[f"{metric}_mean"]) for row in selected) / len(selected),
+    )
+
+
+def _full_linear_endpoint(
+    rows: list[dict[str, Any]],
+    method: str,
+    metric: str,
+    budgets: Sequence[int],
+) -> tuple[float, float] | None:
+    """Return a linear method's evaluated complete-basis endpoint."""
+    requested = set(int(value) for value in budgets)
+    selected = [
+        row
+        for row in rows
+        if row.get("method") == method
+        and str(row.get("k", "")).isdigit()
+        and int(str(row["k"])) not in requested
+    ]
     if not selected:
         return None
     return (

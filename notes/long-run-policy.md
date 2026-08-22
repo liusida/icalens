@@ -159,7 +159,7 @@ unknown and do not warn.
 | `fit activations` | Validates the artifact and automatically fits missing layers | Keep this as the reference behavior |
 | `fit text/chat` | Checkpoints completed layers within one invocation | Make repeated invocations validate and skip completed layers, preferably by sharing capture/activation-fit machinery |
 | `profile` | Checkpoints each completed layer but recomputes it on rerun | Validate profile provenance, skip compatible completed profiles, and add `--force` for deliberate regeneration |
-| reconstruction | Validates `run.json` and resumes missing work | Keep aligned with this policy |
+| reconstruction | Durable capture resumes per dataset/layer; measurement validates `run.json` and resumes per dataset/layer/method with shared progress and logs | Validate the final UI with long resumed runs |
 | sparse probing | Validates `run.json` and resumes missing work | Keep aligned with this policy |
 | experiment figures | Refuse replacement unless `--force` is supplied | Already aligned for derived outputs |
 

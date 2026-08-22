@@ -27,15 +27,24 @@ from icalens.experiments.figure import (
     render_sparse_probing_panels,
 )
 from icalens.experiments.reconstruction import (
+    CAPTURE_SUITE_MANIFEST,
     _activation_path,
+    _capture_suite_identity,
+    _completed_measurement_units,
+    _configuration_differences,
     _dataset_cache_dir,
     _dataset_value_to_text,
     _linear_dictionary_metrics,
     _load_preset,
     _load_run,
+    _merge_method_results,
+    _method_result_path,
     _parse_capture_layers_at_once,
     _remove_activation_cache,
     _save_activation_cache,
+    _validate_or_create_capture_suite,
+    parse_capture_args,
+    parse_measure_args,
 )
 from icalens.experiments.reconstruction import (
     parse_args as parse_reconstruction_args,
@@ -193,6 +202,53 @@ def test_reconstruction_capture_defaults_to_all() -> None:
     assert args.capture_layers_at_once == "all"
 
 
+def test_reconstruction_split_cli_paths_and_k_values() -> None:
+    capture = parse_capture_args([
+        "--lens", "owner/lens", "--layers", "all", "--preset", "paper",
+        "--output", "~/Expansion/reconstruction/gpt2",
+    ])
+    assert capture.output == Path("~/Expansion/reconstruction/gpt2")
+    measure = parse_measure_args([
+        "--lens", "owner/lens", "--activations", "~/Expansion/reconstruction/gpt2",
+        "--k-values", "300,30,1,30", "--output", "results/gpt2",
+    ])
+    assert measure.k_values == [1, 30, 300]
+
+
+def test_reconstruction_capture_identity_ignores_only_runtime_state() -> None:
+    value = {
+        "format": "icalens.reconstruction-activations",
+        "status": "complete",
+        "icalens_source": {"commit": "old"},
+        "model": {"repo_id": "model", "revision": "revision"},
+    }
+    assert _capture_suite_identity(value) == {
+        "format": "icalens.reconstruction-activations",
+        "model": {"repo_id": "model", "revision": "revision"},
+    }
+    assert CAPTURE_SUITE_MANIFEST == "reconstruction-activations.json"
+
+
+def test_reconstruction_completed_capture_manifest_is_stable_on_resume(tmp_path: Path) -> None:
+    path = tmp_path / CAPTURE_SUITE_MANIFEST
+    complete = {
+        "format": "icalens.reconstruction-activations",
+        "format_version": 1,
+        "status": "complete",
+        "icalens_source": {"commit": "original"},
+        "model": {"repo_id": "model", "revision": "revision"},
+    }
+    path.write_text(json.dumps(complete), encoding="utf-8")
+    requested = {
+        **complete,
+        "status": "capturing",
+        "icalens_source": {"commit": "new-checkout"},
+    }
+    stored = _validate_or_create_capture_suite(path, requested)
+    assert stored == complete
+    assert json.loads(path.read_text(encoding="utf-8")) == complete
+
+
 def test_reconstruction_activation_checkpoint_round_trip_and_cleanup(tmp_path: Path) -> None:
     cache = _dataset_cache_dir(tmp_path, 2)
     values = torch.arange(12, dtype=torch.bfloat16).reshape(3, 4)
@@ -209,7 +265,28 @@ def test_reconstruction_activation_checkpoint_round_trip_and_cleanup(tmp_path: P
     assert not cache.exists()
 
 
-def test_failed_empty_reconstruction_run_adopts_corrected_preset(tmp_path: Path) -> None:
+def test_reconstruction_measurement_checkpoints_each_method(tmp_path: Path) -> None:
+    for method, payload_methods in (
+        ("ica", {"ica": {"curve": {}}}),
+        ("sae", {"sae": {"curve": {}}, "sae_context_64": {"curve": {}}}),
+    ):
+        path = _method_result_path(tmp_path, 6, 2, method)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"n_tokens": 50, "methods": payload_methods}), encoding="utf-8"
+        )
+    assert _completed_measurement_units(
+        tmp_path, layers=[6], dataset_count=3, methods=["ica", "sae"]
+    ) == 2
+    merged = _merge_method_results(
+        tmp_path, layer=6, dataset_index=2, methods=["ica", "sae"],
+        dataset={"repo_id": "owner/data"},
+    )
+    assert merged["n_tokens"] == 50
+    assert set(merged["methods"]) == {"ica", "sae", "sae_context_64"}
+
+
+def test_failed_empty_reconstruction_run_rejects_corrected_preset(tmp_path: Path) -> None:
     path = tmp_path / "run.json"
     path.write_text(json.dumps({
         "status": "running",
@@ -217,13 +294,26 @@ def test_failed_empty_reconstruction_run_adopts_corrected_preset(tmp_path: Path)
         "layer_runs": {"0": {"status": "failed"}},
     }), encoding="utf-8")
 
-    run = _load_run(path, {"preset": "corrected"})
+    with pytest.raises(ValueError, match="preset: 'old' != 'corrected'"):
+        _load_run(path, {"preset": "corrected"})
 
-    assert run == {
-        "status": "running",
-        "resolved": {"preset": "corrected"},
-        "layer_runs": {},
-    }
+
+def test_reconstruction_configuration_difference_names_nested_fields() -> None:
+    assert _configuration_differences(
+        {"preset": {"context_length": 1024}, "layers": [0, 1]},
+        {"preset": {"context_length": 512}, "layers": [1]},
+    ) == [
+        "layers: [0, 1] != [1]",
+        "preset.context_length: 1024 != 512",
+    ]
+
+
+def test_reconstruction_rejects_orphan_checkpoints_without_run_manifest(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "checkpoint.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(FileExistsError, match="non-empty but has no run.json"):
+        _load_run(tmp_path / "run.json", {"preset": "paper"})
 
 
 def test_qwen9b_backend_registry_resolves_standard_backend() -> None:
@@ -715,7 +805,7 @@ def test_render_reconstruction_writes_both_metrics(tmp_path: Path) -> None:
     }
 
 
-def test_reconstruction_curve_aggregates_layers_before_effective_k() -> None:
+def test_reconstruction_curve_uses_effective_k_and_collapses_saturation() -> None:
     rows = [
         {
             "method": "sae",

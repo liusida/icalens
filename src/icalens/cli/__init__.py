@@ -167,7 +167,7 @@ Run reproducible ICA Lens paper experiments.
 
 commands:
   saebench-sparse-probing  Run SAEBench sparse probing for an ICA Lens
-  reconstruction          Evaluate held-out top-k dictionary reconstruction
+  reconstruction          Capture or evaluate held-out top-k reconstruction
   figure                   Create a paper-ready figure from saved results
 
 Run 'icalens experiment COMMAND --help' for command-specific options."""

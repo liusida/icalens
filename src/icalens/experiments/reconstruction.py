@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -17,12 +18,13 @@ import torch
 import torch.nn.functional as F
 from datasets import load_dataset
 from gb10_load_llm import load_model_to_cuda  # type: ignore[import-untyped]
-from huggingface_hub import hf_hub_download
+from huggingface_hub import HfApi, hf_hub_download
 from safetensors.torch import load_file, save_file
 from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from icalens import ICALens, __version__
+from icalens._activation_dataset import ActivationDataset, ActivationDatasetWriter, check_disk_space
 from icalens._capture import transformer_blocks
 from icalens.analysis import _document_framing_for_layer
 from icalens.cli._status import log
@@ -32,6 +34,18 @@ from ._source_provenance import source_provenance, warn_if_dirty
 from .saebench_sparse_probing import _prepare_layer_baselines, _resolve_baselines
 
 SAE_TRAINING_CONTEXT_CONTROLS = {"openai-community/gpt2": 64}
+
+_HELP = """usage: icalens experiment reconstruction {capture,measure} [OPTIONS]
+
+Capture held-out activations once and measure reconstruction repeatedly.
+
+commands:
+  capture  Save a durable, resumable activation suite
+  measure  Evaluate ICA and baselines from a completed activation suite
+
+The legacy combined command remains available when options such as --lens are
+passed directly. Run a subcommand with --help for its options.
+"""
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -65,8 +79,64 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _parse_k_values(value: str) -> list[int]:
+    try:
+        values = sorted({int(item.strip()) for item in value.split(",") if item.strip()})
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be comma-separated positive integers") from error
+    if not values or values[0] < 1:
+        raise argparse.ArgumentTypeError("must be comma-separated positive integers")
+    return values
+
+
+def parse_capture_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="icalens experiment reconstruction capture",
+        description="Capture durable held-out activations for reconstruction measurement.",
+    )
+    parser.add_argument("--lens", required=True)
+    parser.add_argument("--layers", required=True, help="Comma-separated layers, or 'all'.")
+    parser.add_argument("--preset", choices=("smoke", "paper", "pile10k"), default="smoke")
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--capture-layers-at-once", default="all")
+    parser.add_argument("--max-tokens-per-dataset", type=int, default=None)
+    parser.add_argument("--context-length", type=int, default=None)
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--dry-run", action="store_true")
+    return parser.parse_args(argv)
+
+
+def parse_measure_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="icalens experiment reconstruction measure",
+        description="Measure reconstruction from a durable activation capture.",
+    )
+    parser.add_argument("--lens", required=True)
+    parser.add_argument("--activations", type=Path, required=True)
+    parser.add_argument("--layers", default="all")
+    parser.add_argument("--baselines", default="all")
+    parser.add_argument("--k-values", type=_parse_k_values, default=[1, 3, 10, 30, 100, 300])
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--dry-run", action="store_true")
+    return parser.parse_args(argv)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
-    args = parse_args(argv)
+    values = list(argv or ())
+    if values and values[0] in {"-h", "--help"}:
+        print(_HELP)
+        return
+    if values and values[0] == "capture":
+        capture_main(values[1:])
+        return
+    if values and values[0] == "measure":
+        measure_main(values[1:])
+        return
+    if values and values[0] == "run":
+        values.pop(0)
+    args = parse_args(values if argv is not None else None)
     source = source_provenance()
     warn_if_dirty(source)
     lens = ICALens.from_pretrained(args.lens)
@@ -88,7 +158,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         args.capture_layers_at_once, selected_layer_count=len(layers)
     )
     baselines = _resolve_baselines(lens.model_id, args.baselines)
-    resolved = {
+    resolved: dict[str, Any] = {
         "experiment": "reconstruction",
         "experiment_schema_version": 3,
         "icalens_version": __version__,
@@ -174,6 +244,432 @@ def _load_model(lens: ICALens, *, device: str) -> torch.nn.Module:
     return model
 
 
+CAPTURE_SUITE_MANIFEST = "reconstruction-activations.json"
+
+
+def capture_main(argv: Sequence[str] | None = None) -> None:
+    args = parse_capture_args(argv)
+    source = source_provenance()
+    lens = ICALens.from_pretrained(args.lens)
+    layers = _parse_layers(args.layers, lens.available_layers)
+    settings = _load_preset(args.preset)
+    _apply_capture_overrides(settings, args)
+    group_size = _parse_capture_layers_at_once(
+        args.capture_layers_at_once, selected_layer_count=len(layers)
+    )
+    api = HfApi()
+    datasets = []
+    for config in settings["datasets"]:
+        resolved_config = dict(config)
+        revision = api.dataset_info(str(config["repo_id"])).sha
+        if revision is None:
+            raise RuntimeError(f"could not resolve dataset revision: {config['repo_id']}")
+        resolved_config["revision"] = str(revision)
+        datasets.append(resolved_config)
+    resolved: dict[str, Any] = {
+        "format": "icalens.reconstruction-activations",
+        "format_version": 1,
+        "status": "capturing",
+        "icalens_version": __version__,
+        "icalens_source": source,
+        "lens": str(args.lens),
+        "model": {"repo_id": lens.model_id, "revision": lens.model_revision,
+                  "type": lens.model_type},
+        "activation_site": lens.activation_site,
+        "layer_indexing": lens.layer_indexing,
+        "layers": layers,
+        "preset": {**settings, "datasets": datasets},
+        "dataset_directories": [f"datasets/dataset_{index:02d}" for index in range(len(datasets))],
+    }
+    if args.dry_run:
+        print(json.dumps(resolved, indent=2, sort_keys=True))
+        return
+    if lens.activation_site != "resid_post":
+        raise ValueError("reconstruction currently supports activation_site='resid_post'")
+    output = args.output.expanduser().resolve()
+    manifest_path = output / CAPTURE_SUITE_MANIFEST
+    stored = _validate_or_create_capture_suite(manifest_path, resolved)
+    completed = _completed_capture_units(output, dataset_count=len(datasets), layers=layers)
+    display = _BenchmarkDisplay(
+        output=Path.cwd() / ".icalens-runs",
+        completed=completed,
+        total=len(datasets) * len(layers),
+        run_initial=completed,
+        run_started_at=time.time(),
+        title="ICA Lens · reconstruction activation capture",
+        item_label="Layer",
+        items_label="Layers",
+        recent_label="Recent capture output",
+        detail_filename=(
+            time.strftime("%Y%m%d-%H%M%S") + "-reconstruction-activation-capture.log"
+        ),
+        source_dirty=bool(source.get("dirty")),
+    )
+    with display:
+        warn_if_dirty(source)
+        log(
+            f"Validated reconstruction capture configuration for {len(datasets)} datasets "
+            f"and {len(layers)} layers."
+        )
+        if stored.get("status") == "complete":
+            for dataset_path in stored["dataset_directories"]:
+                if not _complete_activation_dataset(output / dataset_path, layers):
+                    raise ValueError(
+                        "completed capture suite contains an incomplete dataset: "
+                        f"{dataset_path}"
+                    )
+            log(f"Reconstruction activation suite already complete: {output}")
+        else:
+            _capture_pending_datasets(
+                args=args, lens=lens, layers=layers, settings=settings,
+                group_size=group_size, datasets=datasets, resolved=resolved,
+                output=output, display=display,
+            )
+    if stored.get("status") == "complete":
+        return
+    resolved["status"] = "complete"
+    _write_json_atomic(manifest_path, resolved)
+    log(f"Reconstruction activation suite complete: {output}")
+
+
+def _capture_pending_datasets(
+    *, args: argparse.Namespace, lens: ICALens, layers: list[int], settings: dict[str, Any],
+    group_size: int, datasets: list[dict[str, Any]], resolved: dict[str, Any], output: Path,
+    display: _BenchmarkDisplay,
+) -> None:
+    tokenizer = AutoTokenizer.from_pretrained(
+        lens.model_id, revision=lens.model_revision, use_fast=True
+    )
+    tokenizer.padding_side = "right"
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    if args.device.startswith("cuda") and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but is unavailable")
+    model = _load_model(lens, device=args.device)
+    try:
+        for dataset_index, dataset_config in enumerate(datasets):
+            dataset_path = output / resolved["dataset_directories"][dataset_index]
+            labels = [f"L{layer}" for layer in layers]
+            completed_labels = _completed_capture_labels(dataset_path, layers)
+            display.set_dataset(
+                str(dataset_config.get("domain", dataset_config["repo_id"])),
+                index=dataset_index + 1,
+                total=len(datasets),
+                methods=labels,
+                completed_methods=completed_labels,
+            )
+            if _complete_activation_dataset(dataset_path, layers):
+                log(f"Reconstruction activation dataset already complete: {dataset_path}")
+                continue
+            writer: ActivationDatasetWriter | None = None
+            for start in range(0, len(layers), group_size):
+                requested_group = layers[start : start + group_size]
+                if writer is not None:
+                    group = [layer for layer in requested_group if layer in writer.missing_layers]
+                    if not group:
+                        continue
+                else:
+                    group = requested_group
+                log(
+                    f"Capturing reconstruction dataset {dataset_index + 1}/{len(datasets)}, "
+                    f"layers {','.join(map(str, group))}..."
+                )
+                activations, samples = _capture_dataset(
+                    lens=lens,
+                    model=model,
+                    tokenizer=tokenizer,
+                    texts=_dataset_texts(dataset_config),
+                    layers=group,
+                    context_length=int(settings["context_length"]),
+                    batch_size=int(settings["batch_size"]),
+                    max_tokens=int(settings["max_tokens_per_dataset"]),
+                    device=args.device,
+                )
+                if writer is None:
+                    first = activations[group[0]]
+                    writer = ActivationDatasetWriter(
+                        dataset_path,
+                        model=resolved["model"],
+                        activation_site=lens.activation_site,
+                        layer_indexing=lens.layer_indexing,
+                        layers=layers,
+                        sample_count=int(first.shape[0]),
+                        hidden_size=int(first.shape[1]),
+                        dtype=first.dtype,
+                        provenance={
+                            "purpose": "held_out_reconstruction",
+                            "dataset_index": dataset_index,
+                            "dataset": dataset_config,
+                            "context_length": int(settings["context_length"]),
+                            "max_tokens": int(settings["max_tokens_per_dataset"]),
+                            "selection": "first_valid_content_tokens",
+                            "document_framing": _document_framing_for_layer(lens, layers[0]),
+                        },
+                        samples=samples,
+                    )
+                    recommended, available = check_disk_space(
+                        dataset_path, required_bytes=writer.required_bytes
+                    )
+                    log(
+                        f"Need {recommended / 1024**3:.1f} GiB including margin; "
+                        f"{available / 1024**3:.1f} GiB available."
+                    )
+                    group = [layer for layer in group if layer in writer.missing_layers]
+                assert writer is not None
+                if group:
+                    with writer.group(group) as sink:
+                        sink.append({layer: activations[layer] for layer in group})
+                    for _ in display.track_methods([(f"L{layer}", layer) for layer in group]):
+                        pass
+                del activations, samples
+            if writer is None:
+                raise RuntimeError(f"could not initialize activation dataset: {dataset_path}")
+            writer.finish()
+            log(f"Saved reusable reconstruction activations to {dataset_path}")
+    finally:
+        del model
+
+
+def measure_main(argv: Sequence[str] | None = None) -> None:
+    args = parse_measure_args(argv)
+    source = source_provenance()
+    lens = ICALens.from_pretrained(args.lens)
+    capture_root = args.activations.expanduser().resolve()
+    suite_path = capture_root / CAPTURE_SUITE_MANIFEST
+    if not suite_path.is_file():
+        raise FileNotFoundError(f"reconstruction activation manifest not found: {suite_path}")
+    suite = json.loads(suite_path.read_text(encoding="utf-8"))
+    if suite.get("status") != "complete":
+        raise ValueError(f"reconstruction activation suite is not complete: {capture_root}")
+    captured = [ActivationDataset(capture_root / path) for path in suite["dataset_directories"]]
+    _validate_measurement_capture(lens, suite, captured)
+    available = tuple(int(layer) for layer in suite["layers"])
+    layers = _parse_layers(args.layers, available)
+    baselines = _resolve_baselines(lens.model_id, args.baselines)
+    k_values = list(args.k_values)
+    resolved = {
+        "experiment": "reconstruction",
+        "experiment_schema_version": 4,
+        "icalens_version": __version__,
+        "lens": str(args.lens),
+        "model_id": lens.model_id,
+        "model_revision": lens.model_revision,
+        "activation_site": lens.activation_site,
+        "row_normalize": lens.row_normalize,
+        "layers": layers,
+        "preset": {**suite["preset"], "k_values": k_values},
+        "baselines": baselines,
+        "activation_capture": {
+            "format": suite["format"],
+            "format_version": suite["format_version"],
+            "manifest_sha256": hashlib.sha256(suite_path.read_bytes()).hexdigest(),
+        },
+    }
+    if args.dry_run:
+        print(json.dumps(resolved, indent=2, sort_keys=True))
+        return
+    if args.device.startswith("cuda") and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but is unavailable")
+    output = args.output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    run_path = output / "run.json"
+    run = _load_run(run_path, resolved)
+    run["icalens_source"] = source
+    _write_json(run_path, run)
+    datasets = list(suite["preset"]["datasets"])
+    method_names = ["ica", *[name for name in ("pca", "random", "sae") if name in baselines]]
+    completed = _completed_measurement_units(
+        output, layers=layers, dataset_count=len(datasets), methods=method_names
+    )
+    started = time.time()
+    display = _BenchmarkDisplay(
+        output=output / "logs",
+        completed=completed,
+        total=len(datasets) * len(layers) * len(method_names),
+        run_initial=completed,
+        run_started_at=started,
+        title="ICA Lens · held-out reconstruction measurement",
+        item_label="Method",
+        items_label="Methods",
+        recent_label="Recent reconstruction output",
+        detail_filename="reconstruction-detail.log",
+        source_dirty=bool(source.get("dirty")),
+    )
+    try:
+        with display:
+            warn_if_dirty(source)
+            log(
+                f"Validated reconstruction measurement configuration: "
+                f"{len(datasets)} datasets, {len(layers)} layers, "
+                f"methods {','.join(method_names)}."
+            )
+            for dataset_index, activation_dataset in enumerate(captured):
+                samples = activation_dataset.samples()
+                for layer in layers:
+                    result_path = _dataset_result_path(output, layer, dataset_index)
+                    labels = [f"L{layer}/{method}" for method in method_names]
+                    completed_labels = {
+                        f"L{layer}/{method}" for method in method_names
+                        if result_path.is_file()
+                        or _method_result_path(output, layer, dataset_index, method).is_file()
+                    }
+                    dataset_label = datasets[dataset_index].get(
+                        "domain", datasets[dataset_index]["repo_id"]
+                    )
+                    display.set_dataset(
+                        str(dataset_label),
+                        index=dataset_index + 1,
+                        total=len(datasets),
+                        methods=labels,
+                        completed_methods=completed_labels,
+                    )
+                    if result_path.is_file():
+                        continue
+                    activations = activation_dataset.layer(layer)
+                    pending_methods = [
+                        (label, method)
+                        for label, method in zip(labels, method_names, strict=True)
+                        if not _method_result_path(output, layer, dataset_index, method).is_file()
+                    ]
+                    for _label, method in display.track_methods(pending_methods):
+                        method_path = _method_result_path(output, layer, dataset_index, method)
+                        result = _evaluate_layer(
+                            lens=lens,
+                            layer=layer,
+                            activations=activations,
+                            positions=samples["position"],
+                            k_values=k_values,
+                            baselines=baselines,
+                            device=args.device,
+                            requested_methods={method},
+                        )
+                        _write_json_atomic(method_path, result)
+                        log(
+                            f"Checkpointed dataset {dataset_index}, layer {layer}, "
+                            f"method {method}."
+                        )
+                        del result
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    result = _merge_method_results(
+                        output, layer=layer, dataset_index=dataset_index,
+                        methods=method_names, dataset=datasets[dataset_index],
+                    )
+                    _write_json_atomic(result_path, result)
+                    _finalize_layer_if_complete(
+                        output=output, layer=layer, datasets=datasets, resolved=resolved,
+                        run=run, run_path=run_path,
+                    )
+        _finish(output, run_path, run, resolved, layers)
+        log(f"Reconstruction measurement complete: {output}")
+    except Exception as error:
+        run["status"] = "failed"
+        run["error"] = str(error)
+        _write_json_atomic(run_path, run)
+        raise
+
+
+def _apply_capture_overrides(settings: dict[str, Any], args: argparse.Namespace) -> None:
+    for name in ("max_tokens_per_dataset", "context_length", "batch_size"):
+        value = getattr(args, name)
+        if value is not None:
+            if value < 1:
+                raise ValueError(f"--{name.replace('_', '-')} must be positive")
+            settings[name] = int(value)
+
+
+def _capture_suite_identity(value: dict[str, Any]) -> dict[str, Any]:
+    return {key: item for key, item in value.items() if key not in {"status", "icalens_source"}}
+
+
+def _validate_or_create_capture_suite(
+    path: Path, requested: dict[str, Any]
+) -> dict[str, Any]:
+    if path.is_file():
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        differences = _configuration_differences(
+            _capture_suite_identity(existing), _capture_suite_identity(requested)
+        )
+        if differences:
+            raise ValueError(
+                f"existing reconstruction activation suite is incompatible at {path}; "
+                + "; ".join(differences)
+                + ". Use a different --output path."
+            )
+        return cast(dict[str, Any], existing)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if any(path.parent.iterdir()):
+        raise FileExistsError(
+            f"capture output is non-empty but has no {CAPTURE_SUITE_MANIFEST}: {path.parent}"
+        )
+    _write_json_atomic(path, requested)
+    return requested
+
+
+def _complete_activation_dataset(path: Path, layers: Sequence[int]) -> bool:
+    manifest = path / "activations.json"
+    if not manifest.is_file():
+        return False
+    value = json.loads(manifest.read_text(encoding="utf-8"))
+    if value.get("status") != "complete":
+        return False
+    dataset = ActivationDataset(path)
+    if dataset.available_layers != tuple(layers):
+        raise ValueError(f"captured layers do not match requested layers: {path}")
+    for layer in layers:
+        dataset.layer(layer)
+    dataset.samples()
+    return True
+
+
+def _completed_capture_labels(path: Path, layers: Sequence[int]) -> set[str]:
+    manifest = path / "activations.json"
+    if not manifest.is_file():
+        return set()
+    try:
+        entries = json.loads(manifest.read_text(encoding="utf-8"))["layers"]
+    except (KeyError, TypeError, ValueError, OSError):
+        return set()
+    return {
+        f"L{layer}" for layer in layers
+        if isinstance(entries.get(str(layer)), dict)
+        and entries[str(layer)].get("status") == "complete"
+    }
+
+
+def _completed_capture_units(
+    output: Path, *, dataset_count: int, layers: Sequence[int]
+) -> int:
+    return sum(
+        len(_completed_capture_labels(output / f"datasets/dataset_{index:02d}", layers))
+        for index in range(dataset_count)
+    )
+
+
+def _validate_measurement_capture(
+    lens: ICALens, suite: dict[str, Any], datasets: Sequence[ActivationDataset]
+) -> None:
+    model = suite.get("model", {})
+    mismatches = []
+    if model.get("repo_id") != lens.model_id:
+        mismatches.append("model_id")
+    if model.get("revision") != lens.model_revision:
+        mismatches.append("model_revision")
+    if suite.get("activation_site") != lens.activation_site:
+        mismatches.append("activation_site")
+    if len(datasets) != len(suite.get("preset", {}).get("datasets", [])):
+        mismatches.append("datasets")
+    expected_layers = tuple(int(layer) for layer in suite.get("layers", []))
+    for dataset in datasets:
+        if dataset.available_layers != expected_layers:
+            mismatches.append("layers")
+        if dataset.model.get("repo_id") != lens.model_id:
+            mismatches.append("dataset_model")
+    if mismatches:
+        details = ", ".join(sorted(set(mismatches)))
+        raise ValueError(f"incompatible reconstruction activation capture: {details}")
+
+
 def _run_dataset_first(
     *,
     lens: ICALens,
@@ -249,7 +745,7 @@ def _run_dataset_first(
                     display.set_phase(
                         "shared capture " + ",".join(f"L{layer}" for layer in uncached)
                     )
-                    activations, positions = _capture_dataset(
+                    activations, samples = _capture_dataset(
                         lens=lens,
                         model=model,
                         tokenizer=tokenizer,
@@ -260,8 +756,8 @@ def _run_dataset_first(
                         max_tokens=int(settings["max_tokens_per_dataset"]),
                         device=device,
                     )
-                    _save_activation_cache(cache_dir, activations, positions)
-                    del activations, positions
+                    _save_activation_cache(cache_dir, activations, samples["position"])
+                    del activations, samples
                 for _, layer in display.track_methods(
                     [(f"L{layer}", layer) for layer in group]
                 ):
@@ -302,6 +798,50 @@ def _dataset_result_path(output: Path, layer: int, dataset_index: int) -> Path:
         / f"dataset_{dataset_index:02d}"
         / f"layer_{layer:02d}.json"
     )
+
+
+def _method_result_path(output: Path, layer: int, dataset_index: int, method: str) -> Path:
+    return (
+        output / "checkpoints" / "methods" / f"dataset_{dataset_index:02d}"
+        / f"layer_{layer:02d}" / f"{method}.json"
+    )
+
+
+def _completed_measurement_units(
+    output: Path, *, layers: Sequence[int], dataset_count: int, methods: Sequence[str]
+) -> int:
+    completed = 0
+    for dataset_index in range(dataset_count):
+        for layer in layers:
+            if _dataset_result_path(output, layer, dataset_index).is_file():
+                completed += len(methods)
+            else:
+                completed += sum(
+                    _method_result_path(output, layer, dataset_index, method).is_file()
+                    for method in methods
+                )
+    return completed
+
+
+def _merge_method_results(
+    output: Path, *, layer: int, dataset_index: int, methods: Sequence[str],
+    dataset: dict[str, Any],
+) -> dict[str, Any]:
+    merged: dict[str, Any] = {"n_tokens": None, "methods": {}, "dataset": dataset}
+    for method in methods:
+        path = _method_result_path(output, layer, dataset_index, method)
+        if not path.is_file():
+            raise RuntimeError(f"missing reconstruction method checkpoint: {path}")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if merged["n_tokens"] is None:
+            merged["n_tokens"] = payload["n_tokens"]
+        elif merged["n_tokens"] != payload["n_tokens"]:
+            raise ValueError(f"method checkpoints disagree on token count: {path}")
+        overlap = set(merged["methods"]) & set(payload["methods"])
+        if overlap:
+            raise ValueError(f"method checkpoints overlap at {path}: {sorted(overlap)}")
+        merged["methods"].update(payload["methods"])
+    return merged
 
 
 def _dataset_cache_dir(output: Path, dataset_index: int) -> Path:
@@ -375,6 +915,7 @@ def _dataset_texts(config: dict[str, Any]) -> Iterable[str]:
             repo_id=repo_id,
             filename=data_files.removeprefix(prefix),
             repo_type="dataset",
+            revision=config.get("revision"),
         )
         import pyarrow.parquet as pq
 
@@ -395,6 +936,8 @@ def _dataset_texts(config: dict[str, Any]) -> Iterable[str]:
         kwargs["name"] = str(config["config"])
     if config.get("data_files") is not None:
         kwargs["data_files"] = config["data_files"]
+    if config.get("revision") is not None:
+        kwargs["revision"] = str(config["revision"])
     dataset = load_dataset(**kwargs)
     column = str(config.get("text_column", "text"))
     for row in dataset:
@@ -431,20 +974,23 @@ def _capture_dataset(
     batch_size: int,
     max_tokens: int,
     device: str,
-) -> tuple[dict[int, torch.Tensor], torch.Tensor]:
+) -> tuple[dict[int, torch.Tensor], dict[str, torch.Tensor]]:
     framing = _document_framing_for_layer(lens, layers[0])
     prefix_id = framing.get("token_id") if framing.get("strategy") != "none" else None
     content_length = context_length - int(prefix_id is not None)
     buffers: dict[int, list[torch.Tensor]] = {layer: [] for layer in layers}
-    position_parts: list[torch.Tensor] = []
+    sample_parts: dict[str, list[torch.Tensor]] = {
+        "document_index": [], "position": [], "token_id": []
+    }
     total = 0
+    document_offset = 0
     batch: list[str] = []
     progress = tqdm(total=max_tokens, desc="Capture held-out activations", unit="tok")
     for text in texts:
         batch.append(text)
         if len(batch) < batch_size:
             continue
-        captured, positions, count = _capture_batch(
+        captured, samples, count = _capture_batch(
             model=model,
             tokenizer=tokenizer,
             texts=batch,
@@ -453,17 +999,20 @@ def _capture_dataset(
             content_length=content_length,
             remaining=max_tokens - total,
             device=device,
+            document_offset=document_offset,
         )
         for layer in layers:
             buffers[layer].append(captured[layer].cpu())
-        position_parts.append(positions)
+        for name, values in samples.items():
+            sample_parts[name].append(values)
         total += count
+        document_offset += len(batch)
         progress.update(count)
         batch.clear()
         if total >= max_tokens:
             break
     if batch and total < max_tokens:
-        captured, positions, count = _capture_batch(
+        captured, samples, count = _capture_batch(
             model=model,
             tokenizer=tokenizer,
             texts=batch,
@@ -472,10 +1021,12 @@ def _capture_dataset(
             content_length=content_length,
             remaining=max_tokens - total,
             device=device,
+            document_offset=document_offset,
         )
         for layer in layers:
             buffers[layer].append(captured[layer].cpu())
-        position_parts.append(positions)
+        for name, values in samples.items():
+            sample_parts[name].append(values)
         total += count
         progress.update(count)
     progress.close()
@@ -483,7 +1034,7 @@ def _capture_dataset(
         raise RuntimeError("held-out dataset yielded no usable tokens")
     return (
         {layer: torch.cat(buffers[layer], dim=0) for layer in layers},
-        torch.cat(position_parts),
+        {name: torch.cat(parts) for name, parts in sample_parts.items()},
     )
 
 
@@ -497,7 +1048,8 @@ def _capture_batch(
     content_length: int,
     remaining: int,
     device: str,
-) -> tuple[dict[int, torch.Tensor], torch.Tensor, int]:
+    document_offset: int = 0,
+) -> tuple[dict[int, torch.Tensor], dict[str, torch.Tensor], int]:
     encoded = tokenizer(
         texts,
         add_special_tokens=False,
@@ -516,6 +1068,11 @@ def _capture_batch(
     if valid.shape[0] > remaining:
         valid = valid[:remaining]
     positions = valid[:, 1].cpu() - int(prefix_id is not None)
+    samples = {
+        "document_index": valid[:, 0].cpu() + int(document_offset),
+        "position": positions,
+        "token_id": ids[valid[:, 0], valid[:, 1]].cpu().long(),
+    }
     captured: dict[int, torch.Tensor] = {}
     handles = []
 
@@ -545,7 +1102,7 @@ def _capture_batch(
     finally:
         for handle in handles:
             handle.remove()
-    return captured, positions, int(valid.shape[0])
+    return captured, samples, int(valid.shape[0])
 
 
 def _evaluate_layer(
@@ -557,6 +1114,7 @@ def _evaluate_layer(
     k_values: list[int],
     baselines: dict[str, dict[str, Any]],
     device: str,
+    requested_methods: set[str] | None = None,
 ) -> dict[str, Any]:
     artifact = lens._get_layer(layer)
     assert artifact.center is not None
@@ -583,11 +1141,13 @@ def _evaluate_layer(
     reading = torch.as_tensor(artifact.reading_matrix, device=device, dtype=torch.float32)
     writing = torch.as_tensor(artifact.writing_matrix, device=device, dtype=torch.float32)
     methods: dict[str, dict[str, Any]] = {}
-    methods["ica"] = _linear_dictionary_metrics_batched(
-        target, work, norm, center, reading, writing.T, k_values,
-        restore_norm=lens.row_normalize, restore_center=preprocessing_center,
-    )
-    if "pca" in baselines:
+    selected = requested_methods or {"ica", *baselines}
+    if "ica" in selected:
+        methods["ica"] = _linear_dictionary_metrics_batched(
+            target, work, norm, center, reading, writing.T, k_values,
+            restore_norm=lens.row_normalize, restore_center=preprocessing_center,
+        )
+    if "pca" in baselines and "pca" in selected:
         covariance = writing.double() @ writing.double().T
         _, vectors = torch.linalg.eigh(covariance)
         basis = vectors.flip(1).T.float()
@@ -595,7 +1155,7 @@ def _evaluate_layer(
             target, work, norm, center, basis, basis, k_values,
             restore_norm=lens.row_normalize, restore_center=preprocessing_center,
         )
-    if "random" in baselines:
+    if "random" in baselines and "random" in selected:
         generator = torch.Generator(device=device).manual_seed(
             int(baselines["random"].get("seed", 0)) + layer
         )
@@ -607,7 +1167,7 @@ def _evaluate_layer(
             target, work, norm, center, basis, basis, k_values,
             restore_norm=lens.row_normalize, restore_center=preprocessing_center,
         )
-    if "sae" in baselines:
+    if "sae" in baselines and "sae" in selected:
         prepared = _prepare_layer_baselines({"sae": baselines["sae"]}, layer=layer)
         snapshot = {
             "hidden_size": int(target.shape[-1]),
@@ -866,22 +1426,40 @@ def _load_run(path: Path, resolved: dict[str, Any]) -> dict[str, Any]:
     if path.is_file():
         run = cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
         if run.get("resolved") != resolved:
-            # A failed run with no completed layers contains no reusable
-            # measurements. Let it adopt corrected preset metadata so a
-            # dependency or dataset-loader fix does not require manual cleanup.
-            completed = any(
-                item.get("status") == "complete"
-                for item in run.get("layer_runs", {}).values()
-                if isinstance(item, dict)
+            differences = _configuration_differences(run.get("resolved", {}), resolved)
+            raise ValueError(
+                f"{path} belongs to a different reconstruction configuration; "
+                + "; ".join(differences)
+                + ". Use a different --output path."
             )
-            if completed:
-                raise ValueError(
-                    f"{path} belongs to a different reconstruction configuration"
-                )
-            return {"status": "running", "resolved": resolved, "layer_runs": {}}
         run["status"] = "running"
+        run.pop("error", None)
         return run
+    if path.parent.is_dir() and any(path.parent.iterdir()):
+        raise FileExistsError(
+            f"reconstruction output is non-empty but has no run.json: {path.parent}. "
+            "Use a different --output path."
+        )
     return {"status": "running", "resolved": resolved, "layer_runs": {}}
+
+
+def _configuration_differences(existing: Any, requested: Any, prefix: str = "") -> list[str]:
+    if isinstance(existing, dict) and isinstance(requested, dict):
+        differences: list[str] = []
+        for key in sorted(set(existing) | set(requested)):
+            name = f"{prefix}.{key}" if prefix else str(key)
+            if key not in existing:
+                differences.append(f"{name}: missing != {requested[key]!r}")
+            elif key not in requested:
+                differences.append(f"{name}: {existing[key]!r} != missing")
+            else:
+                differences.extend(
+                    _configuration_differences(existing[key], requested[key], name)
+                )
+        return differences
+    if existing != requested:
+        return [f"{prefix or 'configuration'}: {existing!r} != {requested!r}"]
+    return []
 
 
 def _layer_path(output: Path, layer: int) -> Path:
@@ -889,8 +1467,16 @@ def _layer_path(output: Path, layer: int) -> Path:
 
 
 def _write_json(path: Path, value: Any) -> None:
+    _write_json_atomic(path, value)
+
+
+def _write_json_atomic(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    os.replace(temporary, path)
 
 
 def _parse_layers(value: str, available: Sequence[int]) -> list[int]:

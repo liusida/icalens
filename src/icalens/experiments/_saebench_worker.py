@@ -73,6 +73,7 @@ class _BenchmarkDisplay:
         items_label: str = "Methods",
         recent_label: str = "Recent SAEBench output",
         detail_filename: str = "saebench-detail.log",
+        source_dirty: bool = False,
     ) -> None:
         self.total = total
         self.completed = completed
@@ -82,6 +83,7 @@ class _BenchmarkDisplay:
         self.item_label = item_label
         self.items_label = items_label
         self.recent_label = recent_label
+        self.source_dirty = source_dirty
         self.dataset = "preparing"
         self.dataset_index = 0
         self.dataset_total = 0
@@ -120,14 +122,14 @@ class _BenchmarkDisplay:
             self.live.__enter__()
             self.thread = threading.Thread(target=self._refresh_loop, daemon=True)
             self.thread.start()
-            sys.stdout = self.stream
-            sys.stderr = self.stream
+        sys.stdout = self.stream
+        sys.stderr = self.stream
         return self
 
     def __exit__(self, error_type: Any, error: Any, traceback: Any) -> None:
+        sys.stdout = self.terminal_out
+        sys.stderr = self.terminal_err
         if self.interactive:
-            sys.stdout = self.terminal_out
-            sys.stderr = self.terminal_err
             self.stop_event.set()
             if self.thread is not None:
                 self.thread.join()
@@ -141,8 +143,7 @@ class _BenchmarkDisplay:
         )
         self.detail.flush()
         self.detail.close()
-        if self.interactive:
-            print(f"Full output: {self.detail_path}")
+        print(f"Full output: {self.detail_path}")
 
     def set_dataset(
         self,
@@ -269,11 +270,22 @@ class _BenchmarkDisplay:
                 else:
                     method_status.append(f" · {name.upper()} ", style="dim")
         tail = Text("\n".join(recent) if recent else "Waiting for SAEBench output…", style="dim")
-        return Panel(
+        main = Panel(
             Group(header, task, method_status, Text(self.recent_label, style="bold"), tail),
             title=self.title,
             border_style="blue",
         )
+        if not self.source_dirty:
+            return main
+        warning = Panel(
+            Text(
+                "WARNING: uncommitted source; the recorded commit alone cannot reproduce this run.",
+                style="bold bright_yellow",
+            ),
+            title="Source warning",
+            border_style="bright_yellow",
+        )
+        return Group(main, warning)
 
 
 def _format_duration(seconds: float) -> str:
