@@ -43,6 +43,21 @@ The GPT-2 implementation is architecture-specific. Do not use it for Gemma or
 Qwen checkpoints: those models require separately validated RMSNorm and gated
 MLP RelP rules.
 
+## Pythia 70M
+
+Pythia-70M uses GPT-NeoX LayerNorm and GELU blocks, so it follows the same
+LayerNorm-only RelP protocol as GPT-2. The official command uses the pinned
+model revision and the same 25-prompt Pile-10k sample as the other official
+R-lenses:
+
+```bash
+uv run python integrations/r_lens/fit_pythia.py
+```
+
+The default target is Pythia-70M's final transformer block (layer 5), yielding
+transport maps for all six residual layers. The fitter checkpoints after every
+prompt and resumes automatically.
+
 ## Gemma 2 2B
 
 Gemma uses the dense RelP LN, identity, and half rules. Its 2B checkpoint
