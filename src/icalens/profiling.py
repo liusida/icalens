@@ -621,7 +621,12 @@ def _logit_lens(
 
 
 def _final_norm(model: torch.nn.Module) -> torch.nn.Module | None:
-    for path in (("model", "norm"), ("transformer", "ln_f"), ("model", "final_layernorm")):
+    for path in (
+        ("model", "norm"),
+        ("transformer", "ln_f"),
+        ("model", "final_layernorm"),
+        ("gpt_neox", "final_layer_norm"),
+    ):
         value: Any = model
         for name in path:
             value = getattr(value, name, None)

@@ -7,6 +7,7 @@ import pytest
 import torch
 
 from icalens import ICALens
+from icalens.profiling import _final_norm
 
 
 class TinyTokenizer:
@@ -26,6 +27,14 @@ class TinyModel(torch.nn.Module):
 
     def get_output_embeddings(self) -> torch.nn.Module:
         return self.head
+
+
+def test_final_norm_supports_gpt_neox_layout() -> None:
+    model = torch.nn.Module()
+    model.gpt_neox = torch.nn.Module()
+    model.gpt_neox.final_layer_norm = torch.nn.LayerNorm(2)
+
+    assert _final_norm(model) is model.gpt_neox.final_layer_norm
 
 
 def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> None:
