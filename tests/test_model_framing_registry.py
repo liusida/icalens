@@ -32,6 +32,7 @@ def test_registry_contains_verified_project_models() -> None:
     registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
     models = registry["models"]
 
+    assert models["EleutherAI/pythia-70m"]["document_framing"] == "prepend-eos"
     assert models["openai-community/gpt2"]["document_framing"] == "prepend-eos"
     assert models["google/gemma-2-2b"]["document_framing"] == "prepend-bos"
     assert models["Qwen/Qwen3.5-2B-Base"]["document_framing"] == "prepend-eos"
@@ -45,6 +46,13 @@ def test_exact_bundled_policy_records_content_hash() -> None:
     assert policy.entry["expected_token"] == "<|endoftext|>"
     assert len(policy.sha256) == 64
     assert policy.schema_version == 1
+
+
+def test_pythia_policy_uses_its_eod_token_as_document_prefix() -> None:
+    policy = resolve_framing_policy("EleutherAI/pythia-70m")
+
+    assert policy.entry["document_framing"] == "prepend-eos"
+    assert policy.entry["expected_token"] == "<|endoftext|>"
 
 
 def test_missing_model_can_be_resolved_and_cached_from_remote(
