@@ -130,7 +130,16 @@ def main() -> None:
         )
     logging.info("Verified bit-identical ordinary and RelP forward logits")
 
-    model = jlens.from_hf(hf_model, tokenizer)
+    # Current Transformers exposes the GPT-NeoX unembedding as the top-level
+    # ``lm_head``. Pass the layout explicitly because jlens' built-in Pythia
+    # layout still expects the older ``embed_out`` name.
+    layout = jlens.hf.Layout(
+        "gpt_neox",
+        norm="final_layer_norm",
+        embed="embed_in",
+        lm_head="lm_head",
+    )
+    model = jlens.from_hf(hf_model, tokenizer, layout=layout)
     prompts = load_prompts(args.prompts)
     logging.info(
         "Fitting Pythia-70M R-lens: prompts=%d layers=%s target=%d dim_batch=%d",
