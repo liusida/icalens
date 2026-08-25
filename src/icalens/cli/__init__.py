@@ -28,6 +28,8 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         with compact_output("ICA Lens · component profiling", args):
             profile_main(args)
+    elif command == "plot":
+        _dispatch_plot(args)
     elif command == "smoke-test":
         from ..smoke_test import main as smoke_test_main
 
@@ -57,6 +59,21 @@ def _dispatch_experiment(args: list[str]) -> None:
         raise SystemExit(
             f"icalens experiment: unknown experiment {kind!r}; "
             "use 'saebench-sparse-probing', 'reconstruction', or 'figure'"
+        )
+
+
+def _dispatch_plot(args: list[str]) -> None:
+    if not args or args[0] in {"-h", "--help"}:
+        print(_PLOT_HELP)
+        return
+    kind = args.pop(0)
+    if kind == "fitting-summary":
+        from .plot_fitting import main as plot_fitting_main
+
+        plot_fitting_main(args)
+    else:
+        raise SystemExit(
+            f"icalens plot: unknown plot {kind!r}; use 'fitting-summary'"
         )
 
 
@@ -134,11 +151,21 @@ commands:
   fit chat     Fit from a conversation dataset
   fit activations  Fit from a reusable activation dataset
   profile      Add component statistics, examples, and logit-lens tokens
+  plot         Plot diagnostics from saved ICA Lens artifacts
   publish      Publish a local artifact to Hugging Face
   smoke-test   Verify installed text and chat analysis paths
   experiment   Run experiments and create paper-ready figures
 
 Run 'icalens COMMAND --help' for command-specific options."""
+
+_PLOT_HELP = """usage: icalens plot PLOT [OPTIONS]
+
+Plot diagnostics from saved ICA Lens artifacts.
+
+plots:
+  fitting-summary  Compare layer-averaged FastICA fitting curves
+
+Run 'icalens plot PLOT --help' for plot-specific options."""
 
 _FIT_HELP = """usage: icalens fit {text,chat,activations} [OPTIONS]
 

@@ -280,6 +280,22 @@ lens.plot_fitting_curve(layers=[0, 6, 11], columns=3)
 lens.plot_fitting_curve(layers="all", columns=4)
 ```
 
+Compare layer-averaged fitting distributions across one or more saved lenses:
+
+```bash
+icalens plot fitting-summary \
+  sida/icalens-gpt2-small-pile10k \
+  sida/icalens-gemma-2-2b-pile10k \
+  sida/icalens-qwen3.5-9b-base-pile10k \
+  --titles "GPT-2 Small,Gemma 2 2B,Qwen 3.5 9B"
+```
+
+By default this writes `./figures/fitting-curves.png` and
+`./figures/fitting-curves.pdf`. Pass `--output DIRECTORY` to use another
+directory or `--force` to replace existing files. Each percentile boundary is
+averaged across the fitted layers of its model; components are not pooled
+across layers.
+
 The method reads only the saved metadata and returns a Matplotlib figure. It
 does not reload the language model or captured activations. Use
 `--objective-every N` in a CLI fit, or `objective_every=N` in `fit()`, to change

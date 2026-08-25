@@ -276,6 +276,27 @@ def test_plot_fitting_curve_supports_multiple_and_all_layers(
     assert not plt.fignum_exists(all_layers.number)
 
 
+def test_render_fitting_summary_writes_png_and_pdf(
+    mixed_signals: np.ndarray, tmp_path: Path
+) -> None:
+    from icalens.cli.plot_fitting import render_fitting_summary
+
+    lens = make_lens()
+    for layer in (1, 2):
+        lens.fit(mixed_signals, layer=layer, n_components=3, max_iter=2)
+
+    outputs = render_fitting_summary(
+        [lens], titles=["Example"], output=tmp_path / "figures", force=False
+    )
+
+    assert [path.name for path in outputs] == ["fitting-curves.png", "fitting-curves.pdf"]
+    assert all(path.is_file() for path in outputs)
+    with pytest.raises(FileExistsError, match="--force"):
+        render_fitting_summary(
+            [lens], titles=["Example"], output=tmp_path / "figures", force=False
+        )
+
+
 @pytest.mark.parametrize("columns", [0, -1])
 def test_plot_fitting_curve_rejects_nonpositive_columns(columns: int) -> None:
     with pytest.raises(ValueError, match="columns must be positive"):

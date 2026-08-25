@@ -18,6 +18,12 @@ def test_fit_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "icalens fit {text,chat,activations}" in output
 
 
+def test_plot_help(capsys: pytest.CaptureFixture[str]) -> None:
+    cli.main(["plot", "--help"])
+    output = capsys.readouterr().out
+    assert "fitting-summary" in output
+
+
 def test_dispatches_text_fit(monkeypatch: pytest.MonkeyPatch) -> None:
     from icalens.cli import fit_text
 
@@ -49,6 +55,17 @@ def test_dispatches_profile(monkeypatch: pytest.MonkeyPatch) -> None:
     cli.main(["profile", "--lens", "artifact", "--layer", "6"])
 
     assert received == ["--lens", "artifact", "--layer", "6"]
+
+
+def test_dispatches_fitting_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    from icalens.cli import plot_fitting
+
+    received: list[str] = []
+    monkeypatch.setattr(plot_fitting, "main", lambda args: received.extend(args))
+
+    cli.main(["plot", "fitting-summary", "owner/lens"])
+
+    assert received == ["owner/lens"]
 
 
 def test_profile_defaults_to_updating_local_lens(tmp_path) -> None:

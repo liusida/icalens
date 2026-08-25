@@ -24,12 +24,30 @@ performed.
 - Use approximately 1.5 pt lines and 3–4 pt markers. Use an unframed, shared
   legend above multi-panel figures.
 - Remove top and right spines. Show light horizontal grid lines only.
+- Keep grid lines behind data, around gray `0.88–0.90` and `0.45–0.6` pt. Use
+  thin, consistent axes (about `0.7` pt).
+
+## Paper sizing and typography
+
+- Build figures at their intended publication size. Use about `3.35` inches
+  for one column and `6.9` inches for two columns; do not create an oversized
+  canvas and rely on the paper renderer to shrink it.
+- A useful two-column baseline is 8 pt for titles, labels, and body text, about
+  7 pt for tick labels, and about 7–7.5 pt for legends. Keep this hierarchy
+  proportional when another base size is required.
+- Apply figure styles in a local Matplotlib `rc_context` so one plot does not
+  silently alter later plots in a notebook or process. Embed TrueType fonts in
+  both PDF and PostScript (`pdf.fonttype = 42`, `ps.fonttype = 42`).
 
 ## Layout and labels
 
 - Design aggregate paper figures for a single-column or two-column paper width;
   keep panels compact and share axes when their scales and semantics match.
 - Use bold, concise panel titles with stable model/dataset names.
+- Prefer left-aligned semibold or bold panel titles in dense multi-panel figures; they
+  are easier to scan than centered titles. Put layer counts, sample counts, or
+  other qualifiers in a smaller in-panel annotation or subtitle rather than
+  lengthening the primary title.
 - Put the y-axis label only on the leftmost panel when axes are shared. Use one
   shared x-axis label when practical.
 - Prefer sentence case for axis labels. Name the measured quantity and unit or
@@ -39,6 +57,13 @@ performed.
   full-basis endpoint. Rotate crowded tick labels 45 degrees.
 - Do not annotate points unless the annotation communicates essential status
   such as a partial run. Explain special markers and controls in the caption.
+- When panels compare distributions, use the same axis limits, binning,
+  normalization, and color scale across panels. For nested uncertainty or
+  percentile bands, make outer bands lighter and inner bands darker, then draw
+  the summary curve above them.
+- Reserve space explicitly for shared legends and labels. For dense paper
+  figures, deliberate `subplots_adjust` margins are often more stable than
+  relying on `tight_layout` to resolve an outside legend.
 
 ## Scientific integrity
 
