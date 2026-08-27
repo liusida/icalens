@@ -650,6 +650,7 @@ class ICALens:
             summaries[int(component["component"])] = {
                 "dominant_sign": sign,
                 "sign_statistics": component["sign_statistics"],
+                "score_statistics": component.get("score_statistics"),
                 "occurrences": [
                     {
                         "text": occurrence["text"],

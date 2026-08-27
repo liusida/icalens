@@ -59,6 +59,7 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     assert profile["n_tokens"] == 2
     assert profile["components"][0]["sign_statistics"]["positive_fraction"] == 0.5
     assert profile["components"][0]["dominant_sign"] == "negative"
+    assert profile["components"][0]["score_statistics"]["excess_kurtosis"] == pytest.approx(-2.0)
     assert profile["components"][0]["examples"]["positive"]["tokens"] == [
         {"text": " alpha", "count": 1}
     ]
@@ -76,6 +77,7 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     assert rendered.startswith('<iframe title="ICA Lens Component Profile"')
     assert "Component profile — C0 · layer 1 · dominant negative" in rendered
     assert "Logit-lens tokens · negative" in rendered
+    assert "Excess kurtosis" in rendered
     report = component.to_html(tmp_path / "component-profile.html")
     assert report.is_file()
     assert "High-energy occurrences · negative" in report.read_text()
@@ -118,6 +120,7 @@ def test_profiles_from_cached_activations_without_analyze(monkeypatch) -> None:
 
     assert profile["n_tokens"] == 4
     assert profile["n_inputs"] == 2
+    assert "excess_kurtosis" in profile["components"][0]["score_statistics"]
     assert profile["components"][0]["examples"]["positive"]["occurrences"]
 
 

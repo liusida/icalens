@@ -98,6 +98,7 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
     component = int(profile["component"])
     sign = str(profile["dominant_sign"])
     statistics = profile["sign_statistics"]
+    score_statistics = profile.get("score_statistics") or {}
     examples = profile["examples"][sign]
     occurrences = examples.get("occurrences", [])
     logit_tokens = profile.get("logit_lens", {}).get("dominant", {}).get("top_tokens", [])[:10]
@@ -150,6 +151,13 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
     position_negative = percentage(statistics["negative_fraction"])
     energy_positive = percentage(statistics["positive_energy_fraction"])
     energy_negative = percentage(statistics["negative_energy_fraction"])
+    excess_kurtosis = score_statistics.get("excess_kurtosis")
+    kurtosis_html = (
+        f'<div class="profile-kurtosis"><strong>Excess kurtosis</strong> '
+        f'<span>{float(excess_kurtosis):.2f}</span></div>'
+        if excess_kurtosis is not None
+        else ""
+    )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ICA Lens component C{component}</title>
@@ -162,6 +170,7 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
   .profile-token-row + .profile-token-row {{margin-top:13px}} .profile-stat-row {{display:grid;grid-template-columns:62px 48px minmax(80px,1fr) 48px;gap:7px;align-items:center;margin:7px 0;color:#435066;font-size:11px}}
   .profile-stat-primary {{margin-bottom:10px;color:#273244;font-size:12px}} .profile-stat-secondary {{opacity:.65}} .profile-bar {{display:flex;height:9px;overflow:hidden;border-radius:999px;background:#e6e9ef}}
   .profile-stat-primary .profile-bar {{height:14px}} .positive {{background:#f59e0b}} .negative {{flex:1;background:#1e3a8a}}
+  .profile-kurtosis {{display:flex;justify-content:space-between;margin-top:10px;color:#435066;font-size:11px;font-variant-numeric:tabular-nums}}
   .profile-chips {{display:flex;flex-wrap:wrap;gap:6px}} .profile-token-chip {{display:inline-flex;gap:6px;padding:4px 7px;border:1px solid #d5dce7;border-radius:999px;background:#f8fafc;font-size:11px}}
   .profile-value {{color:var(--muted);font-variant-numeric:tabular-nums}} ol {{margin:0;padding-left:20px;columns:3 360px;column-gap:32px}} li {{break-inside:avoid;margin:0 0 8px;overflow-wrap:anywhere}}
   .profile-occurrence-token {{color:#435066;font-size:11px}} .profile-context {{display:block;color:#3f4a5c;font-size:13px;line-height:1.5}} .profile-occurrence-metrics {{display:block;margin-top:2px;color:#929bab;font-size:9px}}
@@ -173,6 +182,7 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
   <section><h3>Sign distribution</h3>
     <div class="profile-stat-row profile-stat-primary"><strong>Energy</strong><span>+{energy_positive}</span><span class="profile-bar"><span class="positive" style="width:{energy_positive}"></span><span class="negative"></span></span><span>−{energy_negative}</span></div>
     <div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+{position_positive}</span><span class="profile-bar"><span class="positive" style="width:{position_positive}"></span><span class="negative"></span></span><span>−{position_negative}</span></div>
+    {kurtosis_html}
   </section>
   <section><div class="profile-token-row"><h3>Logit-lens tokens · {html.escape(sign)}</h3><div class="profile-chips">{token_chips(logit_tokens)}</div></div>{r_lens}</section>
   <section class="profile-wide"><h3>High-energy occurrences · {html.escape(sign)}</h3><ol>{occurrence_items}</ol></section>
@@ -398,6 +408,8 @@ def _document(payload: str) -> str:
     .profile-stat-primary {{ margin-bottom: 10px; color: #273244; font-size: 12px; }}
     .profile-stat-primary .profile-bar {{ height: 14px; }}
     .profile-stat-secondary {{ opacity: .65; }}
+    .profile-kurtosis {{ display: flex; justify-content: space-between; margin-top: 10px;
+      color: #435066; font-size: 11px; font-variant-numeric: tabular-nums; }}
     .profile-bar-positive {{ background: #f59e0b; }}
     .profile-bar-negative {{ flex: 1; background: #1e3a8a; }}
     .profile-list {{ margin: 0; padding-left: 20px; }}
@@ -691,6 +703,10 @@ def _document(payload: str) -> str:
       const positionNegative = percentage(stats.negative_fraction);
       const energyPositive = percentage(stats.positive_energy_fraction);
       const energyNegative = percentage(stats.negative_energy_fraction);
+      const excessKurtosis = Number(profile.score_statistics?.excess_kurtosis);
+      const kurtosisRow = Number.isFinite(excessKurtosis)
+        ? `<div class="profile-kurtosis"><strong>Excess kurtosis</strong><span>${{excessKurtosis.toFixed(2)}}</span></div>`
+        : "";
       const rLensSection = profile.r_lens_tokens?.length
         ? `<div class="profile-token-row"><h3>R-lens tokens · ${{profile.dominant_sign}}</h3><div class="profile-chips">${{tokenItems(profile.r_lens_tokens)}}</div></div>`
         : "";
@@ -698,6 +714,7 @@ def _document(payload: str) -> str:
         <section class="profile-section"><h3>Sign distribution</h3>
           <div class="profile-stat-row profile-stat-primary"><strong>Energy</strong><span>+${{energyPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{energyPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{energyNegative}}</span></div>
           <div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+${{positionPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{positionPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{positionNegative}}</span></div>
+          ${{kurtosisRow}}
         </section>
         <section class="profile-section">
           <div class="profile-token-row"><h3>Logit-lens tokens · ${{profile.dominant_sign}}</h3><div class="profile-chips">${{tokenItems(profile.logit_tokens)}}</div></div>

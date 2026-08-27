@@ -118,6 +118,7 @@ def profile_components(
     positive_energy = torch.zeros(n_components, dtype=torch.float64)
     negative_energy = torch.zeros(n_components, dtype=torch.float64)
     total_energy = torch.zeros(n_components, dtype=torch.float64)
+    score_moments = torch.zeros((4, n_components), dtype=torch.float64)
     examples: list[dict[str, list[tuple[float, int, dict[str, Any]]]]] = [
         {"positive": [], "negative": []} for _ in range(n_components)
     ]
@@ -154,6 +155,8 @@ def profile_components(
         positive_energy += (squared * positive).sum(dim=0)
         negative_energy += (squared * negative).sum(dim=0)
         total_energy += squared.sum(dim=0)
+        for power in range(1, 5):
+            score_moments[power - 1] += scores_cpu.pow(power).sum(dim=0)
 
         candidates = torch.nonzero(energy_cpu >= min_energy, as_tuple=False)
         for row, component in candidates.tolist():
@@ -197,6 +200,7 @@ def profile_components(
         positive_energy=positive_energy,
         negative_energy=negative_energy,
         total_energy=total_energy,
+        score_moments=score_moments,
         examples=examples,
         top_k_examples=top_k_examples,
         min_energy=min_energy,
@@ -242,6 +246,7 @@ def profile_components_from_activations(
     positive_energy = torch.zeros(n_components, dtype=torch.float64)
     negative_energy = torch.zeros(n_components, dtype=torch.float64)
     total_energy = torch.zeros(n_components, dtype=torch.float64)
+    score_moments = torch.zeros((4, n_components), dtype=torch.float64)
     examples: list[dict[str, list[tuple[float, int, dict[str, Any]]]]] = [
         {"positive": [], "negative": []} for _ in range(n_components)
     ]
@@ -267,6 +272,8 @@ def profile_components_from_activations(
         positive_energy += (squared * positive).sum(dim=0)
         negative_energy += (squared * negative).sum(dim=0)
         total_energy += squared.sum(dim=0)
+        for power in range(1, 5):
+            score_moments[power - 1] += scores_cpu.pow(power).sum(dim=0)
         for row, component in torch.nonzero(energy_cpu >= min_energy).tolist():
             score = float(scores_cpu[row, component])
             if score == 0:
@@ -296,6 +303,7 @@ def profile_components_from_activations(
         positive_energy=positive_energy,
         negative_energy=negative_energy,
         total_energy=total_energy,
+        score_moments=score_moments,
         examples=examples,
         top_k_examples=top_k_examples,
         min_energy=min_energy,
@@ -328,6 +336,7 @@ def _finish_profile(
     positive_energy: torch.Tensor,
     negative_energy: torch.Tensor,
     total_energy: torch.Tensor,
+    score_moments: torch.Tensor,
     examples: list[dict[str, list[tuple[float, int, dict[str, Any]]]]],
     top_k_examples: int,
     min_energy: float,
@@ -367,6 +376,19 @@ def _finish_profile(
                 progress=progress,
             )
     components = []
+    raw_mean, raw_second, raw_third, raw_fourth = score_moments / token_count
+    score_variance = raw_second - raw_mean.square()
+    fourth_central = (
+        raw_fourth
+        - 4 * raw_mean * raw_third
+        + 6 * raw_mean.square() * raw_second
+        - 3 * raw_mean.pow(4)
+    )
+    excess_kurtosis = torch.where(
+        score_variance > 0,
+        fourth_central / score_variance.square() - 3,
+        torch.zeros_like(score_variance),
+    )
     for component in range(artifact.n_components):
         sign_total = int(positive_count[component] + negative_count[component])
         squared_total = float(total_energy[component])
@@ -397,6 +419,11 @@ def _finish_profile(
                 "positive_energy_fraction": pos_fraction,
                 "negative_energy_fraction": neg_fraction,
             },
+            "score_statistics": {
+                "mean": float(raw_mean[component]),
+                "variance": float(score_variance[component]),
+                "excess_kurtosis": float(excess_kurtosis[component]),
+            },
             "examples": component_examples,
             "logit_lens": {
                 "method": "final_norm_then_unembed",
@@ -426,6 +453,7 @@ def _finish_profile(
             "logit_lens_batch_size": logit_lens_batch_size,
             "r_lens_top_k": r_lens_top_k if r_lens_result is not None else None,
             "r_lens_batch_size": r_lens_batch_size if r_lens_result is not None else None,
+            "score_statistics": "population_excess_kurtosis",
         },
         "provenance": provenance,
         "r_lens_provenance": r_lens_provenance,

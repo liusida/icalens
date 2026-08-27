@@ -32,6 +32,7 @@ def analysis_result() -> AnalysisResult:
                     "positive_energy_fraction": 0.2,
                     "negative_energy_fraction": 0.8,
                 },
+                "score_statistics": {"excess_kurtosis": 12.5},
                 "occurrences": [
                     {
                         "text": " biology",
@@ -195,6 +196,7 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert 'replace(/\\r\\n|\\r|\\n/g, "↵")' in html
     assert 'return lines.join("\\n")' in html
     assert '<details class="panel" id="componentProfile" hidden>' in html
+    assert "Excess kurtosis" in html
     assert "Component profile — C${component} · dominant ${profile.dominant_sign}" in html
     assert "High-energy occurrences · ${profile.dominant_sign}" in html
     assert "Logit-lens tokens · ${profile.dominant_sign}" in html

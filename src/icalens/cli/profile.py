@@ -256,6 +256,7 @@ def _pending_profile_layers(
         "minimum_component_energy": args.min_energy,
         "logit_lens_top_k": args.logit_lens_top_k,
         "logit_lens_batch_size": args.logit_lens_batch_size,
+        "score_statistics": "population_excess_kurtosis",
     }
     expected_r_lens_sha = _sha256(args.r_lens) if args.r_lens is not None else None
     pending: list[int] = []
