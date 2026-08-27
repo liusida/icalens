@@ -29,6 +29,7 @@ from .fit_text import (
     parse_layers,
     parse_token_budget,
     resolve_document_framing,
+    resolve_text_dataset,
     set_cuda_memory_limit,
 )
 from .fit_text import (
@@ -46,9 +47,21 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
     api = HfApi()
     log(f"Resolving model {args.model} and dataset {args.dataset} revisions...")
     model_revision = api.model_info(args.model).sha
-    dataset_revision = api.dataset_info(args.dataset).sha
-    if model_revision is None or dataset_revision is None:
-        raise RuntimeError("Could not resolve exact model and dataset revisions.")
+    if model_revision is None:
+        raise RuntimeError("Could not resolve the exact model revision.")
+    if kind == "text":
+        dataset_revision, dataset_provenance = resolve_text_dataset(
+            args.dataset, split=args.split, api=api
+        )
+    else:
+        dataset_revision = api.dataset_info(args.dataset).sha
+        if dataset_revision is None:
+            raise RuntimeError("Could not resolve the exact dataset revision.")
+        dataset_provenance = {
+            "repo_id": args.dataset,
+            "revision": str(dataset_revision),
+            "split": args.split,
+        }
     tokenizer = AutoTokenizer.from_pretrained(args.model, revision=model_revision, use_fast=True)
     config = AutoConfig.from_pretrained(
         args.model, revision=model_revision, trust_remote_code=True
@@ -68,7 +81,7 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
             args,
             kind=kind,
             model_revision=str(model_revision),
-            dataset_revision=str(dataset_revision),
+            dataset_provenance=dataset_provenance,
             model_type="base",
             layers=layers,
             hidden_size=int(config.hidden_size),
@@ -89,11 +102,7 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
         selected = sample_text_positions(documents, token_budget=args.token_budget, seed=args.seed)
         candidate_count = sum(int(doc.candidate_positions.numel()) for doc in documents)
         provenance: dict[str, Any] = {
-            "dataset": {
-                "repo_id": args.dataset,
-                "revision": str(dataset_revision),
-                "split": args.split,
-            },
+            "dataset": dataset_provenance,
             "text_field": args.text_field,
             "token_scope": "all",
             "candidate_tokens": candidate_count,
@@ -112,7 +121,7 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
             args,
             kind=kind,
             model_revision=str(model_revision),
-            dataset_revision=str(dataset_revision),
+            dataset_provenance=dataset_provenance,
             model_type="instruct",
             layers=layers,
             hidden_size=int(config.hidden_size),
@@ -132,11 +141,7 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
         )
         selected = sample_chat_positions(documents, token_budget=args.token_budget, seed=args.seed)
         provenance = {
-            "dataset": {
-                "repo_id": args.dataset,
-                "revision": str(dataset_revision),
-                "split": args.split,
-            },
+            "dataset": dataset_provenance,
             "messages_field": args.messages_field,
             "token_scope": args.token_scope,
             "candidate_tokens": candidates,
@@ -218,7 +223,7 @@ def _preflight_capture(
     *,
     kind: str,
     model_revision: str,
-    dataset_revision: str,
+    dataset_provenance: dict[str, Any],
     model_type: str,
     layers: tuple[int, ...],
     hidden_size: int,
@@ -241,12 +246,7 @@ def _preflight_capture(
         "layer_indexing": "transformer_blocks_zero_based",
         "hidden_size": hidden_size,
         "layers": set(map(str, layers)),
-        "dataset": {
-            "repo_id": args.dataset,
-            "revision": dataset_revision,
-            "split": args.split,
-        },
-        "fitting_tokens": args.token_budget,
+        "dataset": dataset_provenance,
         "sampling_seed": args.seed,
         "context_length": args.context_length,
         "token_scope": "all" if kind == "text" else args.token_scope,
@@ -258,7 +258,6 @@ def _preflight_capture(
         "hidden_size": existing.get("hidden_size"),
         "layers": set(existing.get("layers", {})),
         "dataset": provenance.get("dataset"),
-        "fitting_tokens": provenance.get("fitting_tokens"),
         "sampling_seed": provenance.get("sampling_seed"),
         "context_length": provenance.get("context_length"),
         "token_scope": provenance.get("token_scope"),
@@ -266,6 +265,9 @@ def _preflight_capture(
     if candidate_tokens is not None:
         expected["candidate_tokens"] = candidate_tokens
         actual["candidate_tokens"] = provenance.get("candidate_tokens")
+    if args.token_budget is not None:
+        expected["fitting_tokens"] = args.token_budget
+        actual["fitting_tokens"] = provenance.get("fitting_tokens")
     if kind == "text":
         expected["text_field"] = args.text_field
         expected["document_framing"] = framing
@@ -301,7 +303,11 @@ def _parse_args(kind: str, argv: Sequence[str] | None) -> argparse.Namespace:
     default_model = "openai-community/gpt2" if kind == "text" else "Qwen/Qwen2.5-0.5B-Instruct"
     default_dataset = "NeelNanda/pile-10k" if kind == "text" else "HuggingFaceH4/ultrachat_200k"
     parser.add_argument("--model", default=default_model)
-    parser.add_argument("--dataset", default=default_dataset)
+    parser.add_argument(
+        "--dataset",
+        default=default_dataset,
+        help="Dataset repository, or a local JSONL/Parquet file for text capture.",
+    )
     parser.add_argument("--split", default="train" if kind == "text" else "train_sft")
     parser.add_argument("--layers", default="all")
     parser.add_argument("--output", type=Path, required=True)

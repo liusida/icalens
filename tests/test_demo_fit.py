@@ -4,9 +4,11 @@ import torch
 
 from icalens.cli.fit_text import (
     TextDocument,
+    load_pile_documents,
     parse_args,
     parse_token_budget,
     resolve_document_framing,
+    resolve_text_dataset,
     sample_positions,
 )
 
@@ -41,6 +43,57 @@ def test_parse_text_source_options() -> None:
     assert args.split == "validation"
     assert args.text_field == "body"
     assert args.context_length == 512
+
+
+def test_resolve_local_text_dataset_records_path_and_hash(tmp_path) -> None:
+    dataset = tmp_path / "train.jsonl"
+    dataset.write_text('{"text":"alpha"}\n')
+
+    revision, provenance = resolve_text_dataset(str(dataset), split="train")
+
+    assert revision == provenance["sha256"]
+    assert provenance == {
+        "path": str(dataset.resolve()),
+        "sha256": revision,
+        "split": "train",
+    }
+
+
+def test_load_local_jsonl_uses_one_truncated_context_per_row(tmp_path) -> None:
+    dataset = tmp_path / "train.jsonl"
+    dataset.write_text('{"text":"abcdef"}\n{"text":"gh"}\n')
+
+    class Tokenizer:
+        def __call__(
+            self,
+            text: str,
+            *,
+            add_special_tokens: bool,
+            truncation: bool,
+            max_length: int,
+        ) -> dict[str, list[int]]:
+            assert add_special_tokens is False
+            assert truncation is True
+            return {"input_ids": [ord(character) for character in text][:max_length]}
+
+    documents = load_pile_documents(
+        Tokenizer(),
+        dataset_id=str(dataset),
+        split="train",
+        text_field="text",
+        candidate_token_budget=None,
+        context_length=4,
+        document_framing={"strategy": "prepend-eos", "token_id": 99},
+    )
+
+    assert [document.input_ids.tolist() for document in documents] == [
+        [99, ord("a"), ord("b"), ord("c")],
+        [99, ord("g"), ord("h")],
+    ]
+    assert [document.candidate_positions.tolist() for document in documents] == [
+        [1, 2, 3],
+        [1, 2],
+    ]
 
 
 def test_sample_all_positions_without_random_index() -> None:

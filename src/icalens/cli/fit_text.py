@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import resource
 import sys
 from collections import defaultdict
@@ -48,7 +49,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--model", default=MODEL_ID, help=f"Model repository (default: {MODEL_ID})."
     )
     parser.add_argument(
-        "--dataset", default=DATASET_ID, help=f"Dataset repository (default: {DATASET_ID})."
+        "--dataset",
+        default=DATASET_ID,
+        help=f"Dataset repository or local JSONL/Parquet file (default: {DATASET_ID}).",
     )
     parser.add_argument(
         "--split", default=DATASET_SPLIT, help=f"Dataset split (default: {DATASET_SPLIT})."
@@ -158,9 +161,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     log(f"Resolving model {args.model} and dataset {args.dataset} revisions...")
     api = HfApi()
     revision = api.model_info(args.model).sha
-    dataset_revision = api.dataset_info(args.dataset).sha
-    if revision is None or dataset_revision is None:
-        raise RuntimeError("Could not resolve exact model and dataset revisions.")
+    dataset_revision, dataset_provenance = resolve_text_dataset(
+        args.dataset, split=args.split, api=api
+    )
+    if revision is None:
+        raise RuntimeError("Could not resolve the exact model revision.")
     log(f"Loading tokenizer and {args.dataset} candidate tokens...")
     tokenizer = AutoTokenizer.from_pretrained(args.model, revision=revision)
     document_framing = resolve_document_framing(
@@ -272,11 +277,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 batch_size=fit_batch_size,
                 objective_every=args.objective_every,
                 provenance={
-                    "dataset": {
-                        "repo_id": args.dataset,
-                        "revision": str(dataset_revision),
-                        "split": args.split,
-                    },
+                    "dataset": dataset_provenance,
                     "text_field": args.text_field,
                     "token_scope": "all",
                     "candidate_tokens": candidate_token_count,
@@ -313,7 +314,26 @@ def load_pile_documents(
     """Tokenize text documents until the requested candidate pool is full."""
     if candidate_token_budget is not None and candidate_token_budget <= 0:
         raise ValueError("--candidate-tokens must be positive")
-    dataset = load_dataset(dataset_id, split=split, revision=dataset_revision, streaming=True)
+    local_path = Path(dataset_id).expanduser()
+    if local_path.is_file():
+        suffix = local_path.suffix.lower()
+        if suffix in {".json", ".jsonl"}:
+            loader = "json"
+        elif suffix == ".parquet":
+            loader = "parquet"
+        else:
+            raise ValueError(
+                "local text datasets must be JSONL, JSON, or Parquet files: "
+                f"{local_path}"
+            )
+        dataset = load_dataset(
+            loader,
+            data_files={split: str(local_path.resolve())},
+            split=split,
+            streaming=True,
+        )
+    else:
+        dataset = load_dataset(dataset_id, split=split, revision=dataset_revision, streaming=True)
     framing = document_framing or {"strategy": "none", "token_id": None}
     prefix_ids = (
         [] if framing["strategy"] == "none" else [int(framing["token_id"])]
@@ -371,6 +391,42 @@ def load_pile_documents(
         )
     log(f"Loaded {captured_tokens} candidate tokens from {len(documents)} documents.")
     return documents
+
+
+def resolve_text_dataset(
+    dataset_id: str,
+    *,
+    split: str,
+    api: HfApi | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Resolve an immutable identity and manifest provenance for a text dataset."""
+    local_path = Path(dataset_id).expanduser()
+    if local_path.is_file():
+        resolved = local_path.resolve()
+        digest = _file_sha256(resolved)
+        return digest, {
+            "path": str(resolved),
+            "sha256": digest,
+            "split": split,
+        }
+    if local_path.exists():
+        raise ValueError(f"local text dataset must be a file: {local_path}")
+    revision = (api or HfApi()).dataset_info(dataset_id).sha
+    if revision is None:
+        raise RuntimeError(f"Could not resolve an exact revision for {dataset_id}.")
+    return str(revision), {
+        "repo_id": dataset_id,
+        "revision": str(revision),
+        "split": split,
+    }
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def sample_positions(
