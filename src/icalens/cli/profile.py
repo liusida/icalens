@@ -341,13 +341,14 @@ def _recover_cached_records(
     tokenizer = AutoTokenizer.from_pretrained(
         lens.model_id, revision=lens.model_revision, trust_remote_code=True
     )
+    dataset_id, dataset_revision = _replay_dataset_source(source)
     candidate_tokens = int(provenance["candidate_tokens"])
     context_length = int(provenance["context_length"])
     if lens.model_type == "instruct":
         documents = load_chat_documents(
             tokenizer,
-            dataset_id=str(source["repo_id"]),
-            dataset_revision=str(source["revision"]),
+            dataset_id=dataset_id,
+            dataset_revision=str(dataset_revision),
             split=str(source["split"]),
             messages_field=str(provenance.get("messages_field", "messages")),
             token_scope=str(provenance.get("token_scope", "all")),
@@ -357,8 +358,8 @@ def _recover_cached_records(
     else:
         documents = load_pile_documents(
             tokenizer,
-            dataset_id=str(source["repo_id"]),
-            dataset_revision=str(source["revision"]),
+            dataset_id=dataset_id,
+            dataset_revision=dataset_revision,
             split=str(source["split"]),
             text_field=str(provenance.get("text_field", "text")),
             candidate_token_budget=candidate_tokens,
@@ -398,6 +399,25 @@ def _recover_cached_records(
         "dataset and tokenizer."
     )
     return records
+
+
+def _replay_dataset_source(source: dict[str, Any]) -> tuple[str, str | None]:
+    """Resolve and validate Hub or local dataset provenance for token replay."""
+    if "repo_id" in source:
+        return str(source["repo_id"]), str(source["revision"])
+    if "path" not in source or "sha256" not in source:
+        raise ValueError("activation dataset has incomplete dataset provenance")
+    path = Path(str(source["path"])).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"captured local dataset is unavailable: {path}")
+    expected = str(source["sha256"])
+    actual = _sha256(path)
+    if actual != expected:
+        raise ValueError(
+            "captured local dataset checksum differs from activation provenance: "
+            f"expected {expected}, got {actual}"
+        )
+    return str(path), None
 
 
 def _resolve_output(lens_source: str, requested: Path | None) -> Path:
