@@ -389,6 +389,9 @@ def _finish_profile(
         fourth_central / score_variance.square() - 3,
         torch.zeros_like(score_variance),
     )
+    kurtosis_order = torch.argsort(excess_kurtosis, descending=True, stable=True)
+    excess_kurtosis_rank = torch.empty_like(kurtosis_order)
+    excess_kurtosis_rank[kurtosis_order] = torch.arange(1, artifact.n_components + 1)
     for component in range(artifact.n_components):
         sign_total = int(positive_count[component] + negative_count[component])
         squared_total = float(total_energy[component])
@@ -423,6 +426,7 @@ def _finish_profile(
                 "mean": float(raw_mean[component]),
                 "variance": float(score_variance[component]),
                 "excess_kurtosis": float(excess_kurtosis[component]),
+                "excess_kurtosis_rank": int(excess_kurtosis_rank[component]),
             },
             "examples": component_examples,
             "logit_lens": {

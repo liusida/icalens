@@ -60,6 +60,8 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     assert profile["components"][0]["sign_statistics"]["positive_fraction"] == 0.5
     assert profile["components"][0]["dominant_sign"] == "negative"
     assert profile["components"][0]["score_statistics"]["excess_kurtosis"] == pytest.approx(-2.0)
+    assert profile["components"][0]["score_statistics"]["excess_kurtosis_rank"] == 1
+    assert profile["components"][1]["score_statistics"]["excess_kurtosis_rank"] == 2
     assert profile["components"][0]["examples"]["positive"]["tokens"] == [
         {"text": " alpha", "count": 1}
     ]

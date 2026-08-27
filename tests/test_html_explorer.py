@@ -32,7 +32,10 @@ def analysis_result() -> AnalysisResult:
                     "positive_energy_fraction": 0.2,
                     "negative_energy_fraction": 0.8,
                 },
-                "score_statistics": {"excess_kurtosis": 12.5},
+                "score_statistics": {
+                    "excess_kurtosis": 12.5,
+                    "excess_kurtosis_rank": 3,
+                },
                 "occurrences": [
                     {
                         "text": " biology",

@@ -152,9 +152,16 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
     energy_positive = percentage(statistics["positive_energy_fraction"])
     energy_negative = percentage(statistics["negative_energy_fraction"])
     excess_kurtosis = score_statistics.get("excess_kurtosis")
+    excess_kurtosis_rank = score_statistics.get("excess_kurtosis_rank")
     kurtosis_html = (
         f'<div class="profile-kurtosis"><strong>Excess kurtosis</strong> '
-        f'<span>{float(excess_kurtosis):.2f}</span></div>'
+        f'<span>{float(excess_kurtosis):.2f}'
+        + (
+            f" · rank #{int(excess_kurtosis_rank)}"
+            if excess_kurtosis_rank is not None
+            else ""
+        )
+        + "</span></div>"
         if excess_kurtosis is not None
         else ""
     )
@@ -704,8 +711,9 @@ def _document(payload: str) -> str:
       const energyPositive = percentage(stats.positive_energy_fraction);
       const energyNegative = percentage(stats.negative_energy_fraction);
       const excessKurtosis = Number(profile.score_statistics?.excess_kurtosis);
+      const excessKurtosisRank = Number(profile.score_statistics?.excess_kurtosis_rank);
       const kurtosisRow = Number.isFinite(excessKurtosis)
-        ? `<div class="profile-kurtosis"><strong>Excess kurtosis</strong><span>${{excessKurtosis.toFixed(2)}}</span></div>`
+        ? `<div class="profile-kurtosis"><strong>Excess kurtosis</strong><span>${{excessKurtosis.toFixed(2)}}${{Number.isInteger(excessKurtosisRank) ? ` · rank #${{excessKurtosisRank}} / ${{data.component_count}}` : ""}}</span></div>`
         : "";
       const rLensSection = profile.r_lens_tokens?.length
         ? `<div class="profile-token-row"><h3>R-lens tokens · ${{profile.dominant_sign}}</h3><div class="profile-chips">${{tokenItems(profile.r_lens_tokens)}}</div></div>`
