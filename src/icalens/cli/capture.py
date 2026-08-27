@@ -66,7 +66,8 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
     config = AutoConfig.from_pretrained(
         args.model, revision=model_revision, trust_remote_code=True
     )
-    layers = parse_layers(args.layers, layer_count=int(config.num_hidden_layers))
+    text_config = _text_config(config)
+    layers = parse_layers(args.layers, layer_count=int(text_config.num_hidden_layers))
     documents: Any
 
     if kind == "text":
@@ -84,7 +85,7 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
             dataset_provenance=dataset_provenance,
             model_type="base",
             layers=layers,
-            hidden_size=int(config.hidden_size),
+            hidden_size=int(text_config.hidden_size),
             candidate_tokens=candidates,
             framing=framing,
         ):
@@ -124,7 +125,7 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
             dataset_provenance=dataset_provenance,
             model_type="instruct",
             layers=layers,
-            hidden_size=int(config.hidden_size),
+            hidden_size=int(text_config.hidden_size),
             candidate_tokens=candidates,
             framing=None,
         ):
@@ -349,3 +350,19 @@ def _capture_group_size(value: str) -> str | int:
     if result <= 0:
         raise argparse.ArgumentTypeError("must be a positive integer or 'all'")
     return result
+
+
+def _text_config(config: Any) -> Any:
+    """Return the causal-text config from flat or composite model configs."""
+    nested = getattr(config, "text_config", None)
+    candidate = config if nested is None else nested
+    missing = [
+        name
+        for name in ("num_hidden_layers", "hidden_size")
+        if getattr(candidate, name, None) is None
+    ]
+    if missing:
+        raise ValueError(
+            f"model text config is missing required fields: {', '.join(missing)}"
+        )
+    return candidate
