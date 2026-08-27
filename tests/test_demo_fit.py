@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import torch
 
+from icalens.cli.fit_activations import parse_args as parse_activation_args
+from icalens.cli.fit_chat import parse_args as parse_chat_args
 from icalens.cli.fit_text import (
     TextDocument,
     load_pile_documents,
@@ -11,6 +13,16 @@ from icalens.cli.fit_text import (
     resolve_text_dataset,
     sample_positions,
 )
+
+
+def test_all_fitting_cli_defaults_use_no_icalens_preprocessing() -> None:
+    assert parse_args([]).icalens_preprocessing == "none"
+    assert parse_chat_args([]).icalens_preprocessing == "none"
+    assert (
+        parse_activation_args(["--input", "activations", "--output", "lens"])
+        .icalens_preprocessing
+        == "none"
+    )
 
 
 def test_parse_all_token_budget() -> None:

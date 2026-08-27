@@ -23,7 +23,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--icalens-preprocessing",
         choices=("none", "l2", "geometric-median-l2"),
-        default="l2",
+        default="none",
     )
     parser.add_argument("--max-iter", type=int, default=20)
     parser.add_argument("--objective-every", type=int, default=1)
