@@ -263,6 +263,21 @@ lens.plot_fitting_curve(layers=[0, 6, 11], columns=3)
 lens.plot_fitting_curve(layers="all", columns=4)
 ```
 
+还可以比较一个或多个已保存 Lens 的逐层平均拟合分布：
+
+```bash
+icalens plot fitting-summary \
+  sida/icalens-gpt2-small-pile10k \
+  sida/icalens-gemma-2-2b-pile10k \
+  sida/icalens-qwen3.5-9b-base-pile10k \
+  --titles "GPT-2 Small,Gemma 2 2B,Qwen 3.5 9B"
+```
+
+默认情况下，该命令会写入 `./figures/fitting-curves.png` 和
+`./figures/fitting-curves.pdf`。可通过 `--output DIRECTORY` 指定其他目录，或用
+`--force` 替换已有文件。每条分位数边界是在模型的各个已拟合层之间取平均得到的；
+不同层的成分不会合并在一起。
+
 该方法只读取已保存的元数据并返回 Matplotlib Figure，不会重新加载语言模型或捕获的
 激活。CLI 拟合可用 `--objective-every N`，Python `fit()` 可用
 `objective_every=N` 调整记录间隔。
