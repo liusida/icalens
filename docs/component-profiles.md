@@ -42,9 +42,12 @@ tail; negative skewness selects the negative tail. This is saved as
 skewness falls back to the larger squared-score energy side.
 
 Skewness is the standardized third central moment, so it measures asymmetry
-around the component's mean. The panel intentionally shows only the selected
-tail and skewness. Full sign frequencies and squared-energy fractions remain
-available in the profile data.
+around the component's mean. The selected tail appears once in the profile
+title. A compact statistics column beside the Logit Lens and R-lens shows
+skewness, excess kurtosis, and the fitting-time logcosh deviation. The latter
+is the absolute distance from the Gaussian contrast baseline used to order
+component IDs; its rank can differ from the excess-kurtosis rank. Full sign
+frequencies and squared-energy fractions remain available in the profile data.
 
 Positive and negative are coordinate directions, not favorable and unfavorable
 meanings. ICA signs are arbitrary, so always use the sign recorded by the exact

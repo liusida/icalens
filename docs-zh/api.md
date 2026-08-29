@@ -204,6 +204,7 @@ profile = lens.profile_components(
 | `dominant_sign` | `tail_direction` 的兼容性别名 |
 | `sign_statistics` | 正负位置比例和正负能量比例 |
 | `score_statistics` | 均值、方差、三阶中心矩、偏度、超额峰度及峰度排名 |
+| `fitting_statistics` | 可用时在显示阶段加入的 logcosh 目标、高斯基线、绝对偏差及偏差排名 |
 | `examples` | 正负两侧保留的高能量样例和 token 计数 |
 | `logit_lens` | 正向、负向及主导写入方向对应的词表关联 |
 | `r_lens` | 提供兼容 R-lens 时加入的、近似纳入后续层影响的词表关联 |

@@ -285,6 +285,7 @@ Each component entry contains:
 | `dominant_sign` | Compatibility alias for `tail_direction` |
 | `sign_statistics` | Positive/negative position fractions and positive/negative energy fractions |
 | `score_statistics` | Mean, variance, third central moment, skewness, excess kurtosis, and kurtosis rank |
+| `fitting_statistics` | Display-time logcosh objective, Gaussian baseline, absolute deviation, and deviation rank when available |
 | `examples` | Retained positive and negative high-energy occurrences and token counts |
 | `logit_lens` | Vocabulary associations for the positive, negative, and dominant writing directions |
 | `r_lens` | Optional downstream-aware vocabulary associations when a compatible R-lens was supplied |

@@ -421,7 +421,11 @@ class ICALens:
             raise ValueError(
                 f"component must be between 0 and {artifact.n_components - 1}, got {index}"
             )
-        return ComponentProfile(copy.deepcopy(profile["components"][index]), layer=layer)
+        value = copy.deepcopy(profile["components"][index])
+        fitting_statistics = _component_fitting_statistics(artifact, index)
+        if fitting_statistics is not None:
+            value["fitting_statistics"] = fitting_statistics
+        return ComponentProfile(value, layer=layer)
 
     def checkpoint_component_profile(self, path: str | Path, *, layer: int) -> Path:
         """Write one completed profile into an existing local lens artifact."""
@@ -654,27 +658,43 @@ class ICALens:
         profile = self._get_profile(artifact)
         summaries: dict[int, dict[str, Any]] = {}
         for component in profile["components"]:
+            component_index = int(component["component"])
             sign = str(component["dominant_sign"])
-            summaries[int(component["component"])] = {
+            summaries[component_index] = {
                 "dominant_sign": sign,
                 "tail_direction": component.get("tail_direction"),
                 "sign_statistics": component["sign_statistics"],
                 "score_statistics": component.get("score_statistics"),
+                "fitting_statistics": _component_fitting_statistics(artifact, component_index),
                 "occurrences": [
                     {
-                        "text": occurrence["text"],
-                        "context": occurrence["context"],
-                        "score": occurrence["score"],
-                        "energy": occurrence["energy"],
+                        key: occurrence[key]
+                        for key in (
+                            "text",
+                            "token",
+                            "token_id",
+                            "context",
+                            "score",
+                            "energy",
+                        )
+                        if key in occurrence
                     }
                     for occurrence in component["examples"][sign]["occurrences"]
                 ],
                 "logit_tokens": [
-                    {"text": token["text"], "logit": token["logit"]}
+                    {
+                        key: token[key]
+                        for key in ("text", "token", "token_id", "logit")
+                        if key in token
+                    }
                     for token in component["logit_lens"]["dominant"]["top_tokens"][:10]
                 ],
                 "r_lens_tokens": [
-                    {"text": token["text"]}
+                    {
+                        key: token[key]
+                        for key in ("text", "token", "token_id", "logit")
+                        if key in token
+                    }
                     for token in component.get("r_lens", {})
                     .get("dominant", {})
                     .get("top_tokens", [])[:10]
@@ -740,6 +760,31 @@ class ICALens:
             raise ValueError("input must have at least two dimensions")
         if expected is not None and int(shape[-1]) != expected:
             raise ValueError(f"input final dimension is {shape[-1]}, expected {expected}")
+
+
+def _component_fitting_statistics(artifact: LayerArtifact, component: int) -> dict[str, Any] | None:
+    fitting = artifact.fitting
+    if fitting.get("fun") != "logcosh":
+        return None
+    objectives = fitting.get("component_objectives")
+    strengths = fitting.get("component_strengths")
+    baseline = fitting.get("gaussian_objective")
+    if (
+        not isinstance(objectives, list)
+        or not isinstance(strengths, list)
+        or component >= len(objectives)
+        or component >= len(strengths)
+        or baseline is None
+    ):
+        return None
+    order = sorted(range(len(strengths)), key=lambda index: (-float(strengths[index]), index))
+    return {
+        "contrast": "logcosh",
+        "objective": float(objectives[component]),
+        "gaussian_objective": float(baseline),
+        "absolute_deviation": float(strengths[component]),
+        "absolute_deviation_rank": order.index(component) + 1,
+    }
 
 
 def _validate_layer(layer: int) -> int:

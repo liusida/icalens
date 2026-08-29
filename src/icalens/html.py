@@ -15,6 +15,37 @@ from typing import Any
 VSCODE_NOTEBOOK_SCALE = 0.6
 
 
+def _gpt2_byte_hex(raw_token: str) -> str | None:
+    """Recover original bytes from GPT-2's reversible byte-to-Unicode alphabet."""
+    byte_values = list(range(ord("!"), ord("~") + 1))
+    byte_values += list(range(ord("¡"), ord("¬") + 1))
+    byte_values += list(range(ord("®"), ord("ÿ") + 1))
+    characters = [chr(value) for value in byte_values]
+    extra = 0
+    for value in range(256):
+        if value not in byte_values:
+            byte_values.append(value)
+            characters.append(chr(256 + extra))
+            extra += 1
+    decoder = dict(zip(characters, byte_values, strict=True))
+    if not raw_token or any(character not in decoder for character in raw_token):
+        return None
+    return " ".join(f"{decoder[character]:02X}" for character in raw_token)
+
+
+def _token_hint(item: dict[str, Any]) -> str:
+    parts = []
+    if item.get("token_id") is not None:
+        parts.append(f"Token ID: {int(item['token_id'])}")
+    raw_token = str(item.get("token", ""))
+    if raw_token:
+        parts.append(f"Raw token: {json.dumps(raw_token, ensure_ascii=False)}")
+        byte_hex = _gpt2_byte_hex(raw_token)
+        if byte_hex is not None:
+            parts.append(f"Bytes: {byte_hex}")
+    return " · ".join(parts)
+
+
 def analysis_html(
     result: Any,
     *,
@@ -109,7 +140,7 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
 
     def token_chips(tokens: list[dict[str, Any]]) -> str:
         return "".join(
-            '<span class="profile-token-chip"><span class="profile-value">'
+            f'<span class="profile-token-chip" title="{html.escape(_token_hint(item), quote=True)}"><span class="profile-value">'
             f"#{index}</span><strong>{html.escape(json.dumps(str(item.get('text', '')), ensure_ascii=False))}</strong></span>"
             for index, item in enumerate(tokens, start=1)
         )
@@ -132,7 +163,7 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
 
     occurrence_items = "".join(
         "<li>"
-        f'<span class="profile-occurrence-token">{html.escape(json.dumps(str(item.get("text", "")), ensure_ascii=False))}</span>'
+        f'<span class="profile-occurrence-token" title="{html.escape(_token_hint(item), quote=True)}">{html.escape(json.dumps(str(item.get("text", "")), ensure_ascii=False))}</span>'
         f'<span class="profile-context">{highlighted_context(item)}</span>'
         '<span class="profile-occurrence-metrics">'
         f'<span title="Signed ICA score">↕ {float(item.get("score", 0)):+.2f}</span> · '
@@ -154,11 +185,12 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
     excess_kurtosis = score_statistics.get("excess_kurtosis")
     excess_kurtosis_rank = score_statistics.get("excess_kurtosis_rank")
     skewness = score_statistics.get("skewness")
+    fitting_statistics = profile.get("fitting_statistics") or {}
     kurtosis_html = (
-        '<div class="profile-kurtosis"><h3>Excess kurtosis</h3><div>'
-        f'<strong class="profile-kurtosis-value">{float(excess_kurtosis):.2f}</strong>'
+        '<div class="profile-score-stat"><h3>Excess kurtosis</h3><div>'
+        f'<strong class="profile-score-stat-value">{float(excess_kurtosis):.2f}</strong>'
         + (
-            f'<span class="profile-kurtosis-rank">rank #{int(excess_kurtosis_rank)}</span>'
+            f'<span class="profile-score-stat-rank">rank #{int(excess_kurtosis_rank)}</span>'
             if excess_kurtosis_rank is not None
             else ""
         )
@@ -166,15 +198,36 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
         if excess_kurtosis is not None
         else ""
     )
-    tail_selection_html = (
-        '<div class="profile-tail-selection"><h3>Tail selection</h3><div>'
-        f"<strong>{html.escape(sign.title())} tail</strong>"
-        f"<span>skewness {float(skewness):+.2f}</span></div></div>"
+    logcosh_deviation = fitting_statistics.get("absolute_deviation")
+    logcosh_rank = fitting_statistics.get("absolute_deviation_rank")
+    logcosh_html = (
+        '<div class="profile-score-stat"><h3>Logcosh deviation</h3><div>'
+        f'<strong class="profile-score-stat-value">{float(logcosh_deviation):.4f}</strong>'
+        + (
+            f'<span class="profile-score-stat-rank">rank #{int(logcosh_rank)}</span>'
+            if logcosh_rank is not None
+            else ""
+        )
+        + "</div></div>"
+        if logcosh_deviation is not None
+        else ""
+    )
+    tail_shape_html = (
+        f'<div class="profile-score-stat-pair">{kurtosis_html}{logcosh_html}</div>'
+        if logcosh_html
+        else kurtosis_html
+    )
+    score_statistics_html = (
+        '<div class="profile-score-statistics">'
+        '<div class="profile-score-stat"><h3>Skewness</h3>'
+        f'<strong class="profile-score-stat-value">{float(skewness):+.2f}</strong></div>'
+        f"{tail_shape_html}</div>"
         if skewness is not None and profile.get("tail_direction") is not None
         else (
-            "<h3>Sign distribution</h3>"
+            '<div class="profile-score-statistics"><div><h3>Sign distribution</h3>'
             f'<div class="profile-stat-row profile-stat-primary"><strong>Energy</strong><span>+{energy_positive}</span><span class="profile-bar"><span class="positive" style="width:{energy_positive}"></span><span class="negative"></span></span><span>−{energy_negative}</span></div>'
             f'<div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+{position_positive}</span><span class="profile-bar"><span class="positive" style="width:{position_positive}"></span><span class="negative"></span></span><span>−{position_negative}</span></div>'
+            f"</div>{tail_shape_html}</div>"
         )
     )
     direction_label = (
@@ -189,15 +242,16 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
   :root {{--bg:#f6f7f9;--panel:#fff;--text:#151922;--muted:#647084;--border:#cbd3df}}
   * {{box-sizing:border-box}} body {{margin:0;padding:6px;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden}}
   .panel {{padding:12px;background:var(--panel);border:1px solid var(--border);border-radius:8px}}
-  summary {{cursor:pointer;font-weight:800}} .profile-grid {{display:grid;grid-template-columns:minmax(280px,.55fr) minmax(0,1.8fr);gap:16px 24px;margin-top:12px}}
+  summary {{cursor:pointer;font-weight:800}} .profile-grid {{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,360px);gap:16px 24px;margin-top:12px}}
   h3 {{margin:0 0 7px;font-size:13px}} .profile-wide {{grid-column:1/-1;padding-top:12px;border-top:1px solid #e1e6ee}}
   .profile-token-row + .profile-token-row {{margin-top:13px}} .profile-stat-row {{display:grid;grid-template-columns:62px 48px minmax(80px,1fr) 48px;gap:7px;align-items:center;margin:7px 0;color:#435066;font-size:11px}}
   .profile-stat-primary {{margin-bottom:10px;color:#273244;font-size:12px}} .profile-stat-secondary {{opacity:.65}} .profile-bar {{display:flex;height:9px;overflow:hidden;border-radius:999px;background:#e6e9ef}}
   .profile-stat-primary .profile-bar {{height:14px}} .positive {{background:#f59e0b}} .negative {{flex:1;background:#1e3a8a}}
-  .profile-kurtosis {{margin-top:16px;font-variant-numeric:tabular-nums}} .profile-kurtosis h3 {{margin-bottom:3px}}
-  .profile-kurtosis-value {{color:#273244;font-size:17px}} .profile-kurtosis-rank {{margin-left:8px;color:#647084;font-size:11px}}
-  .profile-tail-selection {{font-variant-numeric:tabular-nums}} .profile-tail-selection h3 {{margin-bottom:3px}}
-  .profile-tail-selection strong {{color:#273244;font-size:15px}} .profile-tail-selection span {{margin-left:8px;color:#647084;font-size:11px}}
+  .profile-score-statistics {{font-variant-numeric:tabular-nums}} .profile-score-stat + .profile-score-stat {{margin-top:16px}}
+  .profile-score-stat-pair {{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}}
+  .profile-score-stat-pair .profile-score-stat {{margin-top:0}}
+  .profile-score-stat h3 {{margin-bottom:3px}} .profile-score-stat-value {{color:#273244;font-size:17px}}
+  .profile-score-stat-rank {{margin-left:8px;color:#647084;font-size:11px}}
   .profile-chips {{display:flex;flex-wrap:wrap;gap:6px}} .profile-token-chip {{display:inline-flex;gap:6px;padding:4px 7px;border:1px solid #d5dce7;border-radius:999px;background:#f8fafc;font-size:11px}}
   .profile-value {{color:var(--muted);font-variant-numeric:tabular-nums}} ol {{margin:0;padding-left:20px;columns:3 360px;column-gap:32px}} li {{break-inside:avoid;margin:0 0 8px;overflow-wrap:anywhere}}
   .profile-occurrence-token {{color:#435066;font-size:11px}} .profile-context {{display:block;color:#3f4a5c;font-size:13px;line-height:1.5}} .profile-occurrence-metrics {{display:block;margin-top:2px;color:#929bab;font-size:9px}}
@@ -206,10 +260,8 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
 </style></head><body>
 <details class="panel" open><summary>Component profile — C{component} · layer {int(layer)} · {direction_label}</summary>
 <div class="profile-grid">
-  <section>{tail_selection_html}
-    {kurtosis_html}
-  </section>
   <section><div class="profile-token-row"><h3>Logit-lens tokens · {html.escape(sign)}</h3><div class="profile-chips">{token_chips(logit_tokens)}</div></div>{r_lens}</section>
+  <section>{score_statistics_html}</section>
   <section class="profile-wide"><h3>High-energy occurrences · {html.escape(sign)}</h3><ol>{occurrence_items}</ol></section>
 </div></details>
 <script>
@@ -420,7 +472,7 @@ def _document(payload: str) -> str:
     .badge.selected {{ outline: 2px solid var(--color); border-color: var(--color); opacity: 1; }}
     .component {{ font-weight: 850; }}
     .score {{ font-variant-numeric: tabular-nums; }}
-    .profile-grid {{ display: grid; grid-template-columns: minmax(340px, .55fr) minmax(0, 1.8fr);
+    .profile-grid {{ display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
       gap: 16px 24px; margin-top: 12px; }}
     .profile-wide {{ grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid #e1e6ee; }}
     .profile-section h3 {{ margin: 0 0 7px; font-size: 13px; }}
@@ -433,14 +485,14 @@ def _document(payload: str) -> str:
     .profile-stat-primary {{ margin-bottom: 10px; color: #273244; font-size: 12px; }}
     .profile-stat-primary .profile-bar {{ height: 14px; }}
     .profile-stat-secondary {{ opacity: .65; }}
-    .profile-kurtosis {{ margin-top: 16px; font-variant-numeric: tabular-nums; }}
-    .profile-kurtosis h3 {{ margin-bottom: 3px; }}
-    .profile-kurtosis-value {{ color: #273244; font-size: 17px; }}
-    .profile-kurtosis-rank {{ margin-left: 8px; color: #647084; font-size: 11px; }}
-    .profile-tail-selection {{ font-variant-numeric: tabular-nums; }}
-    .profile-tail-selection h3 {{ margin-bottom: 3px; }}
-    .profile-tail-selection strong {{ color: #273244; font-size: 15px; }}
-    .profile-tail-selection span {{ margin-left: 8px; color: #647084; font-size: 11px; }}
+    .profile-score-statistics {{ font-variant-numeric: tabular-nums; }}
+    .profile-score-stat + .profile-score-stat {{ margin-top: 16px; }}
+    .profile-score-stat-pair {{ display: grid; grid-template-columns: 1fr 1fr;
+      gap: 16px; margin-top: 16px; }}
+    .profile-score-stat-pair .profile-score-stat {{ margin-top: 0; }}
+    .profile-score-stat h3 {{ margin-bottom: 3px; }}
+    .profile-score-stat-value {{ color: #273244; font-size: 17px; }}
+    .profile-score-stat-rank {{ margin-left: 8px; color: #647084; font-size: 11px; }}
     .profile-bar-positive {{ background: #f59e0b; }}
     .profile-bar-negative {{ flex: 1; background: #1e3a8a; }}
     .profile-list {{ margin: 0; padding-left: 20px; }}
@@ -519,6 +571,35 @@ def _document(payload: str) -> str:
     const esc = value => String(value).replace(/[&<>"']/g, char => ({{
       "&":"&amp;", "<":"&lt;", ">":"&gt;", "\\\"":"&quot;", "'":"&#39;"
     }})[char]);
+    const gpt2ByteDecoder = (() => {{
+      const bytes = [];
+      for (let value = 33; value <= 126; value++) bytes.push(value);
+      for (let value = 161; value <= 172; value++) bytes.push(value);
+      for (let value = 174; value <= 255; value++) bytes.push(value);
+      const characters = bytes.map(value => String.fromCodePoint(value));
+      let extra = 0;
+      for (let value = 0; value < 256; value++) {{
+        if (!bytes.includes(value)) {{
+          bytes.push(value);
+          characters.push(String.fromCodePoint(256 + extra));
+          extra += 1;
+        }}
+      }}
+      return Object.fromEntries(characters.map((character, index) => [character, bytes[index]]));
+    }})();
+    const tokenHint = item => {{
+      const parts = [];
+      if (item.token_id !== undefined && item.token_id !== null) parts.push(`Token ID: ${{item.token_id}}`);
+      const raw = String(item.token || "");
+      if (raw) {{
+        parts.push(`Raw token: ${{JSON.stringify(raw)}}`);
+        const bytes = [...raw].map(character => gpt2ByteDecoder[character]);
+        if (bytes.every(value => value !== undefined)) {{
+          parts.push(`Bytes: ${{bytes.map(value => value.toString(16).toUpperCase().padStart(2, "0")).join(" ")}}`);
+        }}
+      }}
+      return parts.join(" · ");
+    }};
     const color = component => `hsl(${{(Number(component) * 137.508) % 360}} 66% 78%)`;
     const state = {{ selected: null, selectedToken: null, metric: data.metric, topK: Number(data.top_k || 3) }};
     const results = document.getElementById("results");
@@ -727,13 +808,13 @@ def _document(payload: str) -> str:
           esc(context.slice(index + target.length));
       }};
       const occurrenceItems = profile.occurrences.map(item =>
-        `<li><span class="profile-occurrence-token">${{esc(JSON.stringify(String(item.text || "")))}}</span>` +
+        `<li><span class="profile-occurrence-token" title="${{esc(tokenHint(item))}}">${{esc(JSON.stringify(String(item.text || "")))}}</span>` +
         `<span class="profile-context">${{highlightedContext(item)}}</span>` +
         `<span class="profile-occurrence-metrics"><span class="profile-metric" title="Signed ICA score" aria-label="Signed ICA score"><span class="profile-metric-icon">↕</span> ${{Number(item.score) >= 0 ? "+" : ""}}${{Number(item.score).toFixed(2)}}</span> · ` +
         `<span class="profile-metric" title="Component energy" aria-label="Component energy"><span class="profile-metric-icon">⚡</span> ${{percentage(item.energy)}}</span></span></li>`
       ).join("");
       const tokenItems = items => items.map((item, index) =>
-        `<span class="profile-token-chip"><span class="profile-value">#${{index + 1}}</span>` +
+        `<span class="profile-token-chip" title="${{esc(tokenHint(item))}}"><span class="profile-value">#${{index + 1}}</span>` +
         `<strong>${{esc(JSON.stringify(String(item.text || "")))}}</strong></span>`
       ).join("");
       const positionPositive = percentage(stats.positive_fraction);
@@ -743,25 +824,31 @@ def _document(payload: str) -> str:
       const excessKurtosis = Number(profile.score_statistics?.excess_kurtosis);
       const excessKurtosisRank = Number(profile.score_statistics?.excess_kurtosis_rank);
       const skewness = Number(profile.score_statistics?.skewness);
+      const logcoshDeviation = Number(profile.fitting_statistics?.absolute_deviation);
+      const logcoshRank = Number(profile.fitting_statistics?.absolute_deviation_rank);
       const kurtosisRow = Number.isFinite(excessKurtosis)
-        ? `<div class="profile-kurtosis"><h3>Excess kurtosis</h3><div><strong class="profile-kurtosis-value">${{excessKurtosis.toFixed(2)}}</strong>${{Number.isInteger(excessKurtosisRank) ? `<span class="profile-kurtosis-rank">rank #${{excessKurtosisRank}} / ${{data.component_count}}</span>` : ""}}</div></div>`
+        ? `<div class="profile-score-stat"><h3>Excess kurtosis</h3><div><strong class="profile-score-stat-value">${{excessKurtosis.toFixed(2)}}</strong>${{Number.isInteger(excessKurtosisRank) ? `<span class="profile-score-stat-rank">rank #${{excessKurtosisRank}} / ${{data.component_count}}</span>` : ""}}</div></div>`
         : "";
-      const tailSelection = profile.tail_direction && Number.isFinite(skewness)
-        ? `<div class="profile-tail-selection"><h3>Tail selection</h3><div><strong>${{esc(profile.tail_direction[0].toUpperCase() + profile.tail_direction.slice(1))}} tail</strong><span>skewness ${{skewness >= 0 ? "+" : ""}}${{skewness.toFixed(2)}}</span></div></div>`
-        : `<h3>Sign distribution</h3>
+      const logcoshRow = Number.isFinite(logcoshDeviation)
+        ? `<div class="profile-score-stat"><h3>Logcosh deviation</h3><div><strong class="profile-score-stat-value">${{logcoshDeviation.toFixed(4)}}</strong>${{Number.isInteger(logcoshRank) ? `<span class="profile-score-stat-rank">rank #${{logcoshRank}} / ${{data.component_count}}</span>` : ""}}</div></div>`
+        : "";
+      const tailShapeRows = logcoshRow
+        ? `<div class="profile-score-stat-pair">${{kurtosisRow}}${{logcoshRow}}</div>`
+        : kurtosisRow;
+      const scoreStatistics = profile.tail_direction && Number.isFinite(skewness)
+        ? `<div class="profile-score-statistics"><div class="profile-score-stat"><h3>Skewness</h3><strong class="profile-score-stat-value">${{skewness >= 0 ? "+" : ""}}${{skewness.toFixed(2)}}</strong></div>${{tailShapeRows}}</div>`
+        : `<div class="profile-score-statistics"><div><h3>Sign distribution</h3>
           <div class="profile-stat-row profile-stat-primary"><strong>Energy</strong><span>+${{energyPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{energyPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{energyNegative}}</span></div>
-          <div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+${{positionPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{positionPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{positionNegative}}</span></div>`;
+          <div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+${{positionPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{positionPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{positionNegative}}</span></div></div>${{tailShapeRows}}</div>`;
       const rLensSection = profile.r_lens_tokens?.length
         ? `<div class="profile-token-row"><h3>R-lens tokens · ${{profile.dominant_sign}}</h3><div class="profile-chips">${{tokenItems(profile.r_lens_tokens)}}</div></div>`
         : "";
       body.innerHTML = `
-        <section class="profile-section">${{tailSelection}}
-          ${{kurtosisRow}}
-        </section>
         <section class="profile-section">
           <div class="profile-token-row"><h3>Logit-lens tokens · ${{profile.dominant_sign}}</h3><div class="profile-chips">${{tokenItems(profile.logit_tokens)}}</div></div>
           ${{rLensSection}}
         </section>
+        <section class="profile-section">${{scoreStatistics}}</section>
         <section class="profile-section profile-wide"><h3>High-energy occurrences · ${{profile.dominant_sign}}</h3><ol class="profile-list profile-occurrences">${{occurrenceItems}}</ol></section>`;
     }}
 

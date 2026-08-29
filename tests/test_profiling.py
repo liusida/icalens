@@ -74,18 +74,35 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     component = loaded.component_profile(layer=1, component=0)
     assert component["dominant_sign"] == "negative"
     assert component["logit_lens"]["method"] == "final_norm_then_unembed"
+    assert component["fitting_statistics"]["contrast"] == "logcosh"
+    assert component["fitting_statistics"]["absolute_deviation_rank"] in (1, 2)
+    summaries = loaded._component_profile_summaries(1)
+    assert summaries is not None
+    summary_token = summaries[0]["logit_tokens"][0]
+    assert {"text", "token", "token_id", "logit"} <= summary_token.keys()
+    summary_occurrence = summaries[0]["occurrences"][0]
+    assert {"text", "token", "token_id", "context", "score", "energy"} <= (
+        summary_occurrence.keys()
+    )
     assert component.component == 0
     assert component.layer == 1
     rendered = component._repr_html_()
     assert rendered.startswith('<iframe title="ICA Lens Component Profile"')
     assert "Component profile — C0 · layer 1 · negative tail" in rendered
-    assert "Tail selection" in rendered
-    assert "skewness +0.00" in rendered
+    assert "Tail selection" not in rendered
+    assert "Skewness" in rendered
+    assert "+0.00" in rendered
     assert "Logit-lens tokens · negative" in rendered
+    assert "Token ID:" in rendered
+    assert "Raw token:" in rendered
+    assert "Bytes:" in rendered
     assert "Excess kurtosis" in rendered
+    assert "Logcosh deviation" in rendered
+    assert rendered.index("Logit-lens tokens") < rendered.index("Skewness")
     report = component.to_html(tmp_path / "component-profile.html")
     assert report.is_file()
     assert "High-energy occurrences · negative" in report.read_text()
+    assert 'class="profile-occurrence-token" title="Token ID:' in report.read_text()
     assert profile["format_version"] == 1
 
 

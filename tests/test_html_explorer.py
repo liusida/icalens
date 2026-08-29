@@ -3,7 +3,12 @@ from __future__ import annotations
 import torch
 
 from icalens import AnalysisResult
-from icalens.html import VSCODE_NOTEBOOK_SCALE, analysis_iframe, write_explorer_html
+from icalens.html import (
+    VSCODE_NOTEBOOK_SCALE,
+    _gpt2_byte_hex,
+    analysis_iframe,
+    write_explorer_html,
+)
 
 
 def analysis_result() -> AnalysisResult:
@@ -38,15 +43,24 @@ def analysis_result() -> AnalysisResult:
                     "excess_kurtosis": 12.5,
                     "excess_kurtosis_rank": 3,
                 },
+                "fitting_statistics": {
+                    "contrast": "logcosh",
+                    "objective": 0.31,
+                    "gaussian_objective": 0.37,
+                    "absolute_deviation": 0.06,
+                    "absolute_deviation_rank": 4,
+                },
                 "occurrences": [
                     {
-                        "text": " biology",
+                        "text": "�",
+                        "token": "Ļ",
+                        "token_id": 247,
                         "context": "interested in biology",
                         "score": -12.0,
                         "energy": 0.4,
                     }
                 ],
-                "logit_tokens": [{"text": " biology", "logit": 6.5}],
+                "logit_tokens": [{"text": "�", "token": "Ļ", "token_id": 247, "logit": 6.5}],
             }
         },
         logit_effects=(
@@ -199,8 +213,13 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert 'return lines.join("\\n")' in html
     assert '<details class="panel" id="componentProfile" hidden>' in html
     assert "Excess kurtosis" in html
+    assert "Logcosh deviation" in html
+    assert "profile-score-stat-pair" in html
     assert "Component profile — C${component} · ${direction}" in html
-    assert "Tail selection" in html
+    assert "Tail selection" not in html
+    assert "Skewness" in html
+    profile_layout = html[html.index("body.innerHTML = `") :]
+    assert profile_layout.index("Logit-lens tokens") < profile_layout.index("scoreStatistics")
     assert "High-energy occurrences · ${profile.dominant_sign}" in html
     assert "Logit-lens tokens · ${profile.dominant_sign}" in html
     assert "Suppressed logit-lens tokens" not in html
@@ -208,6 +227,9 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert 'class="profile-chips"' in html
     assert "columns: 3 360px" in html
     assert 'class="profile-list profile-occurrences"' in html
+    assert "Token ID:" in html
+    assert "Raw token:" in html
+    assert "Bytes:" in html
     assert "Show all" not in html
     assert "Show fewer" not in html
     assert "background: #f59e0b" in html
@@ -222,6 +244,7 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert '<span class="profile-metric-icon">↕</span>' in html
     assert '<span class="profile-metric-icon">⚡</span>' in html
     assert 'class="profile-occurrence-token"' in html
+    assert 'class="profile-occurrence-token" title="${esc(tokenHint(item))}"' in html
     assert 'class="profile-occurrence-metrics"' in html
     assert "font-size: 9px" in html
     assert "font-size: 13px; line-height: 1.5" in html
@@ -240,6 +263,10 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert "Number(item.logit).toFixed(3)" not in html
     assert '<details class="panel" id="localIntervention" hidden>' in html
     assert '"token_text":" hello","multiplier":1.1' in html
+
+
+def test_gpt2_byte_hint_recovers_replacement_character_source_byte() -> None:
+    assert _gpt2_byte_hex("Ļ") == "99"
 
 
 def test_analysis_result_has_notebook_representation() -> None:
