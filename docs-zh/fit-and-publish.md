@@ -382,8 +382,8 @@ tokenizer；对于对话，还会应用模型的 chat template。画像全部附
 
 ```python
 profile = lens.component_profile(layer=5, component=188)
-print(profile["dominant_sign"])
-print(profile["examples"]["negative"]["tokens"])
+print(profile["tail_direction"])
+print(profile["examples"][profile["tail_direction"]]["tokens"])
 print(profile["logit_lens"]["dominant"]["top_tokens"])
 
 # In Jupyter or Colab, display the complete profile panel:

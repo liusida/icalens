@@ -26,8 +26,6 @@ ICA 方向是一条坐标轴，并不自带语义标签。成分画像为研究�
 
 在 token 卡片中选择一个成分，然后展开 **Component profile**。
 
-![包含语料样例、Logit Lens 和 R-lens 读出的 ICA 成分画像](assets/component-profile-r-lens.png){ loading=lazy }
-
 ### 尾部选择
 
 画像使用成分分数的总体偏度，选择更长或更重的一侧尾部。正偏度选择正尾，负偏度

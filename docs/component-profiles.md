@@ -31,8 +31,6 @@ for the CLI and Python workflows.
 
 Select a component in the token cards, then expand **Component profile**.
 
-![ICA Lens component profile with corpus examples, Logit Lens, and R-lens readouts](assets/component-profile-r-lens.png){ loading=lazy }
-
 ### Tail selection
 
 The profile chooses the side with the longer or heavier tail, using population
@@ -51,8 +49,8 @@ frequencies and squared-energy fractions remain available in the profile data.
 
 Positive and negative are coordinate directions, not favorable and unfavorable
 meanings. ICA signs are arbitrary, so always use the sign recorded by the exact
-Lens you loaded. See [Scores and energy](scores-and-energy.md#profile-wide-signed-energy)
-for the definition.
+Lens you loaded. See [Scores and energy](scores-and-energy.md#profile-wide-sign-statistics)
+for the definitions.
 
 ### High-energy occurrences
 

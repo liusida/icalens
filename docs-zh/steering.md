@@ -24,19 +24,19 @@ print("Baseline:", baseline)
 
 在我们测试的模型 revision 上，贪心解码的回答以 **Quantum Computing** 开头。
 
-### 2. 检查成分及其符号
+### 2. 检查成分及其所选尾部
 
-首先读取成分画像中记录的符号：
+首先读取由画像范围内分数偏度选择的尾部：
 
 ```python
 component = lens.component_profile(layer=5, component=188)
-print(component["dominant_sign"])
+print(component["tail_direction"])
 print(component["sign_statistics"])
-print(component["examples"][component["dominant_sign"]]["tokens"][:10])
+print(component["examples"][component["tail_direction"]]["tokens"][:10])
 ```
 
-在这个产物中，`C188` 的主导符号是 `negative`。画像告诉我们哪一侧在画像语料上承载
-更多能量，并给出该侧的代表性样例；但它本身不能证明某个具体概念属于这一方向，因此
+在这个产物中，`C188` 所选的尾部是 `negative`。画像根据总体偏度选择这一侧，并给出
+该侧的代表性样例；但它本身不能证明某个具体概念属于这一方向，因此
 还需要用相互独立的探针验证解释。
 
 请用相互独立的输入分析不同概念，不要把它们写进同一个列表。对于因果语言模型，前面
@@ -168,7 +168,7 @@ edited_hidden_states = lens.restore_norm(
 
 - 引导时使用带符号的分数，不要使用能量占比。
 - 成分标签只是由示例支持的假设，不是内置含义或类别标签。
-- 先读取已保存的主导符号，再用相互独立的探针确认具体概念的方向；绝不能根据标签
+- 先读取已保存的尾部方向，再用相互独立的探针确认具体概念的方向；绝不能根据标签
   猜测符号。
 - 模型 revision、层、激活位置和预处理必须与拟合 Lens 中记录的信息一致。
 - 校准适中的目标值，并与确定性的基线比较。

@@ -51,8 +51,6 @@ result
 
 如果所选成分带有画像，可以展开 token 卡片下方的 **Component profile**。
 
-![包含语料样例、Logit Lens 和 R-lens 读出的 ICA 成分画像](assets/component-profile-r-lens.png){ loading=lazy }
-
 - 画像标题显示由分数偏度选择的尾部。正负两侧应被理解为两个不同的坐标方向。
 - 紧凑统计栏显示 **Skewness**、**Excess kurtosis**，以及用于排列成分 ID 的拟合时
   **Logcosh deviation**。

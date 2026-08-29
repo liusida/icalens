@@ -158,7 +158,9 @@ unknown and do not warn.
 | `capture text/chat` | Automatically captures missing layers and uses the shared compact view | Validate the final UI with long resumed runs |
 | `fit activations` | Validates the artifact and automatically fits missing layers | Keep this as the reference behavior |
 | `fit text/chat` | Checkpoints completed layers within one invocation | Make repeated invocations validate and skip completed layers, preferably by sharing capture/activation-fit machinery |
-| `profile` | Checkpoints each completed layer but recomputes it on rerun | Validate profile provenance, skip compatible completed profiles, and add `--force` for deliberate regeneration |
+| `profile` from cached activations | Validates profile provenance, skips compatible completed layers, and supports `--force` for deliberate compatible regeneration | Keep this as the reference behavior |
+| `profile refresh-statistics` | Validates statistics provenance and resumes from compatible refreshed layers | Keep aligned with the shared progress view |
+| `profile` from a streamed dataset | Checkpoints each completed layer but recomputes it on rerun | Validate profile provenance before replay and skip compatible completed profiles |
 | reconstruction | Durable capture resumes per dataset/layer; measurement validates `run.json` and resumes per dataset/layer/method with shared progress and logs | Validate the final UI with long resumed runs |
 | sparse probing | Validates `run.json` and resumes missing work | Keep aligned with this policy |
 | experiment figures | Refuse replacement unless `--force` is supplied | Already aligned for derived outputs |

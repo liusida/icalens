@@ -95,7 +95,7 @@ confidence score, or estimate of semantic importance. It also discards sign.
 For an all-zero score vector, ICA Lens returns an all-zero energy vector rather
 than dividing by zero.
 
-## Profile-wide signed energy
+## Profile-wide sign statistics
 
 Per-token energy answers, “Which components dominate this token?” A component
 profile asks a different question: “Across the profiling corpus, which signed

@@ -285,7 +285,6 @@ Each component entry contains:
 | `dominant_sign` | Compatibility alias for `tail_direction` |
 | `sign_statistics` | Positive/negative position fractions and positive/negative energy fractions |
 | `score_statistics` | Mean, variance, third central moment, skewness, excess kurtosis, and kurtosis rank |
-| `fitting_statistics` | Display-time logcosh objective, Gaussian baseline, absolute deviation, and deviation rank when available |
 | `examples` | Retained positive and negative high-energy occurrences and token counts |
 | `logit_lens` | Vocabulary associations for the positive, negative, and dominant writing directions |
 | `r_lens` | Optional downstream-aware vocabulary associations when a compatible R-lens was supplied |
@@ -293,6 +292,43 @@ Each component entry contains:
 Call `save()` afterward to persist all attached profiles. When processing many
 layers, use `checkpoint_component_profile()` after each layer so completed
 profiles survive an interruption.
+
+### `refresh_profile_statistics_from_activations(...)`
+
+Recompute distribution statistics and skewness-based tail selection from
+previously captured activations without rebuilding the rest of the profile:
+
+```python
+profile = lens.refresh_profile_statistics_from_activations(
+    activations,
+    layer=6,
+    rows=None,
+    batch_size=8192,
+    provenance={"source": "saved activations"},
+    device="auto",
+    progress=True,
+)
+lens.checkpoint_component_profile("icalens-output/my-icalens", layer=6)
+```
+
+| Argument | Type / default | Meaning |
+| --- | --- | --- |
+| `activations` | `torch.Tensor`, required | Two-dimensional activation matrix captured at the fitted site |
+| `layer` | `int`, required | Fitted layer with an existing component profile |
+| `rows` | `torch.Tensor \| None = None` | Optional one-dimensional `int64` row selection |
+| `batch_size` | `int = 8192` | Activation rows transformed per batch |
+| `provenance` | `dict \| None = None` | JSON-compatible provenance for the refreshed statistics |
+| `device` | `str \| torch.device \| None = "auto"` | Transform device |
+| `progress` | `bool = False` | Display refresh progress |
+| **Returns** | `dict` | Updated per-layer profile, also attached to the lens |
+
+The method streams the selected activation rows through the already fitted ICA
+transform. It updates sign fractions, squared-energy fractions, score moments,
+skewness, excess kurtosis, and `tail_direction`; it also repoints the dominant
+Logit Lens and R-lens readouts to the selected tail. Existing examples and
+per-sign readouts are preserved. No language-model capture or FastICA fitting
+is performed. Use the `icalens profile refresh-statistics` CLI for disk-backed
+activation datasets and resumable layer-by-layer refreshes.
 
 ### `add_r_lens_profile(...)`
 
@@ -346,10 +382,15 @@ component  # displays the profile panel in Jupyter or Colab
 
 Profiles are loaded lazily when reading a local or Hugging Face artifact.
 
-The returned component profile supports ordinary dictionary indexing and has the same `dominant_sign`,
-`sign_statistics`, `examples`, `logit_lens`, and optional `r_lens` fields
-described above. A final `component` expression displays the profile panel in a
-notebook; `component.to_html("component-188.html")` saves it. Its
+The returned component profile supports ordinary dictionary indexing and has the same `tail_direction`,
+`dominant_sign`, `sign_statistics`, `score_statistics`, `examples`, `logit_lens`, and optional `r_lens` fields
+described above. When the fitted layer records logcosh component objectives,
+the returned display object additionally contains `fitting_statistics`: the
+objective, Gaussian baseline, absolute deviation, and one-based deviation rank.
+This field is derived from layer fitting metadata at read time; it is not
+written into the compressed component-profile JSON. A final `component`
+expression displays the profile panel in a notebook;
+`component.to_html("component-188.html")` saves it. Its
 four sign statistics are:
 
 | Field | Meaning |

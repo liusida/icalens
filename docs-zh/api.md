@@ -204,13 +204,46 @@ profile = lens.profile_components(
 | `dominant_sign` | `tail_direction` 的兼容性别名 |
 | `sign_statistics` | 正负位置比例和正负能量比例 |
 | `score_statistics` | 均值、方差、三阶中心矩、偏度、超额峰度及峰度排名 |
-| `fitting_statistics` | 可用时在显示阶段加入的 logcosh 目标、高斯基线、绝对偏差及偏差排名 |
 | `examples` | 正负两侧保留的高能量样例和 token 计数 |
 | `logit_lens` | 正向、负向及主导写入方向对应的词表关联 |
 | `r_lens` | 提供兼容 R-lens 时加入的、近似纳入后续层影响的词表关联 |
 
 之后调用 `save()` 可以持久化所有已附加画像。处理多个层时，应在每层完成后调用
 `checkpoint_component_profile()`，使已经完成的画像在任务中断后仍能保留。
+
+### `refresh_profile_statistics_from_activations(...)`
+
+从之前捕获的激活重新计算分布统计和基于偏度的尾部选择，而无需重建画像的其余内容：
+
+```python
+profile = lens.refresh_profile_statistics_from_activations(
+    activations,
+    layer=6,
+    rows=None,
+    batch_size=8192,
+    provenance={"source": "saved activations"},
+    device="auto",
+    progress=True,
+)
+lens.checkpoint_component_profile("icalens-output/my-icalens", layer=6)
+```
+
+| 参数 | 类型／默认值 | 含义 |
+| --- | --- | --- |
+| `activations` | `torch.Tensor`，必填 | 在拟合位置捕获的二维激活矩阵 |
+| `layer` | `int`，必填 | 已有成分画像的拟合层 |
+| `rows` | `torch.Tensor \| None = None` | 可选的一维 `int64` 行选择 |
+| `batch_size` | `int = 8192` | 每批变换的激活行数 |
+| `provenance` | `dict \| None = None` | 可 JSON 序列化的刷新统计来源信息 |
+| `device` | `str \| torch.device \| None = "auto"` | 变换设备 |
+| `progress` | `bool = False` | 是否显示刷新进度 |
+| **返回** | `dict` | 更新后的逐层画像，同时附加到当前 Lens |
+
+该方法把所选激活行分批送入已经拟合的 ICA 变换，更新正负位置比例、平方能量比例、
+分数矩、偏度、超额峰度和 `tail_direction`，并把 Logit Lens 与 R-lens 的 dominant
+读出指向所选尾部。已有样例和逐符号读出会保留；不会重新捕获语言模型激活，也不会
+重新运行 FastICA。对于磁盘上的激活数据集和可逐层恢复的刷新，应使用
+`icalens profile refresh-statistics` CLI。
 
 ### `add_r_lens_profile(...)`
 
@@ -261,9 +294,12 @@ component  # 在 Jupyter 或 Colab 中显示画像面板
 
 从本地或 Hugging Face 载入产物时，画像文件会按需延迟加载。
 
-返回的成分画像仍支持普通字典索引，并包含上文所述的 `dominant_sign`、
-`sign_statistics`、`examples`、`logit_lens` 和可选的 `r_lens`。在 notebook 中，
-把 `component` 放在单元格末尾即可显示画像面板；也可调用
+返回的成分画像仍支持普通字典索引，并包含上文所述的 `tail_direction`、
+`dominant_sign`、`sign_statistics`、`score_statistics`、`examples`、`logit_lens` 和可选的
+`r_lens`。如果拟合层记录了 logcosh 成分目标，返回的显示对象还会包含
+`fitting_statistics`：目标值、高斯基线、绝对偏差和从 1 开始的偏差排名。该字段在读取时
+从层拟合元数据派生，不会写入压缩的成分画像 JSON。在 notebook 中，把 `component` 放在
+单元格末尾即可显示画像面板；也可调用
 `component.to_html("component-188.html")` 保存。四项符号统计的含义如下：
 
 | 字段 | 含义 |

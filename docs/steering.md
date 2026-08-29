@@ -26,20 +26,20 @@ print("Baseline:", baseline)
 On the tested model revision, greedy decoding starts with **Quantum
 Computing**.
 
-### 2. Inspect the component and its sign
+### 2. Inspect the component and its selected tail
 
-First read the sign recorded by the component profile:
+First read the tail selected from profile-wide score skewness:
 
 ```python
 component = lens.component_profile(layer=5, component=188)
-print(component["dominant_sign"])
+print(component["tail_direction"])
 print(component["sign_statistics"])
-print(component["examples"][component["dominant_sign"]]["tokens"][:10])
+print(component["examples"][component["tail_direction"]]["tokens"][:10])
 ```
 
-For this artifact, `C188` has dominant sign `negative`. The profile tells us
-which side carries more energy over its profiling corpus and provides examples
-from that side. It does not by itself prove that a particular concept belongs
+For this artifact, `C188` has selected tail `negative`. The profile chooses the
+side indicated by population skewness and provides examples from that side.
+It does not by itself prove that a particular concept belongs
 to that direction, so verify the interpretation with independent probes.
 
 Analyze concepts in separate inputs. Do not put them in one list: in a causal
@@ -181,7 +181,7 @@ edited_hidden_states = lens.restore_norm(
 - Use signed scores, not energy shares, for steering.
 - Treat component labels as hypotheses supported by examples, not built-in
   meanings or class labels.
-- Read the stored dominant sign, then confirm the concept-specific direction
+- Read the stored tail direction, then confirm the concept-specific direction
   with independent probes; never infer it from the label.
 - Match the model revision, layer, activation site, and preprocessing recorded
   by the fitted Lens.

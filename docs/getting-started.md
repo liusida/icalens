@@ -57,8 +57,6 @@ analysis.
 When a selected component has a profile, expand **Component profile** below the
 token cards.
 
-![ICA Lens component profile with corpus examples, Logit Lens, and R-lens readouts](assets/component-profile-r-lens.png){ loading=lazy }
-
 - The profile title shows the tail selected by score skewness. Read positive
   and negative as distinct coordinate directions.
 - The compact statistics column shows **Skewness**, **Excess kurtosis**, and
