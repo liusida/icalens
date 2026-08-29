@@ -26,6 +26,7 @@ def analysis_result() -> AnalysisResult:
         component_profiles={
             0: {
                 "dominant_sign": "negative",
+                "tail_direction": "negative",
                 "sign_statistics": {
                     "positive_fraction": 0.4,
                     "negative_fraction": 0.6,
@@ -33,6 +34,7 @@ def analysis_result() -> AnalysisResult:
                     "negative_energy_fraction": 0.8,
                 },
                 "score_statistics": {
+                    "skewness": -1.25,
                     "excess_kurtosis": 12.5,
                     "excess_kurtosis_rank": 3,
                 },
@@ -155,10 +157,7 @@ def test_analysis_iframe_scales_only_inside_vscode() -> None:
     assert "--vscode-font-family" in rendered
     assert "vscode-webview|vscode-resource" in rendered
     assert 0 < VSCODE_NOTEBOOK_SCALE <= 1
-    assert (
-        f'document.documentElement.style.zoom = &quot;{VSCODE_NOTEBOOK_SCALE}&quot;'
-        in rendered
-    )
+    assert f"document.documentElement.style.zoom = &quot;{VSCODE_NOTEBOOK_SCALE}&quot;" in rendered
     assert "main.scrollHeight * notebookScale" in rendered
     assert 'data-icalens-nested-frame="true"' in rendered
     assert "releaseWheelToNotebook" not in rendered
@@ -200,7 +199,8 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert 'return lines.join("\\n")' in html
     assert '<details class="panel" id="componentProfile" hidden>' in html
     assert "Excess kurtosis" in html
-    assert "Component profile — C${component} · dominant ${profile.dominant_sign}" in html
+    assert "Component profile — C${component} · ${direction}" in html
+    assert "Tail selection" in html
     assert "High-energy occurrences · ${profile.dominant_sign}" in html
     assert "Logit-lens tokens · ${profile.dominant_sign}" in html
     assert "Suppressed logit-lens tokens" not in html
@@ -212,7 +212,7 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert "Show fewer" not in html
     assert "background: #f59e0b" in html
     assert "background: #1e3a8a" in html
-    assert 'lines.push(`#${index + 1} ${JSON.stringify(item.text)}`)' in html
+    assert "lines.push(`#${index + 1} ${JSON.stringify(item.text)}`)" in html
     assert '<span class="profile-value">#${index + 1}</span>' in html
     assert 'profile-stat-row profile-stat-primary"><strong>Energy</strong>' in html
     assert 'profile-stat-row profile-stat-secondary"><strong>Positions</strong>' in html

@@ -281,8 +281,10 @@ Each component entry contains:
 | Field | Contents |
 | --- | --- |
 | `component` | Component ID |
-| `dominant_sign` | Side with the larger profile-wide squared-score energy fraction |
+| `tail_direction` | Tail selected by the sign of population skewness |
+| `dominant_sign` | Compatibility alias for `tail_direction` |
 | `sign_statistics` | Positive/negative position fractions and positive/negative energy fractions |
+| `score_statistics` | Mean, variance, third central moment, skewness, excess kurtosis, and kurtosis rank |
 | `examples` | Retained positive and negative high-energy occurrences and token counts |
 | `logit_lens` | Vocabulary associations for the positive, negative, and dominant writing directions |
 | `r_lens` | Optional downstream-aware vocabulary associations when a compatible R-lens was supplied |

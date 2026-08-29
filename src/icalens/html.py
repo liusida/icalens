@@ -153,6 +153,7 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
     energy_negative = percentage(statistics["negative_energy_fraction"])
     excess_kurtosis = score_statistics.get("excess_kurtosis")
     excess_kurtosis_rank = score_statistics.get("excess_kurtosis_rank")
+    skewness = score_statistics.get("skewness")
     kurtosis_html = (
         '<div class="profile-kurtosis"><h3>Excess kurtosis</h3><div>'
         f'<strong class="profile-kurtosis-value">{float(excess_kurtosis):.2f}</strong>'
@@ -164,6 +165,22 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
         + "</div></div>"
         if excess_kurtosis is not None
         else ""
+    )
+    tail_selection_html = (
+        '<div class="profile-tail-selection"><h3>Tail selection</h3><div>'
+        f"<strong>{html.escape(sign.title())} tail</strong>"
+        f"<span>skewness {float(skewness):+.2f}</span></div></div>"
+        if skewness is not None and profile.get("tail_direction") is not None
+        else (
+            "<h3>Sign distribution</h3>"
+            f'<div class="profile-stat-row profile-stat-primary"><strong>Energy</strong><span>+{energy_positive}</span><span class="profile-bar"><span class="positive" style="width:{energy_positive}"></span><span class="negative"></span></span><span>−{energy_negative}</span></div>'
+            f'<div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+{position_positive}</span><span class="profile-bar"><span class="positive" style="width:{position_positive}"></span><span class="negative"></span></span><span>−{position_negative}</span></div>'
+        )
+    )
+    direction_label = (
+        f"{html.escape(sign)} tail"
+        if profile.get("tail_direction") is not None
+        else f"dominant {html.escape(sign)}"
     )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -179,17 +196,17 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
   .profile-stat-primary .profile-bar {{height:14px}} .positive {{background:#f59e0b}} .negative {{flex:1;background:#1e3a8a}}
   .profile-kurtosis {{margin-top:16px;font-variant-numeric:tabular-nums}} .profile-kurtosis h3 {{margin-bottom:3px}}
   .profile-kurtosis-value {{color:#273244;font-size:17px}} .profile-kurtosis-rank {{margin-left:8px;color:#647084;font-size:11px}}
+  .profile-tail-selection {{font-variant-numeric:tabular-nums}} .profile-tail-selection h3 {{margin-bottom:3px}}
+  .profile-tail-selection strong {{color:#273244;font-size:15px}} .profile-tail-selection span {{margin-left:8px;color:#647084;font-size:11px}}
   .profile-chips {{display:flex;flex-wrap:wrap;gap:6px}} .profile-token-chip {{display:inline-flex;gap:6px;padding:4px 7px;border:1px solid #d5dce7;border-radius:999px;background:#f8fafc;font-size:11px}}
   .profile-value {{color:var(--muted);font-variant-numeric:tabular-nums}} ol {{margin:0;padding-left:20px;columns:3 360px;column-gap:32px}} li {{break-inside:avoid;margin:0 0 8px;overflow-wrap:anywhere}}
   .profile-occurrence-token {{color:#435066;font-size:11px}} .profile-context {{display:block;color:#3f4a5c;font-size:13px;line-height:1.5}} .profile-occurrence-metrics {{display:block;margin-top:2px;color:#929bab;font-size:9px}}
   .profile-target {{padding:0 1px;border-radius:2px;background:#fff1a8;color:#273244;text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:2px}}
   @media(max-width:700px){{.profile-grid{{grid-template-columns:1fr}}.profile-wide{{grid-column:auto}}}}
 </style></head><body>
-<details class="panel" open><summary>Component profile — C{component} · layer {int(layer)} · dominant {html.escape(sign)}</summary>
+<details class="panel" open><summary>Component profile — C{component} · layer {int(layer)} · {direction_label}</summary>
 <div class="profile-grid">
-  <section><h3>Sign distribution</h3>
-    <div class="profile-stat-row profile-stat-primary"><strong>Energy</strong><span>+{energy_positive}</span><span class="profile-bar"><span class="positive" style="width:{energy_positive}"></span><span class="negative"></span></span><span>−{energy_negative}</span></div>
-    <div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+{position_positive}</span><span class="profile-bar"><span class="positive" style="width:{position_positive}"></span><span class="negative"></span></span><span>−{position_negative}</span></div>
+  <section>{tail_selection_html}
     {kurtosis_html}
   </section>
   <section><div class="profile-token-row"><h3>Logit-lens tokens · {html.escape(sign)}</h3><div class="profile-chips">{token_chips(logit_tokens)}</div></div>{r_lens}</section>
@@ -420,6 +437,10 @@ def _document(payload: str) -> str:
     .profile-kurtosis h3 {{ margin-bottom: 3px; }}
     .profile-kurtosis-value {{ color: #273244; font-size: 17px; }}
     .profile-kurtosis-rank {{ margin-left: 8px; color: #647084; font-size: 11px; }}
+    .profile-tail-selection {{ font-variant-numeric: tabular-nums; }}
+    .profile-tail-selection h3 {{ margin-bottom: 3px; }}
+    .profile-tail-selection strong {{ color: #273244; font-size: 15px; }}
+    .profile-tail-selection span {{ margin-left: 8px; color: #647084; font-size: 11px; }}
     .profile-bar-positive {{ background: #f59e0b; }}
     .profile-bar-negative {{ flex: 1; background: #1e3a8a; }}
     .profile-list {{ margin: 0; padding-left: 20px; }}
@@ -624,7 +645,10 @@ def _document(payload: str) -> str:
     function componentTooltip(component) {{
       const profile = data.component_profiles[String(component)] || data.component_profiles[component];
       if (!profile) return `C${{component}} · no component profile available`;
-      const lines = [`C${{component}} · dominant ${{profile.dominant_sign}}`];
+      const direction = profile.tail_direction
+        ? `${{profile.tail_direction}} tail`
+        : `dominant ${{profile.dominant_sign}}`;
+      const lines = [`C${{component}} · ${{direction}}`];
       lines.push("Top occurrences:");
       profile.occurrences.slice(0, 3).forEach((item, index) => {{
         const text = String(item.text || "").replace(/\\r\\n|\\r|\\n/g, "↵");
@@ -687,7 +711,10 @@ def _document(payload: str) -> str:
         body.innerHTML = '<div class="profile-section">No component profile is available.</div>';
         return;
       }}
-      summary.textContent = `Component profile — C${{component}} · dominant ${{profile.dominant_sign}}`;
+      const direction = profile.tail_direction
+        ? `${{profile.tail_direction}} tail`
+        : `dominant ${{profile.dominant_sign}}`;
+      summary.textContent = `Component profile — C${{component}} · ${{direction}}`;
       const stats = profile.sign_statistics;
       const percentage = value => `${{(Number(value) * 100).toFixed(1)}}%`;
       const highlightedContext = item => {{
@@ -715,16 +742,20 @@ def _document(payload: str) -> str:
       const energyNegative = percentage(stats.negative_energy_fraction);
       const excessKurtosis = Number(profile.score_statistics?.excess_kurtosis);
       const excessKurtosisRank = Number(profile.score_statistics?.excess_kurtosis_rank);
+      const skewness = Number(profile.score_statistics?.skewness);
       const kurtosisRow = Number.isFinite(excessKurtosis)
         ? `<div class="profile-kurtosis"><h3>Excess kurtosis</h3><div><strong class="profile-kurtosis-value">${{excessKurtosis.toFixed(2)}}</strong>${{Number.isInteger(excessKurtosisRank) ? `<span class="profile-kurtosis-rank">rank #${{excessKurtosisRank}} / ${{data.component_count}}</span>` : ""}}</div></div>`
         : "";
+      const tailSelection = profile.tail_direction && Number.isFinite(skewness)
+        ? `<div class="profile-tail-selection"><h3>Tail selection</h3><div><strong>${{esc(profile.tail_direction[0].toUpperCase() + profile.tail_direction.slice(1))}} tail</strong><span>skewness ${{skewness >= 0 ? "+" : ""}}${{skewness.toFixed(2)}}</span></div></div>`
+        : `<h3>Sign distribution</h3>
+          <div class="profile-stat-row profile-stat-primary"><strong>Energy</strong><span>+${{energyPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{energyPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{energyNegative}}</span></div>
+          <div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+${{positionPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{positionPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{positionNegative}}</span></div>`;
       const rLensSection = profile.r_lens_tokens?.length
         ? `<div class="profile-token-row"><h3>R-lens tokens · ${{profile.dominant_sign}}</h3><div class="profile-chips">${{tokenItems(profile.r_lens_tokens)}}</div></div>`
         : "";
       body.innerHTML = `
-        <section class="profile-section"><h3>Sign distribution</h3>
-          <div class="profile-stat-row profile-stat-primary"><strong>Energy</strong><span>+${{energyPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{energyPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{energyNegative}}</span></div>
-          <div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+${{positionPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{positionPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{positionNegative}}</span></div>
+        <section class="profile-section">${{tailSelection}}
           ${{kurtosisRow}}
         </section>
         <section class="profile-section">

@@ -309,7 +309,7 @@ corpus before publishing. Profiling does not rerun FastICA or change the fitted
 center or matrices. For every component, it records:
 
 - positive and negative token-position frequencies;
-- the fraction of squared score energy on each sign and the resulting dominant sign;
+- score skewness and its selected tail, plus sign frequencies and squared-energy fractions;
 - high-energy token occurrences, token counts, scores, positions, and short contexts; and
 - top and bottom vocabulary tokens obtained by passing both writing-vector directions
   through the model's final norm and unembedding.
@@ -334,6 +334,27 @@ is checkpointed immediately under the Lens's `component_profiles/` directory,
 so no second output path is needed and completed layers survive an interruption.
 The profiling dataset and its exact revision are recorded separately from the
 fitting provenance.
+
+### Refresh tail statistics from captured activations
+
+After changing the tail-selection metric, recompute only the score moments and
+selected tail from an existing activation capture:
+
+```bash
+icalens profile refresh-statistics \
+  --lens icalens-output/icalens-qwen3.5-9b-base-pile10k \
+  --activations /mnt/external/icalens-activations/qwen3.5-9b-base-pile10k-1m \
+  --layers all \
+  --max-tokens 1000000 \
+  --activation-batch-size 8192 \
+  --device cuda
+```
+
+This streams the saved activations through the fitted ICA transforms and
+updates mean, variance, third central moment, skewness, excess kurtosis, sign
+fractions, and `tail_direction`. It does not load the language model, rerun
+FastICA, or rebuild stored occurrences and vocabulary readouts. Those existing
+positive and negative readouts are simply repointed to the newly selected tail.
 
 ### Profile a Lens fitted from your own activations
 

@@ -318,6 +318,107 @@ def profile_components_from_activations(
     )
 
 
+def refresh_profile_statistics_from_activations(
+    lens: Any,
+    activations: torch.Tensor,
+    *,
+    layer: int,
+    rows: torch.Tensor | None = None,
+    batch_size: int = 8192,
+    provenance: dict[str, Any] | None = None,
+    device: str | torch.device | None = "auto",
+    progress: bool = False,
+) -> dict[str, Any]:
+    """Refresh score statistics and tail selection without rebuilding a profile."""
+    if activations.ndim != 2:
+        raise ValueError("activations must be a two-dimensional tensor")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    if rows is not None:
+        if rows.ndim != 1 or rows.dtype != torch.int64:
+            raise ValueError("rows must be a one-dimensional int64 tensor")
+        if len(rows) and (int(rows.min()) < 0 or int(rows.max()) >= len(activations)):
+            raise ValueError("rows contains an activation index outside the dataset")
+        token_count = int(len(rows))
+    else:
+        token_count = int(len(activations))
+    if token_count == 0:
+        raise ValueError("statistics refresh requires at least one activation")
+
+    artifact = lens._get_layer(layer)
+    profile = lens._get_profile(artifact)
+    components = profile.get("components")
+    if not isinstance(components, list) or len(components) != artifact.n_components:
+        raise ValueError("existing component profile does not match the fitted layer")
+
+    n_components = artifact.n_components
+    positive_count = torch.zeros(n_components, dtype=torch.int64)
+    negative_count = torch.zeros(n_components, dtype=torch.int64)
+    positive_energy = torch.zeros(n_components, dtype=torch.float64)
+    negative_energy = torch.zeros(n_components, dtype=torch.float64)
+    total_energy = torch.zeros(n_components, dtype=torch.float64)
+    score_moments = torch.zeros((4, n_components), dtype=torch.float64)
+    target = _profiling_device(device)
+    iterator = tqdm(
+        range(0, token_count, batch_size),
+        desc="Refresh profile statistics",
+        unit="batch",
+        disable=not progress,
+    )
+    for start in iterator:
+        end = min(token_count, start + batch_size)
+        if rows is None:
+            batch = activations[start:end]
+        else:
+            batch = activations.index_select(0, rows[start:end])
+        scores = lens.transform(batch.to(target), layer=layer)
+        scores_cpu = scores.detach().to(device="cpu", dtype=torch.float64)
+        squared = scores_cpu.square()
+        positive = scores_cpu > 0
+        negative = scores_cpu < 0
+        positive_count += positive.sum(dim=0)
+        negative_count += negative.sum(dim=0)
+        positive_energy += (squared * positive).sum(dim=0)
+        negative_energy += (squared * negative).sum(dim=0)
+        total_energy += squared.sum(dim=0)
+        for power in range(1, 5):
+            score_moments[power - 1] += scores_cpu.pow(power).sum(dim=0)
+
+    statistics = _population_score_statistics(score_moments, token_count)
+    for index, component in enumerate(components):
+        sign_total = int(positive_count[index] + negative_count[index])
+        squared_total = float(total_energy[index])
+        positive_squared_fraction = (
+            float(positive_energy[index]) / squared_total if squared_total else 0.0
+        )
+        negative_squared_fraction = (
+            float(negative_energy[index]) / squared_total if squared_total else 0.0
+        )
+        tail_direction = _tail_direction(
+            float(statistics["skewness"][index]), positive_squared_fraction
+        )
+        component["dominant_sign"] = tail_direction
+        component["tail_direction"] = tail_direction
+        component["sign_statistics"] = {
+            "positive_fraction": float(positive_count[index]) / sign_total if sign_total else 0.0,
+            "negative_fraction": float(negative_count[index]) / sign_total if sign_total else 0.0,
+            "positive_energy_fraction": positive_squared_fraction,
+            "negative_energy_fraction": negative_squared_fraction,
+        }
+        component["score_statistics"] = _component_score_statistics(statistics, index)
+        for readout_name in ("logit_lens", "r_lens"):
+            readout = component.get(readout_name)
+            if isinstance(readout, dict) and tail_direction in readout:
+                readout["dominant"] = readout[tail_direction]
+
+    selection = profile.setdefault("selection", {})
+    selection["score_statistics"] = "population_mean_variance_skewness_excess_kurtosis"
+    selection["sign_selection"] = "population_skewness"
+    profile["score_statistics_provenance"] = provenance
+    artifact.profile = profile
+    return cast(dict[str, Any], profile)
+
+
 def _profiling_device(device: str | torch.device | None) -> torch.device:
     if device is None or str(device) == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -376,28 +477,13 @@ def _finish_profile(
                 progress=progress,
             )
     components = []
-    raw_mean, raw_second, raw_third, raw_fourth = score_moments / token_count
-    score_variance = raw_second - raw_mean.square()
-    fourth_central = (
-        raw_fourth
-        - 4 * raw_mean * raw_third
-        + 6 * raw_mean.square() * raw_second
-        - 3 * raw_mean.pow(4)
-    )
-    excess_kurtosis = torch.where(
-        score_variance > 0,
-        fourth_central / score_variance.square() - 3,
-        torch.zeros_like(score_variance),
-    )
-    kurtosis_order = torch.argsort(excess_kurtosis, descending=True, stable=True)
-    excess_kurtosis_rank = torch.empty_like(kurtosis_order)
-    excess_kurtosis_rank[kurtosis_order] = torch.arange(1, artifact.n_components + 1)
+    statistics = _population_score_statistics(score_moments, token_count)
     for component in range(artifact.n_components):
         sign_total = int(positive_count[component] + negative_count[component])
         squared_total = float(total_energy[component])
         pos_fraction = float(positive_energy[component]) / squared_total if squared_total else 0.0
         neg_fraction = float(negative_energy[component]) / squared_total if squared_total else 0.0
-        dominant = "positive" if pos_fraction >= neg_fraction else "negative"
+        dominant = _tail_direction(float(statistics["skewness"][component]), pos_fraction)
         component_examples: dict[str, Any] = {}
         for sign in ("positive", "negative"):
             retained = [item[2] for item in sorted(examples[component][sign], reverse=True)]
@@ -412,6 +498,7 @@ def _finish_profile(
         entry: dict[str, Any] = {
             "component": component,
             "dominant_sign": dominant,
+            "tail_direction": dominant,
             "sign_statistics": {
                 "positive_fraction": float(positive_count[component]) / sign_total
                 if sign_total
@@ -422,12 +509,7 @@ def _finish_profile(
                 "positive_energy_fraction": pos_fraction,
                 "negative_energy_fraction": neg_fraction,
             },
-            "score_statistics": {
-                "mean": float(raw_mean[component]),
-                "variance": float(score_variance[component]),
-                "excess_kurtosis": float(excess_kurtosis[component]),
-                "excess_kurtosis_rank": int(excess_kurtosis_rank[component]),
-            },
+            "score_statistics": _component_score_statistics(statistics, component),
             "examples": component_examples,
             "logit_lens": {
                 "method": "final_norm_then_unembed",
@@ -457,7 +539,8 @@ def _finish_profile(
             "logit_lens_batch_size": logit_lens_batch_size,
             "r_lens_top_k": r_lens_top_k if r_lens_result is not None else None,
             "r_lens_batch_size": r_lens_batch_size if r_lens_result is not None else None,
-            "score_statistics": "population_excess_kurtosis",
+            "score_statistics": "population_mean_variance_skewness_excess_kurtosis",
+            "sign_selection": "population_skewness",
         },
         "provenance": provenance,
         "r_lens_provenance": r_lens_provenance,
@@ -466,6 +549,62 @@ def _finish_profile(
     artifact.profile_file = f"component_profiles/{lens.activation_site}/layer_{layer:02d}.json.gz"
     artifact.profile = profile
     return profile
+
+
+def _population_score_statistics(
+    score_moments: torch.Tensor, token_count: int
+) -> dict[str, torch.Tensor]:
+    raw_mean, raw_second, raw_third, raw_fourth = score_moments / token_count
+    variance = (raw_second - raw_mean.square()).clamp_min(0)
+    third_central = raw_third - 3 * raw_mean * raw_second + 2 * raw_mean.pow(3)
+    fourth_central = (
+        raw_fourth
+        - 4 * raw_mean * raw_third
+        + 6 * raw_mean.square() * raw_second
+        - 3 * raw_mean.pow(4)
+    )
+    skewness = torch.where(
+        variance > 0,
+        third_central / variance.pow(1.5),
+        torch.zeros_like(variance),
+    )
+    excess_kurtosis = torch.where(
+        variance > 0,
+        fourth_central / variance.square() - 3,
+        torch.zeros_like(variance),
+    )
+    kurtosis_order = torch.argsort(excess_kurtosis, descending=True, stable=True)
+    excess_kurtosis_rank = torch.empty_like(kurtosis_order)
+    excess_kurtosis_rank[kurtosis_order] = torch.arange(1, len(kurtosis_order) + 1)
+    return {
+        "mean": raw_mean,
+        "variance": variance,
+        "third_central_moment": third_central,
+        "skewness": skewness,
+        "excess_kurtosis": excess_kurtosis,
+        "excess_kurtosis_rank": excess_kurtosis_rank,
+    }
+
+
+def _component_score_statistics(
+    statistics: dict[str, torch.Tensor], component: int
+) -> dict[str, Any]:
+    return {
+        "mean": float(statistics["mean"][component]),
+        "variance": float(statistics["variance"][component]),
+        "third_central_moment": float(statistics["third_central_moment"][component]),
+        "skewness": float(statistics["skewness"][component]),
+        "excess_kurtosis": float(statistics["excess_kurtosis"][component]),
+        "excess_kurtosis_rank": int(statistics["excess_kurtosis_rank"][component]),
+    }
+
+
+def _tail_direction(skewness: float, positive_squared_fraction: float) -> str:
+    if skewness > 0:
+        return "positive"
+    if skewness < 0:
+        return "negative"
+    return "positive" if positive_squared_fraction >= 0.5 else "negative"
 
 
 def _load_r_lens(

@@ -400,6 +400,14 @@ class ICALens:
 
         return add_r_lens_profile(self, layer=layer, r_lens=r_lens, **kwargs)
 
+    def refresh_profile_statistics_from_activations(
+        self, activations: torch.Tensor, *, layer: int, **kwargs: Any
+    ) -> dict[str, Any]:
+        """Refresh profile moments and tail selection from captured activations."""
+        from .profiling import refresh_profile_statistics_from_activations
+
+        return refresh_profile_statistics_from_activations(self, activations, layer=layer, **kwargs)
+
     def component_profile(self, *, layer: int, component: int) -> ComponentProfile:
         """Return a dictionary-compatible, notebook-displayable component profile."""
         from .analysis import ComponentProfile
@@ -649,6 +657,7 @@ class ICALens:
             sign = str(component["dominant_sign"])
             summaries[int(component["component"])] = {
                 "dominant_sign": sign,
+                "tail_direction": component.get("tail_direction"),
                 "sign_statistics": component["sign_statistics"],
                 "score_statistics": component.get("score_statistics"),
                 "occurrences": [

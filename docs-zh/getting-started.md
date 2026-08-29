@@ -53,8 +53,8 @@ result
 
 ![包含语料样例、Logit Lens 和 R-lens 读出的 ICA 成分画像](assets/component-profile-r-lens.png){ loading=lazy }
 
-- **Sign distribution** 显示该成分的能量通常集中在正侧还是负侧。正负两侧应被理解为
-  两个不同的方向。
+- **Tail selection** 显示由成分分数偏度选择的尾部。正负两侧应被理解为两个不同的
+  坐标方向。
 - **High-energy occurrences** 给出该方向特别强的代表性位置。结合高亮 token 及其上下文，
   可以推测成分可能表达的含义。
 - **Logit-lens tokens** 显示该成分写入方向会提升的词表 token。这些 token 只是辅助

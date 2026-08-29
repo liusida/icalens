@@ -26,10 +26,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "operation",
         nargs="?",
-        choices=("add-r-lens",),
+        choices=("add-r-lens", "refresh-statistics"),
         help=(
             "Optional profile operation. Use 'add-r-lens' to enrich existing "
-            "profiles without replaying the dataset."
+            "profiles, or 'refresh-statistics' to recompute moments and tail "
+            "selection from captured activations."
         ),
     )
     parser.add_argument("--lens", required=True, help="Local lens directory or Hub repository.")
@@ -114,10 +115,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                 allow_base_model_transfer=args.allow_base_model_transfer,
             )
             saved_to = lens.checkpoint_component_profile(output, layer=layer)
-            log(
-                f"Added R-lens readouts to layer {layer}: {len(profile['components'])} components."
-            )
+            log(f"Added R-lens readouts to layer {layer}: {len(profile['components'])} components.")
             log(f"Checkpointed profiled lens to {saved_to}")
+        return
+    if args.operation == "refresh-statistics":
+        if args.activations is None or args.dataset is not None:
+            raise ValueError("'refresh-statistics' requires --activations and no --dataset")
+        _refresh_cached_statistics(args, lens, layers, output)
         return
     if (args.dataset is None) == (args.activations is None):
         raise ValueError("full profiling requires exactly one of --dataset or --activations")
@@ -239,6 +243,47 @@ def _profile_cached_activations(
         log(f"Checkpointed profiled lens to {saved_to}")
 
 
+def _refresh_cached_statistics(
+    args: argparse.Namespace, lens: ICALens, layers: tuple[int, ...], output: Path
+) -> None:
+    if not (output / "icalens.json").is_file():
+        raise ValueError("'refresh-statistics' requires an existing local lens artifact")
+    dataset = ActivationDataset(args.activations)
+    _validate_cached_dataset(dataset, lens, layers)
+    if args.max_tokens <= 0:
+        raise ValueError("--max-tokens must be positive")
+    count = min(args.max_tokens, dataset.sample_count)
+    rows = None
+    sampling_policy = "all" if count == dataset.sample_count else "uniform_without_replacement"
+    if count != dataset.sample_count:
+        generator = torch.Generator(device="cpu").manual_seed(args.sample_seed)
+        rows = torch.randperm(dataset.sample_count, generator=generator)[:count].sort().values
+    provenance = dataset.provenance
+    provenance["statistics_sampling"] = {
+        "policy": sampling_policy,
+        "seed": args.sample_seed if rows is not None else None,
+        "selected_tokens": count,
+        "population_tokens": dataset.sample_count,
+    }
+    for layer in layers:
+        log(f"Refreshing score statistics for layer {layer} from cached activations...")
+        profile = lens.refresh_profile_statistics_from_activations(
+            dataset.layer(layer),
+            layer=layer,
+            rows=rows,
+            batch_size=args.activation_batch_size,
+            provenance=provenance,
+            device=args.device,
+            progress=not args.no_progress,
+        )
+        saved_to = lens.checkpoint_component_profile(output, layer=layer)
+        log(
+            f"Refreshed layer {layer}: {len(profile['components'])} components "
+            f"from {count} activation rows."
+        )
+        log(f"Checkpointed profiled lens to {saved_to}")
+
+
 def _pending_profile_layers(
     args: argparse.Namespace,
     lens: ICALens,
@@ -256,7 +301,8 @@ def _pending_profile_layers(
         "minimum_component_energy": args.min_energy,
         "logit_lens_top_k": args.logit_lens_top_k,
         "logit_lens_batch_size": args.logit_lens_batch_size,
-        "score_statistics": "population_excess_kurtosis",
+        "score_statistics": "population_mean_variance_skewness_excess_kurtosis",
+        "sign_selection": "population_skewness",
     }
     expected_r_lens_sha = _sha256(args.r_lens) if args.r_lens is not None else None
     pending: list[int] = []

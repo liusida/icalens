@@ -33,13 +33,18 @@ Select a component in the token cards, then expand **Component profile**.
 
 ![ICA Lens component profile with corpus examples, Logit Lens, and R-lens readouts](assets/component-profile-r-lens.png){ loading=lazy }
 
-### Sign distribution
+### Tail selection
 
-The **Energy** bar shows how the component's squared score magnitude is split
-between its positive and negative sides across the profiling corpus. The larger
-side is called the dominant sign. **Positions** reports how frequently each
-sign occurs; it can differ from energy because a few large scores can outweigh
-many small ones.
+The profile chooses the side with the longer or heavier tail, using population
+skewness of the component's scores. Positive skewness selects the positive
+tail; negative skewness selects the negative tail. This is saved as
+`tail_direction` (and, for compatibility, `dominant_sign`). Exact zero
+skewness falls back to the larger squared-score energy side.
+
+Skewness is the standardized third central moment, so it measures asymmetry
+around the component's mean. The panel intentionally shows only the selected
+tail and skewness. Full sign frequencies and squared-energy fractions remain
+available in the profile data.
 
 Positive and negative are coordinate directions, not favorable and unfavorable
 meanings. ICA signs are arbitrary, so always use the sign recorded by the exact
@@ -84,7 +89,7 @@ when the artifact has been enriched with a compatible R-lens.
 
 A useful reading sequence is:
 
-1. Start with the dominant sign and high-energy occurrences.
+1. Start with the selected tail and high-energy occurrences.
 2. Look for a pattern that repeats across different contexts.
 3. Compare the Logit Lens and, when available, R-lens tokens with that
    interpretation.

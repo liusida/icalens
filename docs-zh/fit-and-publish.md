@@ -289,7 +289,7 @@ icalens plot fitting-summary \
 它会为每个成分记录：
 
 - 正负 token 位置所占比例；
-- 平方分数能量在正负两侧的比例，以及由此得到的主导符号；
+- 分数偏度及其选择的尾部，以及正负频率和平方能量比例；
 - 高能量 token 的文本、计数、分数、位置和短上下文；
 - 写入方向经过最终归一化层和反嵌入后得到的高低排名词元。
 
@@ -310,6 +310,24 @@ icalens profile \
 `--max-tokens` 是每一层的画像 token 预算。每完成一层，其画像都会立即写入 Lens 的
 `component_profiles/` 目录，因此不需要指定第二个输出路径；即使任务中断，已完成层
 也会保留下来。画像数据集及其精确 revision 与拟合来源分开记录。
+
+### 从已捕获激活刷新尾部统计
+
+修改尾部选择指标后，可以只从已有激活捕获重新计算分数矩和所选尾部：
+
+```bash
+icalens profile refresh-statistics \
+  --lens icalens-output/icalens-qwen3.5-9b-base-pile10k \
+  --activations /mnt/external/icalens-activations/qwen3.5-9b-base-pile10k-1m \
+  --layers all \
+  --max-tokens 1000000 \
+  --activation-batch-size 8192 \
+  --device cuda
+```
+
+该命令把已保存激活流式送入拟合好的 ICA 变换，更新均值、方差、三阶中心矩、偏度、
+超额峰度、符号比例和 `tail_direction`。它不会加载语言模型、重新运行 FastICA，也不会
+重建已保存的样例和词表读出；现有正负读出只会重新指向新选择的尾部。
 
 ### 为使用自备激活拟合的 Lens 建立画像
 

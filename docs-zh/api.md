@@ -200,8 +200,10 @@ profile = lens.profile_components(
 | 字段 | 内容 |
 | --- | --- |
 | `component` | 成分编号 |
-| `dominant_sign` | 在画像范围内具有较大分数平方能量比例的一侧 |
+| `tail_direction` | 由总体偏度符号选择的尾部方向 |
+| `dominant_sign` | `tail_direction` 的兼容性别名 |
 | `sign_statistics` | 正负位置比例和正负能量比例 |
+| `score_statistics` | 均值、方差、三阶中心矩、偏度、超额峰度及峰度排名 |
 | `examples` | 正负两侧保留的高能量样例和 token 计数 |
 | `logit_lens` | 正向、负向及主导写入方向对应的词表关联 |
 | `r_lens` | 提供兼容 R-lens 时加入的、近似纳入后续层影响的词表关联 |

@@ -59,8 +59,8 @@ token cards.
 
 ![ICA Lens component profile with corpus examples, Logit Lens, and R-lens readouts](assets/component-profile-r-lens.png){ loading=lazy }
 
-- **Sign distribution** shows whether the component's energy usually appears
-  on its positive or negative side. Read the two sides as distinct directions.
+- **Tail selection** shows the side selected by the component score's skewness.
+  Read positive and negative as distinct coordinate directions.
 - **High-energy occurrences** shows representative places where that side was
   especially strong. Read the highlighted token together with its surrounding
   text to infer a possible meaning.
