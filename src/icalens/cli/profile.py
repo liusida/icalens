@@ -265,7 +265,18 @@ def _refresh_cached_statistics(
         "selected_tokens": count,
         "population_tokens": dataset.sample_count,
     }
-    for layer in layers:
+    pending, completed = _pending_statistics_layers(
+        args,
+        lens,
+        layers,
+        provenance=provenance,
+    )
+    completed_text = ",".join(map(str, completed)) if completed else "none"
+    log(f"Durable completed layers: {completed_text}")
+    if not pending:
+        log("All requested profile statistics are already complete and compatible.")
+        return
+    for layer in pending:
         log(f"Refreshing score statistics for layer {layer} from cached activations...")
         profile = lens.refresh_profile_statistics_from_activations(
             dataset.layer(layer),
@@ -282,6 +293,47 @@ def _refresh_cached_statistics(
             f"from {count} activation rows."
         )
         log(f"Checkpointed profiled lens to {saved_to}")
+
+
+def _pending_statistics_layers(
+    args: argparse.Namespace,
+    lens: ICALens,
+    layers: tuple[int, ...],
+    *,
+    provenance: dict[str, Any],
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Validate refreshed statistics and split requested layers into pending/completed."""
+    pending: list[int] = []
+    completed: list[int] = []
+    incompatible: list[str] = []
+    for layer in layers:
+        artifact = lens._layers[layer]
+        if artifact.profile_file is None:
+            raise ValueError(
+                f"layer {layer} has no component profile to refresh; run full profiling first"
+            )
+        profile = lens._get_profile(artifact)
+        selection = profile.get("selection", {})
+        already_refreshed = (
+            selection.get("score_statistics") == "population_mean_variance_skewness_excess_kurtosis"
+            and selection.get("sign_selection") == "population_skewness"
+        )
+        if not already_refreshed:
+            pending.append(layer)
+        elif profile.get("score_statistics_provenance") == provenance:
+            if args.force:
+                pending.append(layer)
+            else:
+                completed.append(layer)
+        else:
+            incompatible.append(f"layer {layer}: statistics provenance differs")
+    if incompatible:
+        raise ValueError(
+            "existing refreshed profile statistics are incompatible with this request ("
+            + "; ".join(incompatible)
+            + "); use a separate compatible artifact for a different statistics configuration"
+        )
+    return tuple(pending), tuple(completed)
 
 
 def _pending_profile_layers(

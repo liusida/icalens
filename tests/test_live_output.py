@@ -72,6 +72,56 @@ def test_capture_progress_reads_completed_layer_status(tmp_path: Path) -> None:
     assert completed == {0}
 
 
+def test_profile_suboperations_do_not_treat_existing_profiles_as_completed(
+    tmp_path: Path,
+) -> None:
+    lens = tmp_path / "lens"
+    lens.mkdir()
+    (lens / "icalens.json").write_text(
+        json.dumps(
+            {
+                "layers": {
+                    "0": {"component_profile": "profiles/layer0.json.gz"},
+                    "1": {"component_profile": "profiles/layer1.json.gz"},
+                }
+            }
+        )
+    )
+
+    for operation in ("refresh-statistics", "add-r-lens"):
+        requested, completed = _layer_progress(
+            [operation, "--lens", str(lens), "--layers", "all"],
+            title="ICA Lens · component profiling",
+        )
+
+        assert requested == (0, 1)
+        assert completed == set()
+
+
+def test_refresh_messages_update_phase_and_durable_layer_progress(tmp_path: Path) -> None:
+    display = _OperationDisplay(
+        title="ICA Lens · component profiling",
+        detail_path=tmp_path / "run.log",
+        command="icalens profile refresh-statistics",
+        source_dirty=False,
+        requested_layers=(0, 1, 2),
+        completed_layers=set(),
+    )
+
+    display._observe("Durable completed layers: 0")
+    assert display.completed_layers == {0}
+    assert display.initial_completed == 1
+
+    display._observe("Refreshing score statistics for layer 1 from cached activations...")
+    assert display.phase == "Refreshing statistics"
+    assert display.current_layer == 1
+
+    display._observe("Refreshed layer 1: 4096 components from 1000000 activation rows.")
+    assert display.completed_layers == {0, 1}
+    assert display.phase == "Checkpointing"
+    display.detail.close()
+
+
 def test_log_header_records_portable_command() -> None:
     command = _portable_command(
         "ICA Lens · component profiling",

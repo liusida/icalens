@@ -30,9 +30,13 @@ _FIT = re.compile(r"Fitting layer (\d+)")
 _FIT_DONE = re.compile(r"Checkpointed layer (\d+)")
 _PROFILE = re.compile(r"Profiling layer (\d+)")
 _PROFILE_DONE = re.compile(r"Profiled layer (\d+)")
+_PROFILE_REFRESH = re.compile(r"Refreshing score statistics for layer (\d+)")
+_PROFILE_REFRESH_DONE = re.compile(r"Refreshed layer (\d+)")
+_R_LENS_DONE = re.compile(r"Added R-lens readouts to layer (\d+)")
 _CAPTURE = re.compile(r"Capturing layers ([0-9,]+)")
 _CAPTURE_DONE = re.compile(r"Checkpointed activation layer (\d+)")
 _REQUESTED = re.compile(r"Requested layers: ([0-9,]+)")
+_DURABLE_COMPLETED = re.compile(r"Durable completed layers: ([0-9,]+|none)")
 
 
 class _CapturedOutput(io.TextIOBase):
@@ -139,17 +143,28 @@ class _OperationDisplay:
 
     def _observe(self, line: str) -> None:
         requested = _REQUESTED.search(line)
+        durable = _DURABLE_COMPLETED.search(line)
         fit = _FIT.search(line)
         profile = _PROFILE.search(line)
+        refresh = _PROFILE_REFRESH.search(line)
         capture = _CAPTURE.search(line)
         completed = (
-            _FIT_DONE.search(line) or _PROFILE_DONE.search(line) or _CAPTURE_DONE.search(line)
+            _FIT_DONE.search(line)
+            or _PROFILE_DONE.search(line)
+            or _PROFILE_REFRESH_DONE.search(line)
+            or _R_LENS_DONE.search(line)
+            or _CAPTURE_DONE.search(line)
         )
         if requested:
-            self.requested_layers = tuple(
-                int(value) for value in requested.group(1).split(",")
-            )
+            self.requested_layers = tuple(int(value) for value in requested.group(1).split(","))
             self.layer_total = len(self.requested_layers)
+        if durable:
+            values = durable.group(1)
+            discovered = set() if values == "none" else {int(value) for value in values.split(",")}
+            if self.requested_layers is not None:
+                discovered &= set(self.requested_layers)
+            self.completed_layers = discovered
+            self.initial_completed = len(discovered)
         if fit:
             self.current_layer = int(fit.group(1))
             self.current_layers = (self.current_layer,)
@@ -158,6 +173,10 @@ class _OperationDisplay:
             self.current_layer = int(profile.group(1))
             self.current_layers = (self.current_layer,)
             self.phase = "Profiling"
+        elif refresh:
+            self.current_layer = int(refresh.group(1))
+            self.current_layers = (self.current_layer,)
+            self.phase = "Refreshing statistics"
         elif capture:
             self.current_layers = tuple(int(value) for value in capture.group(1).split(","))
             self.current_layer = self.current_layers[0] if len(self.current_layers) == 1 else None
@@ -236,9 +255,7 @@ class _OperationDisplay:
             )
             header.add_row(Text(f"{phase}{layer_text}", style="bold"), Text(""))
         else:
-            header.add_row(
-                Text(f"{phase}{layer_text}", style="bold"), Text(timing, style="cyan")
-            )
+            header.add_row(Text(f"{phase}{layer_text}", style="bold"), Text(timing, style="cyan"))
         tail = Text("\n".join(recent) if recent else "Waiting for output…", style="dim")
         command = Panel(
             Text(self.command, style="cyan"),
@@ -381,15 +398,18 @@ def _run_footer(error: Any) -> str:
     return f"\n# ICA Lens run ended\nended_at: {ended}\nstatus: {status}\n"
 
 
-def _layer_progress(
-    args: list[str], *, title: str
-) -> tuple[tuple[int, ...] | None, set[int]]:
+def _layer_progress(args: list[str], *, title: str) -> tuple[tuple[int, ...] | None, set[int]]:
     requested = _requested_layers(args)
     if requested is None:
         return None, set()
     # A forced run deliberately replaces the requested durable units, so its
     # progress begins at zero even if prior artifacts are present.
-    completed = set() if "--force" in args else _completed_layers(args, title=title)
+    profile_suboperation = any(
+        operation in args for operation in ("add-r-lens", "refresh-statistics")
+    )
+    completed = (
+        set() if "--force" in args or profile_suboperation else _completed_layers(args, title=title)
+    )
     return requested, set(requested) & completed
 
 

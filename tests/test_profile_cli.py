@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+from types import SimpleNamespace
 
 import pytest
 
-from icalens.cli.profile import _replay_dataset_source, parse_args
+from icalens.cli.profile import (
+    _pending_statistics_layers,
+    _replay_dataset_source,
+    parse_args,
+)
 
 
 def test_parses_statistics_refresh_operation() -> None:
@@ -44,3 +49,54 @@ def test_replay_dataset_source_rejects_changed_local_file(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="checksum differs"):
         _replay_dataset_source({"path": str(dataset), "sha256": "0" * 64, "split": "train"})
+
+
+def test_statistics_refresh_resumes_only_matching_durable_layers() -> None:
+    provenance = {"activation_dataset": {"manifest_sha256": "abc"}}
+    legacy = {
+        "selection": {"score_statistics": "population_excess_kurtosis"},
+    }
+    refreshed = {
+        "selection": {
+            "score_statistics": "population_mean_variance_skewness_excess_kurtosis",
+            "sign_selection": "population_skewness",
+        },
+        "score_statistics_provenance": provenance,
+    }
+    lens = SimpleNamespace(
+        _layers={
+            0: SimpleNamespace(profile_file="profiles/0.json.gz"),
+            1: SimpleNamespace(profile_file="profiles/1.json.gz"),
+        },
+        _get_profile=lambda artifact: legacy if artifact is lens._layers[0] else refreshed,
+    )
+
+    pending, completed = _pending_statistics_layers(
+        SimpleNamespace(force=False),
+        lens,
+        (0, 1),
+        provenance=provenance,
+    )
+
+    assert pending == (0,)
+    assert completed == (1,)
+
+
+def test_statistics_refresh_rejects_mixed_provenance_before_work() -> None:
+    profile = {
+        "selection": {
+            "score_statistics": "population_mean_variance_skewness_excess_kurtosis",
+            "sign_selection": "population_skewness",
+        },
+        "score_statistics_provenance": {"activation_dataset": "old"},
+    }
+    artifact = SimpleNamespace(profile_file="profiles/0.json.gz")
+    lens = SimpleNamespace(_layers={0: artifact}, _get_profile=lambda value: profile)
+
+    with pytest.raises(ValueError, match="statistics provenance differs"):
+        _pending_statistics_layers(
+            SimpleNamespace(force=False),
+            lens,
+            (0,),
+            provenance={"activation_dataset": "new"},
+        )
