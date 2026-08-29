@@ -214,7 +214,11 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert '<details class="panel" id="componentProfile" hidden>' in html
     assert "Excess kurtosis" in html
     assert "Logcosh deviation" in html
-    assert "profile-score-stat-pair" in html
+    assert "profile-score-statistics { display: flex; flex-direction: column; gap: 12px" in html
+    assert ".profile-score-stat-value { color: #273244; font-size: 15px; }" in html
+    assert ".profile-score-stat-rank { margin-left: 6px; color: #647084; font-size: 10px; }" in html
+    assert "profile-score-stat-pair" not in html
+    assert "grid-template-columns: minmax(0, 1fr) 150px" in html
     assert "Component profile — C${component} · ${direction}" in html
     assert "Tail selection" not in html
     assert "Skewness" in html

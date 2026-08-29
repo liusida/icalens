@@ -20,7 +20,7 @@ result
 可以在 [ICA Lens 模型合集](https://huggingface.co/collections/sida/ica-lens)中查看其他
 已发布的 Lens。
 
-![在 Jupyter 中进行 ICA Lens 逐 token 分析](https://icalens.readthedocs.io/en/latest/assets/text-analysis-notebook.png){ loading=lazy }
+![在 Jupyter 中进行 ICA Lens 逐 token 分析](https://icalens.readthedocs.io/en/latest/assets/text-analysis-notebook.png)
 
 *在 Jupyter 中交互式查看每个 token 的成分。*
 

@@ -22,7 +22,7 @@ result
 Browse the [ICA Lens model collection](https://huggingface.co/collections/sida/ica-lens)
 for other published lenses.
 
-![ICA Lens interactive token-level analysis in Jupyter](assets/text-analysis-notebook.png){ loading=lazy }
+![ICA Lens interactive token-level analysis in Jupyter](assets/text-analysis-notebook.png)
 
 *Interactive token-level component analysis in Jupyter.*
 

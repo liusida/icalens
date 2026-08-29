@@ -31,37 +31,56 @@ for the CLI and Python workflows.
 
 Select a component in the token cards, then expand **Component profile**.
 
+![ICA Lens component profile with corpus examples, Logit Lens, and R-lens readouts](assets/component-profile-r-lens.png)
+
 ### Tail selection
 
-The profile chooses the side with the longer or heavier tail, using population
-skewness of the component's scores. Positive skewness selects the positive
-tail; negative skewness selects the negative tail. This is saved as
-`tail_direction` (and, for compatibility, `dominant_sign`). Exact zero
-skewness falls back to the larger squared-score energy side.
+ICA Lens uses the sign of skewness to select which tail to show: positive
+skewness selects the positive tail, and negative skewness selects the negative
+tail. Exact zero falls back to the side with greater squared-score energy. The
+selection is stored as `tail_direction` (and as `dominant_sign` for
+compatibility).
 
-Skewness is the standardized third central moment, so it measures asymmetry
-around the component's mean. The selected tail appears once in the profile
-title. A compact statistics column beside the Logit Lens and R-lens shows
-skewness, excess kurtosis, and the fitting-time logcosh deviation. The latter
-is the absolute distance from the Gaussian contrast baseline used to order
-component IDs; its rank can differ from the excess-kurtosis rank. Full sign
-frequencies and squared-energy fractions remain available in the profile data.
+### Statistics
 
-Positive and negative are coordinate directions, not favorable and unfavorable
-meanings. ICA signs are arbitrary, so always use the sign recorded by the exact
-Lens you loaded. See [Scores and energy](scores-and-energy.md#profile-wide-sign-statistics)
-for the definitions.
+For component scores \(x_1,\ldots,x_N\), let \(\mu\) be their population mean
+and \(\sigma\) their population standard deviation. The statistics shown in
+the profile are:
 
-### High-energy occurrences
+- **Skewness** measures left-right asymmetry. Its sign indicates the more
+  pronounced tail and therefore determines the selected sign:
 
-These are corpus positions where the selected component accounts for a large
-share of that token's score energy. The highlighted token is the selected
-position; the lighter text provides its context.
+  $$
+  \operatorname{skewness}(x)
+  = \frac{1}{N}\sum_{i=1}^{N}\left(\frac{x_i-\mu}{\sigma}\right)^3.
+  $$
 
-Read several occurrences together. Repeated words, topics, syntactic roles, or
-discourse patterns can suggest a working label. The list contains selected
-high-energy examples, not every activation of the component and not a frequency
-table for the whole dataset.
+- **Excess kurtosis** measures how strongly the distribution produces extreme
+  scores, without distinguishing positive from negative. A Gaussian
+  distribution has excess kurtosis zero:
+
+  $$
+  \operatorname{excess\ kurtosis}(x)
+  = \frac{1}{N}\sum_{i=1}^{N}\left(\frac{x_i-\mu}{\sigma}\right)^4-3.
+  $$
+
+- **Logcosh deviation** is the non-Gaussianity measure used when FastICA orders
+  the component IDs. For the fitted ICA coordinates \(y_i\), it is
+
+  $$
+  \left|
+  \frac{1}{N}\sum_{i=1}^{N}\log\!\cosh(y_i)
+  - \mathbb{E}_{Z\sim\mathcal{N}(0,1)}[\log\!\cosh(Z)]
+  \right|.
+  $$
+
+  The standard-normal baseline is approximately \(0.374567\). Larger
+  deviations are ordered first. Because this contrast is different from
+  excess kurtosis, their ranks need not match.
+
+Skewness and excess kurtosis are computed from the profiling scores; logcosh
+deviation was computed from the fitting data. Full sign frequencies and
+squared-energy fractions remain available in the profile data.
 
 ### Logit-lens tokens
 
@@ -85,6 +104,17 @@ blocks.
 They are still diagnostic associations: the map is averaged over a fitting
 corpus and is not an exact input-specific causal effect. This row appears only
 when the artifact has been enriched with a compatible R-lens.
+
+### High-energy occurrences
+
+These are corpus positions where the selected component accounts for a large
+share of that token's score energy. The highlighted token is the selected
+position; the lighter text provides its context.
+
+Read several occurrences together. Repeated words, topics, syntactic roles, or
+discourse patterns can suggest a working label. The list contains selected
+high-energy examples, not every activation of the component and not a frequency
+table for the whole dataset.
 
 ## Form a working label
 

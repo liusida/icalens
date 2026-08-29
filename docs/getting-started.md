@@ -43,7 +43,7 @@ CPU. You can override it with `device="cuda"` or `device="cpu"`.
 In Jupyter or Colab, the result is displayed as an interactive token-level
 analysis.
 
-![ICA Lens interactive token-level analysis in Jupyter](assets/text-analysis-notebook.png){ loading=lazy }
+![ICA Lens interactive token-level analysis in Jupyter](assets/text-analysis-notebook.png)
 
 - Each card represents one token at the selected model layer.
 - `C37`, for example, identifies ICA component 37.
@@ -56,6 +56,8 @@ analysis.
 
 When a selected component has a profile, expand **Component profile** below the
 token cards.
+
+![ICA Lens component profile with corpus examples, Logit Lens, and R-lens readouts](assets/component-profile-r-lens.png)
 
 - The profile title shows the tail selected by score skewness. Read positive
   and negative as distinct coordinate directions.
@@ -110,7 +112,7 @@ result = lens.analyze(
 result
 ```
 
-![Message-grouped ICA Lens analysis in Jupyter](assets/conversation-analysis-notebook.png){ loading=lazy }
+![Message-grouped ICA Lens analysis in Jupyter](assets/conversation-analysis-notebook.png)
 
 The tokenizer's chat template is applied automatically. By default, the
 analysis includes content, role markers, separators, and other template tokens.

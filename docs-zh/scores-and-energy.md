@@ -83,45 +83,6 @@ print(energy.sum(dim=-1))    # approximately 1 for each nonzero row
 
 如果分数向量全部为零，ICA Lens 会返回全零的能量向量，而不会进行除零运算。
 
-## 画像范围内的符号统计
-
-逐 token 能量回答的是“哪些成分主导了这个 token？”；成分画像回答的是另一个问题：
-“在整个画像语料中，这个成分的分数平方主要集中在哪个符号方向？”
-
-对于成分 (j)，以 (i) 表示 token 位置，画像会记录：
-
-\[
-E_j^+ =
-\frac{\sum_i s_{ij}^2\,\mathbf{1}[s_{ij} > 0]}
-     {\sum_i s_{ij}^2},
-\qquad
-E_j^- =
-\frac{\sum_i s_{ij}^2\,\mathbf{1}[s_{ij} < 0]}
-     {\sum_i s_{ij}^2}
-\]
-
-只要该成分存在非零分数，就有 (E_j^+ + E_j^- = 1)。这些比例会作为描述性统计保留。
-例如，负侧能量为 68%，表示在整个画像语料中，该成分
-分数平方总量的 68% 出现在分数为负的 token 位置上。
-
-这与正负两侧各自包含多少 token 位置并不相同。某个成分可能在大多数位置上为正，
-但少数负分数的绝对值更大，因此负侧平方能量更多。画像所选尾部改由总体偏度决定。
-偏度是标准化三阶中心矩，其符号表示分布相对于中心向哪一侧延伸得更远。偏度恰好为零
-时，回退到平方能量比例较大的一侧。
-
-```python
-profile = lens.component_profile(layer=6, component=37)
-statistics = profile["sign_statistics"]
-
-print(statistics["positive_energy_fraction"])
-print(statistics["negative_energy_fraction"])
-print(profile["score_statistics"]["skewness"])
-print(profile["tail_direction"])
-```
-
-尾部方向描述的是这个已拟合成分在所记录画像语料上的表现，并不表示语义上的正面或
-负面判断。将 ICA 成分整体翻转符号，或更换画像数据分布，都可能改变这里显示的方向。
-
 ## 使用分数还是能量？
 
 | 问题 | 使用 |

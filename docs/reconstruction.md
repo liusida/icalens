@@ -3,17 +3,13 @@
 ICA Lens can map component scores back into the activation coordinates used by
 the fitted lens:
 
-!!! warning
-    `inverse_transform()` requires signed ICA scores, such as
-    `result.scores`. Do not pass `result.energy`.
-
-    Energy shares discard each component's sign and the score vector's overall
-    magnitude. Many different score vectors therefore have the same energy
-    shares, so energy cannot be inverted into a unique activation.
-
 ```python
 normalized_reconstruction = lens.inverse_transform(result.scores, layer=6)
 ```
+
+!!! note
+    `inverse_transform()` requires signed scores (`result.scores`), not energy
+    shares (`result.energy`).
 
 If \(A\) is the fitted writing matrix and \(\mu\) is the fitted center, the
 inverse mapping is:
@@ -232,3 +228,10 @@ close to the mean and therefore has a near-zero baseline error. The aggregate
 ratio is generally more stable for reporting a text, model, or layer result.
 The example assumes the lens uses its default row normalization; for
 `row_normalize=False`, use `result.activations` as the target instead.
+
+## Why energy cannot be reconstructed
+
+Energy shares discard each component's sign and the score vector's overall
+magnitude. Many different score vectors therefore have the same energy shares,
+so `result.energy` cannot be inverted into a unique activation. Reconstruction
+must start from signed ICA scores such as `result.scores`.

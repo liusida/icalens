@@ -2,16 +2,13 @@
 
 ICA Lens 可以把成分分数映射回拟合时使用的激活坐标：
 
-!!! warning
-    `inverse_transform()` 的输入必须是带符号的 ICA 分数，例如
-    `result.scores`。不要传入 `result.energy`。
-
-    能量占比丢失了每个成分的符号，也丢失了分数向量的整体幅度。因此，许多不同的
-    分数向量会得到相同的能量占比，无法由能量唯一地还原激活。
-
 ```python
 normalized_reconstruction = lens.inverse_transform(result.scores, layer=6)
 ```
+
+!!! note
+    `inverse_transform()` 必须使用带符号的分数（`result.scores`），不能使用能量占比
+    （`result.energy`）。
 
 设 \(A\) 为拟合得到的写入矩阵，\(\mu\) 为拟合中心，则逆变换为：
 
@@ -207,3 +204,9 @@ normalized_mse = (
 当某个 token 本身非常接近均值时，基线误差接近零，它的单独比值可能会很大。对于一段
 文本、一个模型或某一层的整体结果，汇总比值通常更稳定。以上示例假设 Lens 使用默认的
 逐行归一化；如果设置了 `row_normalize=False`，应改用 `result.activations` 作为目标。
+
+## 为什么不能从能量重构？
+
+能量占比丢失了每个成分的符号，也丢失了分数向量的整体幅度。因此，许多不同的分数
+向量会得到相同的能量占比，无法从 `result.energy` 唯一地还原激活。重构必须从
+`result.scores` 等带符号的 ICA 分数开始。

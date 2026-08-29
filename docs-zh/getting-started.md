@@ -39,7 +39,7 @@ result
 
 在 Jupyter 或 Colab 中，结果会显示为交互式的逐 token 分析界面。
 
-![在 Jupyter 中进行 ICA Lens 逐 token 分析](https://icalens.readthedocs.io/en/latest/assets/text-analysis-notebook.png){ loading=lazy }
+![在 Jupyter 中进行 ICA Lens 逐 token 分析](https://icalens.readthedocs.io/en/latest/assets/text-analysis-notebook.png)
 
 - 每张卡片表示模型指定层上的一个 token。
 - 例如，`C37` 表示编号为 37 的 ICA 成分。
@@ -50,6 +50,8 @@ result
 ### 查看成分画像
 
 如果所选成分带有画像，可以展开 token 卡片下方的 **Component profile**。
+
+![包含语料样例、Logit Lens 和 R-lens 读出的 ICA 成分画像](assets/component-profile-r-lens.png)
 
 - 画像标题显示由分数偏度选择的尾部。正负两侧应被理解为两个不同的坐标方向。
 - 紧凑统计栏显示 **Skewness**、**Excess kurtosis**，以及用于排列成分 ID 的拟合时
@@ -98,7 +100,7 @@ result = lens.analyze(
 result
 ```
 
-![在 Jupyter 中按消息分组显示 ICA Lens 分析结果](https://icalens.readthedocs.io/en/latest/assets/conversation-analysis-notebook.png){ loading=lazy }
+![在 Jupyter 中按消息分组显示 ICA Lens 分析结果](https://icalens.readthedocs.io/en/latest/assets/conversation-analysis-notebook.png)
 
 程序会自动应用 tokenizer 的聊天模板。默认情况下，分析结果包括消息内容、角色标记、
 分隔符以及其他模板 token。`analyze()` 只分析传入的对话，不会生成新的助手回复。

@@ -23,7 +23,7 @@ result
 No chat template, role marker, or conversation separator is added. Every token
 produced from the string is captured and analyzed.
 
-![Raw-text ICA Lens analysis](assets/text-analysis-notebook.png){ loading=lazy }
+![Raw-text ICA Lens analysis](assets/text-analysis-notebook.png)
 
 Passing a string to an instruction-tuned model also bypasses its chat template.
 Use the conversation form when you want the same formatting the model uses for
@@ -61,7 +61,7 @@ The resulting token sequence can contain:
 The notebook result groups tokens by message while retaining the surrounding
 template tokens associated with that message.
 
-![Message-grouped ICA Lens analysis](assets/conversation-analysis-notebook.png){ loading=lazy }
+![Message-grouped ICA Lens analysis](assets/conversation-analysis-notebook.png)
 
 ## Token scopes
 

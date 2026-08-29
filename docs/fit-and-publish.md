@@ -37,7 +37,7 @@ icalens fit text \
   --output icalens-output/quick-test
 ```
 
-![Fitting a GPT-2 ICA Lens from Pile-10k in a terminal](assets/fit.png){ loading=lazy }
+![Fitting a GPT-2 ICA Lens from Pile-10k in a terminal](assets/fit.png)
 
 *A complete one-layer fitting run using the installed `icalens` command. This
 run finished in about 10 seconds; runtime depends on the hardware and whether

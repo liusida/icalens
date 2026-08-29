@@ -39,7 +39,6 @@ nav:
   - Steering: steering.md
   - Reconstruction: reconstruction.md
   - Fit and publish: fit-and-publish.md
-  - Experiments: experiments.md
   - API: api.md
 
 markdown_extensions:

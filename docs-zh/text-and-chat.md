@@ -22,7 +22,7 @@ result
 程序不会添加聊天模板、角色标记或对话分隔符。字符串编码后得到的每个 token 都会被
 捕获和分析。
 
-![ICA Lens 纯文本分析](https://icalens.readthedocs.io/en/latest/assets/text-analysis-notebook.png){ loading=lazy }
+![ICA Lens 纯文本分析](https://icalens.readthedocs.io/en/latest/assets/text-analysis-notebook.png)
 
 即使待分析的是指令模型，传入字符串也会绕过它的聊天模板。如果希望采用模型进行对话
 时使用的格式，请传入消息列表。
@@ -58,7 +58,7 @@ result
 在 notebook 中，结果会按照消息分组；与每条消息相关的模板 token 也会保留在对应
 分组中。
 
-![按消息分组的 ICA Lens 分析](https://icalens.readthedocs.io/en/latest/assets/conversation-analysis-notebook.png){ loading=lazy }
+![按消息分组的 ICA Lens 分析](https://icalens.readthedocs.io/en/latest/assets/conversation-analysis-notebook.png)
 
 ## Token 范围
 

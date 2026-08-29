@@ -212,11 +212,7 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
         if logcosh_deviation is not None
         else ""
     )
-    tail_shape_html = (
-        f'<div class="profile-score-stat-pair">{kurtosis_html}{logcosh_html}</div>'
-        if logcosh_html
-        else kurtosis_html
-    )
+    tail_shape_html = f"{kurtosis_html}{logcosh_html}"
     score_statistics_html = (
         '<div class="profile-score-statistics">'
         '<div class="profile-score-stat"><h3>Skewness</h3>'
@@ -224,7 +220,7 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
         f"{tail_shape_html}</div>"
         if skewness is not None and profile.get("tail_direction") is not None
         else (
-            '<div class="profile-score-statistics"><div><h3>Sign distribution</h3>'
+            '<div class="profile-score-statistics"><div class="profile-sign-statistics"><h3>Sign distribution</h3>'
             f'<div class="profile-stat-row profile-stat-primary"><strong>Energy</strong><span>+{energy_positive}</span><span class="profile-bar"><span class="positive" style="width:{energy_positive}"></span><span class="negative"></span></span><span>−{energy_negative}</span></div>'
             f'<div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+{position_positive}</span><span class="profile-bar"><span class="positive" style="width:{position_positive}"></span><span class="negative"></span></span><span>−{position_negative}</span></div>'
             f"</div>{tail_shape_html}</div>"
@@ -242,16 +238,15 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
   :root {{--bg:#f6f7f9;--panel:#fff;--text:#151922;--muted:#647084;--border:#cbd3df}}
   * {{box-sizing:border-box}} body {{margin:0;padding:6px;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden}}
   .panel {{padding:12px;background:var(--panel);border:1px solid var(--border);border-radius:8px}}
-  summary {{cursor:pointer;font-weight:800}} .profile-grid {{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,360px);gap:16px 24px;margin-top:12px}}
+  summary {{cursor:pointer;font-weight:800}} .profile-grid {{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:16px 24px;margin-top:12px}}
   h3 {{margin:0 0 7px;font-size:13px}} .profile-wide {{grid-column:1/-1;padding-top:12px;border-top:1px solid #e1e6ee}}
   .profile-token-row + .profile-token-row {{margin-top:13px}} .profile-stat-row {{display:grid;grid-template-columns:62px 48px minmax(80px,1fr) 48px;gap:7px;align-items:center;margin:7px 0;color:#435066;font-size:11px}}
   .profile-stat-primary {{margin-bottom:10px;color:#273244;font-size:12px}} .profile-stat-secondary {{opacity:.65}} .profile-bar {{display:flex;height:9px;overflow:hidden;border-radius:999px;background:#e6e9ef}}
   .profile-stat-primary .profile-bar {{height:14px}} .positive {{background:#f59e0b}} .negative {{flex:1;background:#1e3a8a}}
-  .profile-score-statistics {{font-variant-numeric:tabular-nums}} .profile-score-stat + .profile-score-stat {{margin-top:16px}}
-  .profile-score-stat-pair {{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}}
-  .profile-score-stat-pair .profile-score-stat {{margin-top:0}}
-  .profile-score-stat h3 {{margin-bottom:3px}} .profile-score-stat-value {{color:#273244;font-size:17px}}
-  .profile-score-stat-rank {{margin-left:8px;color:#647084;font-size:11px}}
+  .profile-score-statistics {{display:flex;flex-direction:column;gap:12px;font-variant-numeric:tabular-nums}}
+  .profile-score-stat {{min-width:0}} .profile-score-stat h3 {{margin-bottom:2px;font-size:11px}}
+  .profile-score-stat-value {{color:#273244;font-size:15px}}
+  .profile-score-stat-rank {{margin-left:6px;color:#647084;font-size:10px}}
   .profile-chips {{display:flex;flex-wrap:wrap;gap:6px}} .profile-token-chip {{display:inline-flex;gap:6px;padding:4px 7px;border:1px solid #d5dce7;border-radius:999px;background:#f8fafc;font-size:11px}}
   .profile-value {{color:var(--muted);font-variant-numeric:tabular-nums}} ol {{margin:0;padding-left:20px;columns:3 360px;column-gap:32px}} li {{break-inside:avoid;margin:0 0 8px;overflow-wrap:anywhere}}
   .profile-occurrence-token {{color:#435066;font-size:11px}} .profile-context {{display:block;color:#3f4a5c;font-size:13px;line-height:1.5}} .profile-occurrence-metrics {{display:block;margin-top:2px;color:#929bab;font-size:9px}}
@@ -472,7 +467,7 @@ def _document(payload: str) -> str:
     .badge.selected {{ outline: 2px solid var(--color); border-color: var(--color); opacity: 1; }}
     .component {{ font-weight: 850; }}
     .score {{ font-variant-numeric: tabular-nums; }}
-    .profile-grid {{ display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+    .profile-grid {{ display: grid; grid-template-columns: minmax(0, 1fr) 150px;
       gap: 16px 24px; margin-top: 12px; }}
     .profile-wide {{ grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid #e1e6ee; }}
     .profile-section h3 {{ margin: 0 0 7px; font-size: 13px; }}
@@ -485,14 +480,12 @@ def _document(payload: str) -> str:
     .profile-stat-primary {{ margin-bottom: 10px; color: #273244; font-size: 12px; }}
     .profile-stat-primary .profile-bar {{ height: 14px; }}
     .profile-stat-secondary {{ opacity: .65; }}
-    .profile-score-statistics {{ font-variant-numeric: tabular-nums; }}
-    .profile-score-stat + .profile-score-stat {{ margin-top: 16px; }}
-    .profile-score-stat-pair {{ display: grid; grid-template-columns: 1fr 1fr;
-      gap: 16px; margin-top: 16px; }}
-    .profile-score-stat-pair .profile-score-stat {{ margin-top: 0; }}
-    .profile-score-stat h3 {{ margin-bottom: 3px; }}
-    .profile-score-stat-value {{ color: #273244; font-size: 17px; }}
-    .profile-score-stat-rank {{ margin-left: 8px; color: #647084; font-size: 11px; }}
+    .profile-score-statistics {{ display: flex; flex-direction: column; gap: 12px;
+      font-variant-numeric: tabular-nums; }}
+    .profile-score-stat {{ min-width: 0; }}
+    .profile-score-stat h3 {{ margin-bottom: 2px; font-size: 11px; }}
+    .profile-score-stat-value {{ color: #273244; font-size: 15px; }}
+    .profile-score-stat-rank {{ margin-left: 6px; color: #647084; font-size: 10px; }}
     .profile-bar-positive {{ background: #f59e0b; }}
     .profile-bar-negative {{ flex: 1; background: #1e3a8a; }}
     .profile-list {{ margin: 0; padding-left: 20px; }}
@@ -832,12 +825,10 @@ def _document(payload: str) -> str:
       const logcoshRow = Number.isFinite(logcoshDeviation)
         ? `<div class="profile-score-stat"><h3>Logcosh deviation</h3><div><strong class="profile-score-stat-value">${{logcoshDeviation.toFixed(4)}}</strong>${{Number.isInteger(logcoshRank) ? `<span class="profile-score-stat-rank">rank #${{logcoshRank}} / ${{data.component_count}}</span>` : ""}}</div></div>`
         : "";
-      const tailShapeRows = logcoshRow
-        ? `<div class="profile-score-stat-pair">${{kurtosisRow}}${{logcoshRow}}</div>`
-        : kurtosisRow;
+      const tailShapeRows = `${{kurtosisRow}}${{logcoshRow}}`;
       const scoreStatistics = profile.tail_direction && Number.isFinite(skewness)
         ? `<div class="profile-score-statistics"><div class="profile-score-stat"><h3>Skewness</h3><strong class="profile-score-stat-value">${{skewness >= 0 ? "+" : ""}}${{skewness.toFixed(2)}}</strong></div>${{tailShapeRows}}</div>`
-        : `<div class="profile-score-statistics"><div><h3>Sign distribution</h3>
+        : `<div class="profile-score-statistics"><div class="profile-sign-statistics"><h3>Sign distribution</h3>
           <div class="profile-stat-row profile-stat-primary"><strong>Energy</strong><span>+${{energyPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{energyPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{energyNegative}}</span></div>
           <div class="profile-stat-row profile-stat-secondary"><strong>Positions</strong><span>+${{positionPositive}}</span><span class="profile-bar"><span class="profile-bar-positive" style="width:${{positionPositive}}"></span><span class="profile-bar-negative"></span></span><span>−${{positionNegative}}</span></div></div>${{tailShapeRows}}</div>`;
       const rLensSection = profile.r_lens_tokens?.length

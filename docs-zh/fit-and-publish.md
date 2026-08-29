@@ -36,7 +36,7 @@ icalens fit text \
   --output icalens-output/quick-test
 ```
 
-![在终端中使用 Pile-10k 拟合 GPT-2 ICA Lens](https://icalens.readthedocs.io/en/latest/assets/fit.png){ loading=lazy }
+![在终端中使用 Pile-10k 拟合 GPT-2 ICA Lens](https://icalens.readthedocs.io/en/latest/assets/fit.png)
 
 *使用安装后的 `icalens` 命令完成一次单层拟合。图中的运行耗时约 10 秒；实际耗时取决于
 硬件，以及模型和数据是否已经缓存。*

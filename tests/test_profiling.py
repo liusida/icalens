@@ -98,6 +98,11 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     assert "Bytes:" in rendered
     assert "Excess kurtosis" in rendered
     assert "Logcosh deviation" in rendered
+    assert "grid-template-columns:minmax(0,1fr) 150px" in rendered
+    assert "profile-score-statistics {display:flex;flex-direction:column;gap:12px" in rendered
+    assert "profile-score-stat-value {color:#273244;font-size:15px}" in rendered
+    assert "profile-score-stat-rank {margin-left:6px;color:#647084;font-size:10px}" in rendered
+    assert "profile-score-stat-pair" not in rendered
     assert rendered.index("Logit-lens tokens") < rendered.index("Skewness")
     report = component.to_html(tmp_path / "component-profile.html")
     assert report.is_file()
