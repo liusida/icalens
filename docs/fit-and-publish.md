@@ -7,7 +7,7 @@ Producing a complete ICA Lens follows one workflow:
 | Stage | Result |
 | --- | --- |
 | **Fit** | Component directions and fitted transforms for the requested layers |
-| **Profile** | Sign statistics, representative occurrences, Logit Lens tokens, and compatible R-lens readouts |
+| **Profile** | Score-distribution statistics, selected tails, representative occurrences, Logit Lens tokens, and compatible R-lens readouts |
 | **Publish** | One self-contained ICA Lens artifact in a Hugging Face Model repository |
 
 ICA Lens provides installed commands for all three stages. They are available
@@ -308,8 +308,8 @@ needed for interpretation. Profile every fitted layer against a representative
 corpus before publishing. Profiling does not rerun FastICA or change the fitted
 center or matrices. For every component, it records:
 
-- positive and negative token-position frequencies;
-- score skewness and its selected tail, plus sign frequencies and squared-energy fractions;
+- score skewness, excess kurtosis, and the tail selected by skewness;
+- positive and negative token-position frequencies and squared-energy fractions;
 - high-energy token occurrences, token counts, scores, positions, and short contexts; and
 - top and bottom vocabulary tokens obtained by passing both writing-vector directions
   through the model's final norm and unembedding.
@@ -440,7 +440,7 @@ icalens profile add-r-lens \
   --r-lens local-r-lens-models/model/lens.pt
 ```
 
-This additive command preserves the sign statistics, high-energy occurrences,
+This additive command preserves the score statistics, high-energy occurrences,
 Logit Lens entries, and ICA matrices already stored in the artifact. It updates
 the same `component_profiles/` files in place, so no output path or dataset is
 required. By default it retains 20 R-lens tokens per direction and processes 8
@@ -478,7 +478,7 @@ After fitting and profiling, the artifact contains:
 - L2 preprocessing and fitted center;
 - reading and writing matrices;
 - FastICA configuration, objective history, and component ordering;
-- component sign statistics, representative high-energy occurrences, and
+- component score statistics, selected tails, representative high-energy occurrences, and
   Logit Lens tokens for every profiled layer;
 - R-lens tokens and their provenance for layers enriched with a compatible
   R-lens;

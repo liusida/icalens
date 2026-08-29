@@ -53,7 +53,7 @@ result
 
 ![包含语料样例、Logit Lens 和 R-lens 读出的 ICA 成分画像](assets/component-profile-r-lens.png)
 
-- 画像标题显示由分数偏度选择的尾部。正负两侧应被理解为两个不同的坐标方向。
+- 画像标题显示由分数偏度选择的尾部。
 - 紧凑统计栏显示 **Skewness**、**Excess kurtosis**，以及用于排列成分 ID 的拟合时
   **Logcosh deviation**。
 - **High-energy occurrences** 给出该方向特别强的代表性位置。结合高亮 token 及其上下文，

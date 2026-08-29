@@ -14,6 +14,7 @@ After fitting, ICA Lens streams a representative text or conversation dataset
 through every fitted layer. It does not refit or change the ICA directions.
 For each component, profiling records:
 
+- score skewness, excess kurtosis, and the tail selected by skewness;
 - how often its score is positive or negative;
 - how its squared score energy is divided between the two signs;
 - representative high-energy token occurrences and their surrounding text;
@@ -65,11 +66,11 @@ the profile are:
   $$
 
 - **Logcosh deviation** is the non-Gaussianity measure used when FastICA orders
-  the component IDs. For the fitted ICA coordinates \(y_i\), it is
+  the component IDs. For \(M\) fitted ICA coordinates \(y_1,\ldots,y_M\), it is
 
   $$
   \left|
-  \frac{1}{N}\sum_{i=1}^{N}\log\!\cosh(y_i)
+  \frac{1}{M}\sum_{i=1}^{M}\log\!\cosh(y_i)
   - \mathbb{E}_{Z\sim\mathcal{N}(0,1)}[\log\!\cosh(Z)]
   \right|.
   $$
