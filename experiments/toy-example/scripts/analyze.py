@@ -10,6 +10,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 from safetensors.torch import load_file
 from scipy.stats import jarque_bera, kurtosis, norm, skew
 
@@ -349,7 +351,7 @@ def _plot_raw_row(
               "c1": "D · ICA-discovered direction",
               "d": "E · Mean direction of random tokens"}
     with plt.rc_context(style):
-        fig, axes = plt.subplots(1, 5, figsize=(12.75, 2.6), sharex=True, sharey=True)
+        fig, axes = plt.subplots(1, 5, figsize=(12.75, 2.8), sharex=True, sharey=True)
         for ax, name in zip(axes, order, strict=True):
             values = values_by_name[name]
             bg = (background & evaluation_masks[name]).numpy()
@@ -376,9 +378,18 @@ def _plot_raw_row(
             ax.spines[["top", "right"]].set_visible(False)
             ax.grid(axis="y", color="0.88", linewidth=0.5)
             ax.set_axisbelow(True)
+        legend_handles = [
+            Line2D([], [], color=COLORS["target"], marker="o", linestyle="None",
+                   markersize=4.5, label="Selected token in B"),
+            Patch(facecolor=COLORS["concept"], edgecolor="none",
+                  label="Related tokens in B, C, D"),
+            Patch(facecolor=COLORS["random"], edgecolor="none", label="Random tokens in E"),
+        ]
+        fig.legend(handles=legend_handles, loc="upper center", ncol=3, frameon=False,
+                   bbox_to_anchor=(0.5, 0.99), handlelength=1.2, columnspacing=1.5)
         axes[0].set_ylabel("Density of background tokens")
         fig.supxlabel("Raw projection", y=0.04, fontsize=8)
-        fig.subplots_adjust(left=0.05, right=0.995, bottom=0.22, top=0.86, wspace=0.12)
+        fig.subplots_adjust(left=0.05, right=0.995, bottom=0.2, top=0.76, wspace=0.12)
         _save(fig, output / "directions-row-raw")
 
 
