@@ -6,7 +6,11 @@ from dataclasses import dataclass
 import pytest
 import torch
 
-from icalens._activation_dataset import ActivationDatasetWriter, sample_metadata
+from icalens._activation_dataset import (
+    ActivationDataset,
+    ActivationDatasetWriter,
+    sample_metadata,
+)
 from icalens.cli.integrity import (
     _audit_official_experiments,
     _capture_command,
@@ -15,6 +19,7 @@ from icalens.cli.integrity import (
     _profile_commands,
     _profile_configuration,
     _sample_indices,
+    _validate_sampling_provenance,
 )
 
 
@@ -88,6 +93,33 @@ def test_capture_command_pins_recorded_revisions(tmp_path) -> None:
     assert command[command.index("--model-revision") + 1] == "model-sha"
     assert command[command.index("--dataset-revision") + 1] == "dataset-sha"
     assert command[command.index("--layers") + 1] == "6"
+
+
+def test_integrity_rejects_activation_cache_from_different_candidate_pool(tmp_path) -> None:
+    reference = tmp_path / "reference"
+    _activation_fixture(reference)
+    manifest = json.loads((reference / "activations.json").read_text())
+    manifest["provenance"].update(
+        {
+            "candidate_tokens": 1_000,
+            "fitting_tokens": 1_000,
+            "sampling_seed": 0,
+            "context_length": 128,
+        }
+    )
+    (reference / "activations.json").write_text(json.dumps(manifest))
+    dataset = ActivationDataset(reference)
+    fitting = {
+        "provenance": {
+            "candidate_tokens": 2_000,
+            "fitting_tokens": 1_000,
+            "sampling_seed": 0,
+            "context_length": 128,
+        }
+    }
+
+    with pytest.raises(ValueError, match="candidate_tokens.*Lens=2000.*activations=1000"):
+        _validate_sampling_provenance(fitting, dataset)
 
 
 def test_integrity_profiles_full_population_in_one_pass(tmp_path) -> None:

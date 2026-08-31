@@ -66,6 +66,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     reference_lens = ICALens.from_pretrained(reference_lens_path)
     _validate_references(reference_lens, reference_activations, args.layer)
     fitting = reference_lens.metadata["layers"][str(args.layer)]["fitting"]
+    _validate_sampling_provenance(fitting, reference_activations)
     profile = reference_lens._get_profile(reference_lens._get_layer(args.layer))
     experiment_artifacts = (
         _discover_official_experiments(
@@ -100,7 +101,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "device": args.device,
         "rtol": args.rtol,
         "atol": args.atol,
-        "capture": _capture_configuration(reference_activations),
+        "capture": _capture_configuration(reference_lens, reference_activations, fitting),
         "fit": _fit_configuration(fitting),
         "profile": _profile_configuration(profile, reference_activations.sample_count),
         "reference_experiments": (
@@ -254,8 +255,37 @@ def _validate_references(lens: ICALens, dataset: ActivationDataset, layer: int) 
         raise ValueError("reference Lens and activations have different hidden sizes")
 
 
-def _capture_configuration(dataset: ActivationDataset) -> dict[str, Any]:
-    provenance = dataset.manifest["provenance"]
+def _validate_sampling_provenance(
+    fitting: dict[str, Any], dataset: ActivationDataset
+) -> None:
+    """Reject a cache that does not represent the Lens fitting population."""
+    expected = fitting.get("provenance")
+    if not isinstance(expected, dict):
+        raise ValueError("reference Lens is missing fitting provenance")
+    actual = dataset.manifest["provenance"]
+    fields = {
+        "candidate_tokens": (expected.get("candidate_tokens"), actual.get("candidate_tokens")),
+        "fitting_tokens": (expected.get("fitting_tokens"), actual.get("fitting_tokens")),
+        "sampling_seed": (expected.get("sampling_seed"), actual.get("sampling_seed")),
+        "context_length": (expected.get("context_length"), actual.get("context_length")),
+    }
+    mismatches = [
+        f"{name}: Lens={lens_value!r}, activations={cache_value!r}"
+        for name, (lens_value, cache_value) in fields.items()
+        if lens_value != cache_value
+    ]
+    if mismatches:
+        raise ValueError(
+            "reference activations do not contain the Lens fitting population ("
+            + "; ".join(mismatches)
+            + "); recapture the activation cache from the Lens fitting provenance"
+        )
+
+
+def _capture_configuration(
+    lens: ICALens, dataset: ActivationDataset, fitting: dict[str, Any]
+) -> dict[str, Any]:
+    provenance = fitting["provenance"]
     model = dataset.model
     source = provenance["dataset"]
     kind = "chat" if model.get("type") == "instruct" else "text"
@@ -263,8 +293,8 @@ def _capture_configuration(dataset: ActivationDataset) -> dict[str, Any]:
         raise ValueError("integrity reproduction currently requires a Hub dataset reference")
     return {
         "kind": kind,
-        "model": model["repo_id"],
-        "model_revision": model["revision"],
+        "model": lens.model_id,
+        "model_revision": lens.model_revision,
         "dataset": source["repo_id"],
         "dataset_revision": source["revision"],
         "split": source["split"],

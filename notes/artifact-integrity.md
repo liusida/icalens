@@ -6,6 +6,10 @@ their activation values and fitted tensors are never used as inputs to the new
 fit. The command reads their recorded provenance, recaptures the requested
 layer from the pinned model and dataset revisions, refits ICA, rebuilds the
 component profile, and compares deterministic samples with the references.
+It first verifies that the reference activation cache and Lens record the same
+candidate-token population, fitting-token count, sampling seed, and context
+length. A cache drawn from a different population is not a valid reference for
+that Lens and is rejected before expensive model inference begins.
 
 The standard GPT-2 release canary is:
 
