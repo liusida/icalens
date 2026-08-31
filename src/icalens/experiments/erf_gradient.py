@@ -11,7 +11,6 @@ import os
 import statistics
 import tempfile
 from collections.abc import Sequence
-from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -56,7 +55,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Archive an existing run and regenerate every prepared input and component.",
+        help="Recompute every selected component and atomically replace its checkpoint.",
     )
     args = parser.parse_args(argv)
     if min(args.components_per_layer, args.occurrences_per_component, args.batch_size) < 1:
@@ -64,10 +63,6 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     lens_specs = _parse_lenses(args.lens)
     output = args.output.expanduser().resolve()
-    if args.force and not args.dry_run:
-        archived = _archive_existing_run(output)
-        if archived is not None:
-            log(f"Archived forced ERF run to {archived}")
     cached = _load_prepared_run(output, lens_specs=lens_specs, args=args)
     lenses = {label: ICALens.from_pretrained(path) for label, path in lens_specs.items()}
     if cached is None:
@@ -107,17 +102,21 @@ def main(argv: Sequence[str] | None = None) -> None:
     if cached is None:
         _write_prepared_inputs(output, prepared_inputs)
     units = _component_units(selections)
-    completed_ids = {
-        unit_id
-        for unit_id, label, layer, component in units
-        if _component_checkpoint_valid(
-            _component_path(output, label, layer, component),
-            label=label,
-            layer=layer,
-            component=component,
-            method=METHOD,
-        )
-    }
+    completed_ids = (
+        set()
+        if args.force
+        else {
+            unit_id
+            for unit_id, label, layer, component in units
+            if _component_checkpoint_valid(
+                _component_path(output, label, layer, component),
+                label=label,
+                layer=layer,
+                component=component,
+                method=METHOD,
+            )
+        }
+    )
     display = ExperimentDisplay(
         output=output / "logs",
         title="ICA Lens · gradient effective receptive field",
@@ -425,26 +424,8 @@ def _validate_lens_fingerprints(
         raise ValueError(
             "prepared ERF inputs are stale because their Lens dependencies changed ("
             + preview
-            + "); rerun with --force"
+            + "); choose another output or deliberately clear this derived run"
         )
-
-
-def _archive_existing_run(output: Path) -> Path | None:
-    """Move an existing run aside before a deliberate from-scratch run."""
-    if not output.exists():
-        return None
-    if not output.is_dir():
-        raise ValueError(f"ERF output exists and is not a directory: {output}")
-    if not any(output.iterdir()):
-        return None
-    stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
-    archived = output.with_name(f"{output.name}.before-force-{stamp}")
-    suffix = 1
-    while archived.exists():
-        archived = output.with_name(f"{output.name}.before-force-{stamp}-{suffix}")
-        suffix += 1
-    output.replace(archived)
-    return archived
 
 
 def _stable_seed(seed: int, label: str, layer: int) -> int:

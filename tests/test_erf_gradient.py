@@ -12,7 +12,6 @@ import torch
 
 from icalens.experiments.erf_gradient import (
     METHOD,
-    _archive_existing_run,
     _component_checkpoint_valid,
     _component_units,
     _gradient_statistics,
@@ -171,20 +170,8 @@ def test_prepared_run_cache_rejects_changed_profile(tmp_path: Path) -> None:
     profile_path.write_text("new")
     args = SimpleNamespace(components_per_layer=1, occurrences_per_component=2, seed=0)
 
-    with pytest.raises(ValueError, match="profile changed.*--force"):
+    with pytest.raises(ValueError, match="profile changed.*choose another output"):
         _load_prepared_run(output, lens_specs={"gpt2": lens_path}, args=args)
-
-
-def test_force_archives_existing_run(tmp_path: Path) -> None:
-    output = tmp_path / "run"
-    output.mkdir()
-    (output / "run.json").write_text("old")
-
-    archived = _archive_existing_run(output)
-
-    assert archived is not None
-    assert (archived / "run.json").read_text() == "old"
-    assert not output.exists()
 
 
 def test_prepared_run_cache_rejects_changed_seed(tmp_path: Path) -> None:
