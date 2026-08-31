@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
 from collections.abc import Sequence
 from pathlib import Path
@@ -111,6 +112,7 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
             "sampling_seed": args.seed,
             "context_length": args.context_length,
             "document_framing": framing,
+            "tokenization_runtime": _tokenization_runtime(),
         }
         model_type = "base"
         progress_desc = "Capture text activations"
@@ -149,6 +151,7 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
             "fitting_tokens": args.token_budget,
             "sampling_seed": args.seed,
             "context_length": args.context_length,
+            "tokenization_runtime": _tokenization_runtime(),
         }
         model_type = "instruct"
         progress_desc = "Capture chat activations"
@@ -277,6 +280,9 @@ def _preflight_capture(
     else:
         expected["messages_field"] = args.messages_field
         actual["messages_field"] = provenance.get("messages_field")
+    if "tokenization_runtime" in provenance:
+        expected["tokenization_runtime"] = _tokenization_runtime()
+        actual["tokenization_runtime"] = provenance.get("tokenization_runtime")
     mismatches = [name for name, value in expected.items() if actual.get(name) != value]
     if mismatches:
         raise ValueError(
@@ -297,6 +303,14 @@ def _preflight_capture(
     completed.samples()
     log(f"Activation dataset is already complete and compatible: {completed.path}")
     return True
+
+
+def _tokenization_runtime() -> dict[str, str]:
+    """Versions that can affect conversion from source text to token positions."""
+    return {
+        package: importlib.metadata.version(package)
+        for package in ("datasets", "tokenizers", "transformers")
+    }
 
 
 def _parse_args(kind: str, argv: Sequence[str] | None) -> argparse.Namespace:

@@ -10,11 +10,9 @@ have been run yet.
 
 ## Run the GPT-2 pilot
 
-Install the optional Tinker client (Python 3.11 or newer):
-
-```bash
-uv sync --extra autointerpretability
-```
+The Tinker client runs in a pinned environment under
+`~/.cache/icalens/environments/`. ICA Lens creates it on the first Tinker run;
+its Transformers dependency does not modify the main project environment.
 
 Prepare ten ICA components and ten SAE features at the GPT-2 midpoint layer from a
 shared pool of 50,000 OpenWebText fragments:
@@ -42,7 +40,7 @@ simulates the held-out activations. The command reads `TINKER_API_KEY` from the
 project-root `.env` and resumes feature and fragment responses written atomically:
 
 ```bash
-uv run --extra autointerpretability icalens experiment autointerpretability evaluate \
+uv run icalens experiment autointerpretability evaluate \
   --input experiments/autointerpretability/pilot-runs/gpt2-layer5 \
   --output experiments/autointerpretability/pilot-runs/gpt2-layer5-tinker \
   --n-features 10 \

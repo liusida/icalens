@@ -10,6 +10,7 @@ import json
 import math
 import os
 import re
+import sys
 import time
 import traceback
 from collections.abc import Sequence
@@ -1188,6 +1189,9 @@ def _retry_tinker(call: Any, *, retries: int) -> Any:
 
 
 def _evaluate_tinker_main(args: argparse.Namespace) -> None:
+    from ._tinker_environment import enter_isolated_tinker_environment
+
+    enter_isolated_tinker_environment(sys.argv[1:])
     preparation = args.input.expanduser().resolve()
     output = args.output.expanduser().resolve()
     stored = json.loads((preparation / "run.json").read_text(encoding="utf-8"))
@@ -1269,7 +1273,7 @@ def _evaluate_tinker_main(args: argparse.Namespace) -> None:
             renderers = importlib.import_module("tinker_cookbook.renderers")
             tokenizer_utils = importlib.import_module("tinker_cookbook.tokenizer_utils")
         except ImportError as error:
-            raise RuntimeError("Install with `uv sync --extra autointerpretability`") from error
+            raise RuntimeError("The isolated Tinker environment is incomplete") from error
         service = tinker.ServiceClient()
         explainer_sampler = service.create_sampling_client(base_model=args.explainer_model)
         simulator_sampler = service.create_sampling_client(base_model=args.simulator_model)

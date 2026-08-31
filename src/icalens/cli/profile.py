@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.metadata
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
@@ -530,6 +531,17 @@ def _recover_cached_records(
 ) -> list[dict[str, Any]]:
     """Replay pinned tokenization and validate every selected activation row."""
     provenance = dataset.manifest["provenance"]
+    recorded_runtime = provenance.get("tokenization_runtime")
+    if isinstance(recorded_runtime, dict):
+        current_runtime = {
+            package: importlib.metadata.version(package)
+            for package in ("datasets", "tokenizers", "transformers")
+        }
+        if recorded_runtime != current_runtime:
+            raise ValueError(
+                "activation records require the tokenization runtime used during capture: "
+                f"recorded={recorded_runtime}, current={current_runtime}"
+            )
     source = provenance["dataset"]
     tokenizer = AutoTokenizer.from_pretrained(
         lens.model_id, revision=lens.model_revision, trust_remote_code=True
