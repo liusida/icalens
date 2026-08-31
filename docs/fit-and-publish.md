@@ -355,6 +355,23 @@ fractions, and `tail_direction`. It does not load the language model, rerun
 FastICA, or rebuild stored occurrences and vocabulary readouts. Those existing
 positive and negative readouts are simply repointed to the newly selected tail.
 
+Then refresh examples from the same sampled activation rows:
+
+```bash
+icalens profile refresh-examples \
+  --lens icalens-output/icalens-qwen3.5-9b-base-pile10k \
+  --activations /mnt/external/icalens-activations/qwen3.5-9b-base-pile10k-1m \
+  --layers all \
+  --max-tokens 1000000 \
+  --top-k-examples 20 \
+  --device cuda
+```
+
+This phase runs only after `tail_direction` is known and retains the 20 largest
+absolute component scores on that selected tail. Full profiling performs the
+same two phases automatically; it no longer gathers candidate examples before
+skewness and tail selection have been computed.
+
 ### Profile a Lens fitted from your own activations
 
 If you prepare the fitting activations yourself, retain a replayable stream of

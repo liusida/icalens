@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from icalens.cli.profile import (
+    _pending_example_layers,
     _pending_statistics_layers,
     _replay_dataset_source,
     parse_args,
@@ -30,6 +31,27 @@ def test_parses_statistics_refresh_operation() -> None:
     assert args.operation == "refresh-statistics"
     assert args.activations.name == "capture"
     assert args.max_tokens == 1_000_000
+
+
+def test_parses_example_refresh_operation() -> None:
+    args = parse_args(
+        ["refresh-examples", "--lens", "artifact", "--layers", "all", "--activations", "capture"]
+    )
+    assert args.operation == "refresh-examples"
+
+
+def test_example_refresh_treats_legacy_examples_as_pending() -> None:
+    profile = {
+        "selection": {"sign_selection": "population_skewness"},
+        "components": [{"tail_direction": "negative"}],
+    }
+    artifact = SimpleNamespace(profile_file="profiles/0.json.gz")
+    lens = SimpleNamespace(_layers={0: artifact}, _get_profile=lambda value: profile)
+    pending, completed = _pending_example_layers(
+        SimpleNamespace(force=False, top_k_examples=20), lens, (0,), provenance={"source": "new"}
+    )
+    assert pending == (0,)
+    assert completed == ()
 
 
 def test_replay_dataset_source_accepts_matching_local_file(tmp_path) -> None:

@@ -405,7 +405,7 @@ def _layer_progress(args: list[str], *, title: str) -> tuple[tuple[int, ...] | N
     # A forced run deliberately replaces the requested durable units, so its
     # progress begins at zero even if prior artifacts are present.
     profile_suboperation = any(
-        operation in args for operation in ("add-r-lens", "refresh-statistics")
+        operation in args for operation in ("add-r-lens", "refresh-statistics", "refresh-examples")
     )
     completed = (
         set() if "--force" in args or profile_suboperation else _completed_layers(args, title=title)

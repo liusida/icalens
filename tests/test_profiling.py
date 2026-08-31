@@ -38,7 +38,7 @@ def test_final_norm_supports_gpt_neox_layout() -> None:
 
 
 def test_top_score_occurrences_ignore_relative_energy_rank() -> None:
-    selector = _TopScoreOccurrences(n_components=2, top_k=2)
+    selector = _TopScoreOccurrences(directions=["positive", "negative"], top_k=2)
     selector.update(
         torch.tensor([[0.01, 0.90], [0.20, 0.01], [0.10, 0.08]], dtype=torch.float64),
         torch.tensor([[1.0, -1.0], [2.0, -2.0], [3.0, -3.0]], dtype=torch.float64),
@@ -215,6 +215,47 @@ def test_refresh_profile_statistics_uses_skewness_for_tail_direction(monkeypatch
     assert component["logit_lens"]["dominant"] == component["logit_lens"]["negative"]
     assert refreshed["selection"]["sign_selection"] == "population_skewness"
     assert refreshed["score_statistics_provenance"] == {"source": "test"}
+
+
+def test_refresh_examples_uses_existing_tail_and_preserves_statistics(monkeypatch) -> None:
+    signals = np.asarray([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.2], [0.1, -1.0]], dtype=np.float32)
+    lens = ICALens(model_id="example/model", model_revision="revision").fit(
+        signals, layer=1, n_components=2, max_iter=2
+    )
+    lens._analysis_model = TinyModel()
+    lens._analysis_tokenizer = TinyTokenizer()
+    lens._analysis_device = "cpu"
+    result = SimpleNamespace(
+        scores=torch.tensor([[2.0, -1.0], [-3.0, 0.5]]),
+        energy=torch.tensor([[0.8, 0.2], [0.97, 0.03]]),
+        tokens=("A", "B"),
+        token_texts=(" alpha", " beta"),
+        token_ids=torch.tensor([10, 11]),
+        positions=torch.tensor([4, 5]),
+    )
+    monkeypatch.setattr(lens, "analyze", lambda *args, **kwargs: result)
+    profile = lens.profile_components(["example"], layer=1, top_k_examples=2)
+    before = dict(profile["components"][0]["score_statistics"])
+    profile["components"][0]["tail_direction"] = "positive"
+    profile["components"][0]["dominant_sign"] = "positive"
+    monkeypatch.setattr(lens, "transform", lambda values, *, layer: values)
+    records = [{"text": f" row-{i}", "source_index": i} for i in range(4)]
+
+    refreshed = lens.refresh_profile_examples_from_activations(
+        torch.tensor([[1.0, -1.0], [4.0, 0.5], [-3.0, 2.0], [2.0, -4.0]]),
+        records,
+        layer=1,
+        top_k_examples=2,
+        provenance={"source": "cached"},
+        device="cpu",
+    )
+
+    assert [
+        item["score"] for item in refreshed["components"][0]["examples"]["positive"]["occurrences"]
+    ] == [4.0, 2.0]
+    assert refreshed["components"][0]["examples"]["negative"]["occurrences"] == []
+    assert refreshed["components"][0]["score_statistics"] == before
+    assert refreshed["example_provenance"] == {"source": "cached"}
 
 
 def test_add_r_lens_profile_preserves_existing_information(monkeypatch) -> None:

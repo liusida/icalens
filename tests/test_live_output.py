@@ -88,7 +88,7 @@ def test_profile_suboperations_do_not_treat_existing_profiles_as_completed(
         )
     )
 
-    for operation in ("refresh-statistics", "add-r-lens"):
+    for operation in ("refresh-statistics", "refresh-examples", "add-r-lens"):
         requested, completed = _layer_progress(
             [operation, "--lens", str(lens), "--layers", "all"],
             title="ICA Lens · component profiling",

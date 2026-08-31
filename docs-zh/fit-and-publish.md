@@ -328,6 +328,22 @@ icalens profile refresh-statistics \
 超额峰度、符号比例和 `tail_direction`。它不会加载语言模型、重新运行 FastICA，也不会
 重建已保存的样例和词表读出；现有正负读出只会重新指向新选择的尾部。
 
+随后用相同的激活样本刷新例子：
+
+```bash
+icalens profile refresh-examples \
+  --lens icalens-output/icalens-qwen3.5-9b-base-pile10k \
+  --activations /mnt/external/icalens-activations/qwen3.5-9b-base-pile10k-1m \
+  --layers all \
+  --max-tokens 1000000 \
+  --top-k-examples 20 \
+  --device cuda
+```
+
+这一阶段只在 `tail_direction` 已确定后运行，并且只保留所选尾部上绝对分数最大的
+20 个样例。完整 profiling 会自动依次执行这两个阶段；它不再在计算偏度和选择尾部之前
+收集候选样例。
+
 ### 为使用自备激活拟合的 Lens 建立画像
 
 如果拟合激活由你自行准备，请同时保留一份可以重新遍历的原始文本或完整对话。匿名

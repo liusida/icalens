@@ -408,6 +408,21 @@ class ICALens:
 
         return refresh_profile_statistics_from_activations(self, activations, layer=layer, **kwargs)
 
+    def refresh_profile_examples_from_activations(
+        self,
+        activations: torch.Tensor,
+        records: list[dict[str, Any]],
+        *,
+        layer: int,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Refresh selected-tail examples from captured activations."""
+        from .profiling import refresh_profile_examples_from_activations
+
+        return refresh_profile_examples_from_activations(
+            self, activations, records, layer=layer, **kwargs
+        )
+
     def component_profile(self, *, layer: int, component: int) -> ComponentProfile:
         """Return a dictionary-compatible, notebook-displayable component profile."""
         from .analysis import ComponentProfile

@@ -26,11 +26,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "operation",
         nargs="?",
-        choices=("add-r-lens", "refresh-statistics"),
+        choices=("add-r-lens", "refresh-statistics", "refresh-examples"),
         help=(
             "Optional profile operation. Use 'add-r-lens' to enrich existing "
             "profiles, or 'refresh-statistics' to recompute moments and tail "
-            "selection from captured activations."
+            "selection from captured activations, or 'refresh-examples' to gather "
+            "top-score examples on the already selected tail."
         ),
     )
     parser.add_argument("--lens", required=True, help="Local lens directory or Hub repository.")
@@ -121,6 +122,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         if args.activations is None or args.dataset is not None:
             raise ValueError("'refresh-statistics' requires --activations and no --dataset")
         _refresh_cached_statistics(args, lens, layers, output)
+        return
+    if args.operation == "refresh-examples":
+        if args.activations is None or args.dataset is not None:
+            raise ValueError("'refresh-examples' requires --activations and no --dataset")
+        _refresh_cached_examples(args, lens, layers, output)
         return
     if (args.dataset is None) == (args.activations is None):
         raise ValueError("full profiling requires exactly one of --dataset or --activations")
@@ -290,6 +296,97 @@ def _refresh_cached_statistics(
             f"from {count} activation rows."
         )
         log(f"Checkpointed profiled lens to {saved_to}")
+
+
+def _refresh_cached_examples(
+    args: argparse.Namespace, lens: ICALens, layers: tuple[int, ...], output: Path
+) -> None:
+    if not (output / "icalens.json").is_file():
+        raise ValueError("'refresh-examples' requires an existing local lens artifact")
+    dataset = ActivationDataset(args.activations)
+    _validate_cached_dataset(dataset, lens, layers)
+    if args.max_tokens <= 0:
+        raise ValueError("--max-tokens must be positive")
+    count = min(args.max_tokens, dataset.sample_count)
+    generator = torch.Generator(device="cpu").manual_seed(args.sample_seed)
+    rows = torch.randperm(dataset.sample_count, generator=generator)[:count].sort().values
+    provenance = dataset.provenance
+    provenance["profile_sampling"] = {
+        "policy": "uniform_without_replacement",
+        "seed": args.sample_seed,
+        "selected_tokens": count,
+        "population_tokens": dataset.sample_count,
+    }
+    pending, completed = _pending_example_layers(args, lens, layers, provenance=provenance)
+    log("Durable completed layers: " + (",".join(map(str, completed)) if completed else "none"))
+    if not pending:
+        log("All requested profile examples are already complete and compatible.")
+        return
+    records = _recover_cached_records(dataset, rows, lens)
+    for layer in pending:
+        log(f"Refreshing selected-tail examples for layer {layer}...")
+        profile = lens.refresh_profile_examples_from_activations(
+            dataset.layer(layer),
+            records,
+            layer=layer,
+            rows=rows,
+            batch_size=args.activation_batch_size,
+            top_k_examples=args.top_k_examples,
+            provenance=provenance,
+            device=args.device,
+            progress=not args.no_progress,
+        )
+        saved_to = lens.checkpoint_component_profile(output, layer=layer)
+        log(
+            f"Refreshed layer {layer}: selected-tail examples for "
+            f"{len(profile['components'])} components from {count} activation rows."
+        )
+        log(f"Checkpointed profiled lens to {saved_to}")
+
+
+def _pending_example_layers(
+    args: argparse.Namespace,
+    lens: ICALens,
+    layers: tuple[int, ...],
+    *,
+    provenance: dict[str, Any],
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    pending: list[int] = []
+    completed: list[int] = []
+    incompatible: list[str] = []
+    for layer in layers:
+        artifact = lens._layers[layer]
+        if artifact.profile_file is None:
+            raise ValueError(
+                f"layer {layer} has no component profile; compute statistics/full profile first"
+            )
+        profile = lens._get_profile(artifact)
+        selection = profile.get("selection", {})
+        components = profile.get("components", [])
+        if not all(
+            component.get("tail_direction") in ("positive", "negative") for component in components
+        ):
+            raise ValueError(
+                f"layer {layer} has no computed tail directions; run refresh-statistics first"
+            )
+        has_new_examples = (
+            selection.get("example_selection") == "top_absolute_score_on_selected_tail"
+            and selection.get("top_k_examples_on_selected_tail") == args.top_k_examples
+            and "example_provenance" in profile
+        )
+        if args.force or not has_new_examples:
+            pending.append(layer)
+        elif profile.get("example_provenance") == provenance:
+            completed.append(layer)
+        else:
+            incompatible.append(f"layer {layer}: example provenance differs")
+    if incompatible:
+        raise ValueError(
+            "existing refreshed examples are incompatible with this request ("
+            + "; ".join(incompatible)
+            + "); use --force to deliberately replace them"
+        )
+    return tuple(pending), tuple(completed)
 
 
 def _pending_statistics_layers(
