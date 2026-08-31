@@ -125,6 +125,32 @@ def write_component_profile_html(profile: Any, output_file: str | Path, *, layer
     return destination
 
 
+def _visible_context(value: str) -> str:
+    return value.replace("\r\n", "↵").replace("\r", "↵").replace("\n", "↵")
+
+
+def _occurrence_target_span(item: dict[str, Any], context: str, target: str) -> tuple[int, int]:
+    start = item.get("context_target_start")
+    end = item.get("context_target_end")
+    if isinstance(start, int) and isinstance(end, int) and 0 <= start < end <= len(context):
+        return start, end
+    if not target:
+        return -1, -1
+    matches: list[int] = []
+    cursor = 0
+    while True:
+        index = context.find(target, cursor)
+        if index < 0:
+            break
+        matches.append(index)
+        cursor = index + 1
+    if not matches:
+        return -1, -1
+    center = len(context) / 2
+    closest = min(matches, key=lambda index: abs(index + len(target) / 2 - center))
+    return closest, closest + len(target)
+
+
 def _component_profile_document(profile: Any, *, layer: int) -> str:
     component = int(profile["component"])
     sign = str(profile["dominant_sign"])
@@ -147,18 +173,16 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
 
     def highlighted_context(item: dict[str, Any]) -> str:
         target = str(item.get("text", ""))
-        context = (
-            str(item.get("context", "")).replace("\r\n", "↵").replace("\r", "↵").replace("\n", "↵")
-        )
-        index = context.find(target) if target else -1
-        if index < 0:
-            return html.escape(context)
+        context = str(item.get("context", ""))
+        start, end = _occurrence_target_span(item, context, target)
+        if start < 0:
+            return html.escape(_visible_context(context))
         return (
-            html.escape(context[:index])
+            html.escape(_visible_context(context[:start]))
             + '<span class="profile-target">'
-            + html.escape(context[index : index + len(target)])
+            + html.escape(_visible_context(context[start:end]))
             + "</span>"
-            + html.escape(context[index + len(target) :])
+            + html.escape(_visible_context(context[end:]))
         )
 
     occurrence_items = "".join(
@@ -793,12 +817,34 @@ def _document(payload: str) -> str:
       const percentage = value => `${{(Number(value) * 100).toFixed(1)}}%`;
       const highlightedContext = item => {{
         const target = String(item.text || "");
-        const context = String(item.context || "").replace(/\\r\\n|\\r|\\n/g, "↵");
-        const index = target ? context.indexOf(target) : -1;
-        if (index < 0) return esc(context);
-        return esc(context.slice(0, index)) +
-          `<span class="profile-target">${{esc(context.slice(index, index + target.length))}}</span>` +
-          esc(context.slice(index + target.length));
+        const context = String(item.context || "");
+        const visible = value => value.replace(/\\r\\n|\\r|\\n/g, "↵");
+        let start = Number.isInteger(item.context_target_start)
+          ? item.context_target_start : -1;
+        let end = Number.isInteger(item.context_target_end)
+          ? item.context_target_end : -1;
+        if (!(start >= 0 && end > start && end <= context.length)) {{
+          const matches = [];
+          if (target) {{
+            let cursor = 0;
+            while (cursor <= context.length - target.length) {{
+              const index = context.indexOf(target, cursor);
+              if (index < 0) break;
+              matches.push(index);
+              cursor = index + 1;
+            }}
+          }}
+          if (!matches.length) return esc(visible(context));
+          const center = context.length / 2;
+          start = matches.reduce((best, index) =>
+            Math.abs(index + target.length / 2 - center) <
+              Math.abs(best + target.length / 2 - center) ? index : best
+          );
+          end = start + target.length;
+        }}
+        return esc(visible(context.slice(0, start))) +
+          `<span class="profile-target">${{esc(visible(context.slice(start, end)))}}</span>` +
+          esc(visible(context.slice(end)));
       }};
       const occurrenceItems = profile.occurrences.map(item =>
         `<li><span class="profile-occurrence-token" title="${{esc(tokenHint(item))}}">${{esc(JSON.stringify(String(item.text || "")))}}</span>` +

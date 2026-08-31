@@ -57,13 +57,17 @@ def _dispatch_experiment(args: list[str]) -> None:
         from ..experiments.autointerpretability import main
 
         main(args)
+    elif kind == "erf-gradient":
+        from ..experiments.erf_gradient import main
+
+        main(args)
     elif kind == "figure":
         _dispatch_experiment_figure(args)
     else:
         raise SystemExit(
             f"icalens experiment: unknown experiment {kind!r}; "
             "use 'saebench-sparse-probing', 'reconstruction', "
-            "'autointerpretability', or 'figure'"
+            "'autointerpretability', 'erf-gradient', or 'figure'"
         )
 
 
@@ -77,9 +81,7 @@ def _dispatch_plot(args: list[str]) -> None:
 
         plot_fitting_main(args)
     else:
-        raise SystemExit(
-            f"icalens plot: unknown plot {kind!r}; use 'fitting-summary'"
-        )
+        raise SystemExit(f"icalens plot: unknown plot {kind!r}; use 'fitting-summary'")
 
 
 def _dispatch_experiment_figure(args: list[str]) -> None:
@@ -99,10 +101,15 @@ def _dispatch_experiment_figure(args: list[str]) -> None:
         from ..experiments.autointerpretability_figure import main
 
         main(args)
+    elif kind == "erf-gradient":
+        from ..experiments.erf_gradient_figure import main
+
+        main(args)
     else:
         raise SystemExit(
             f"icalens experiment figure: unknown figure {kind!r}; "
-            "use 'sparse-probing', 'reconstruction', or 'autointerpretability'"
+            "use 'sparse-probing', 'reconstruction', 'autointerpretability', "
+            "or 'erf-gradient'"
         )
 
 
@@ -205,6 +212,7 @@ commands:
   saebench-sparse-probing  Run SAEBench sparse probing for an ICA Lens
   reconstruction          Capture or evaluate held-out top-k reconstruction
   autointerpretability     Explain features and predict held-out activations
+  erf-gradient             Measure gradient effective receptive fields
   figure                   Create a paper-ready figure from saved results
 
 Run 'icalens experiment COMMAND --help' for command-specific options."""
@@ -217,5 +225,6 @@ figures:
   sparse-probing  Plot one or more SAEBench sparse-probing runs
   reconstruction  Plot held-out reconstruction curves
   autointerpretability  Plot feature-level explanation-prediction correlations
+  erf-gradient          Plot layerwise gradient ERF distributions
 
 Run 'icalens experiment figure FIGURE --help' for figure-specific options."""

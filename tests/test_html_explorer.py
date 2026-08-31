@@ -6,9 +6,29 @@ from icalens import AnalysisResult
 from icalens.html import (
     VSCODE_NOTEBOOK_SCALE,
     _gpt2_byte_hex,
+    _occurrence_target_span,
     analysis_iframe,
     write_explorer_html,
 )
+
+
+def test_occurrence_target_span_prefers_exact_offset_and_legacy_center() -> None:
+    context = "such as sarcomas, a wide margin"
+    target = "as"
+    exact_start = context.index("as", context.index("as") + 1)
+
+    assert _occurrence_target_span(
+        {
+            "context_target_start": exact_start,
+            "context_target_end": exact_start + len(target),
+        },
+        context,
+        target,
+    ) == (exact_start, exact_start + len(target))
+    assert _occurrence_target_span({}, context, target) == (
+        exact_start,
+        exact_start + len(target),
+    )
 
 
 def analysis_result() -> AnalysisResult:
@@ -256,7 +276,8 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert "profilePanel.hidden = true" in html
     assert "panel.hidden = false" in html
     assert 'class="profile-target"' in html
-    assert "const index = target ? context.indexOf(target) : -1" in html
+    assert "Number.isInteger(item.context_target_start)" in html
+    assert "matches.reduce((best, index)" in html
     assert "highlightedContext(item)" in html
     assert 'data-token-index="${token.token_index}"' in html
     assert (

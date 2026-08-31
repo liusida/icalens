@@ -18,6 +18,7 @@ misc/
 /results/
 /experiments/*/pilot-runs/
 /experiments/autointerpretability/runs/
+/experiments/effective-receptive-fields/runs/
 /experiments/toy-example/work/
 /experiments/*/official/results/*/logs/
 /experiments/*/official/results/*/checkpoints/

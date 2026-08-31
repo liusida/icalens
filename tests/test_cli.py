@@ -57,6 +57,28 @@ def test_dispatches_autointerpretability(monkeypatch: pytest.MonkeyPatch) -> Non
     assert received == ["summarize", "--input", "run"]
 
 
+def test_dispatches_erf_gradient(monkeypatch: pytest.MonkeyPatch) -> None:
+    from icalens.experiments import erf_gradient
+
+    received: list[str] = []
+    monkeypatch.setattr(erf_gradient, "main", lambda args: received.extend(args))
+
+    cli.main(["experiment", "erf-gradient", "--output", "run"])
+
+    assert received == ["--output", "run"]
+
+
+def test_dispatches_erf_gradient_figure(monkeypatch: pytest.MonkeyPatch) -> None:
+    from icalens.experiments import erf_gradient_figure
+
+    received: list[str] = []
+    monkeypatch.setattr(erf_gradient_figure, "main", lambda args: received.extend(args))
+
+    cli.main(["experiment", "figure", "erf-gradient", "run"])
+
+    assert received == ["run"]
+
+
 def test_dispatches_profile(monkeypatch: pytest.MonkeyPatch) -> None:
     from icalens.cli import profile
 

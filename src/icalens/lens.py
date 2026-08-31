@@ -674,6 +674,8 @@ class ICALens:
                             "token",
                             "token_id",
                             "context",
+                            "context_target_start",
+                            "context_target_end",
                             "score",
                             "energy",
                         )

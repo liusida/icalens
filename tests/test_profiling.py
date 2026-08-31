@@ -81,9 +81,19 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     summary_token = summaries[0]["logit_tokens"][0]
     assert {"text", "token", "token_id", "logit"} <= summary_token.keys()
     summary_occurrence = summaries[0]["occurrences"][0]
-    assert {"text", "token", "token_id", "context", "score", "energy"} <= (
-        summary_occurrence.keys()
-    )
+    assert {
+        "text",
+        "token",
+        "token_id",
+        "context",
+        "context_target_start",
+        "context_target_end",
+        "score",
+        "energy",
+    } <= (summary_occurrence.keys())
+    assert summary_occurrence["context"] == " alpha beta"
+    assert summary_occurrence["context_target_start"] == len(" alpha")
+    assert summary_occurrence["context_target_end"] == len(" alpha beta")
     assert component.component == 0
     assert component.layer == 1
     rendered = component._repr_html_()

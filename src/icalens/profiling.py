@@ -167,6 +167,8 @@ def profile_components(
             position = int(result.positions[row])
             start = max(0, row - 4)
             end = min(count, row + 5)
+            context_target_start = sum(len(text) for text in result.token_texts[start:row])
+            context_target_end = context_target_start + len(result.token_texts[row])
             record = {
                 "token": result.tokens[row],
                 "text": result.token_texts[row],
@@ -175,6 +177,8 @@ def profile_components(
                 "score": score,
                 "energy": float(energy_cpu[row, component]),
                 "context": "".join(result.token_texts[start:end]),
+                "context_target_start": context_target_start,
+                "context_target_end": context_target_end,
                 "source_index": source_count,
             }
             heap = examples[component][sign]

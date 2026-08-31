@@ -481,15 +481,24 @@ def _recover_cached_records(
             )
         start, end = max(0, position - 4), min(len(input_ids), position + 5)
         token = tokenizer.convert_ids_to_tokens(token_id)
+        context_ids = input_ids[start:end].tolist()
+        target_offset = position - start
+        context = tokenizer.decode(context_ids, clean_up_tokenization_spaces=False)
+        context_target_start = len(
+            tokenizer.decode(context_ids[:target_offset], clean_up_tokenization_spaces=False)
+        )
+        context_target_end = len(
+            tokenizer.decode(context_ids[: target_offset + 1], clean_up_tokenization_spaces=False)
+        )
         records.append(
             {
                 "token": str(token),
                 "text": tokenizer.decode([token_id], clean_up_tokenization_spaces=False),
                 "token_id": token_id,
                 "position": position,
-                "context": tokenizer.decode(
-                    input_ids[start:end].tolist(), clean_up_tokenization_spaces=False
-                ),
+                "context": context,
+                "context_target_start": context_target_start,
+                "context_target_end": context_target_end,
                 "source_index": source_index,
             }
         )
