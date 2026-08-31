@@ -52,11 +52,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Recompute every selected component and atomically replace its checkpoint.",
-    )
     args = parser.parse_args(argv)
     if min(args.components_per_layer, args.occurrences_per_component, args.batch_size) < 1:
         raise ValueError("component, occurrence, and batch counts must be positive")
@@ -102,21 +97,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     if cached is None:
         _write_prepared_inputs(output, prepared_inputs)
     units = _component_units(selections)
-    completed_ids = (
-        set()
-        if args.force
-        else {
-            unit_id
-            for unit_id, label, layer, component in units
-            if _component_checkpoint_valid(
-                _component_path(output, label, layer, component),
-                label=label,
-                layer=layer,
-                component=component,
-                method=METHOD,
-            )
-        }
-    )
+    completed_ids = {
+        unit_id
+        for unit_id, label, layer, component in units
+        if _component_checkpoint_valid(
+            _component_path(output, label, layer, component),
+            label=label,
+            layer=layer,
+            component=component,
+            method=METHOD,
+        )
+    }
     display = ExperimentDisplay(
         output=output / "logs",
         title="ICA Lens · gradient effective receptive field",
