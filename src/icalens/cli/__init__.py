@@ -34,10 +34,24 @@ def main(argv: Sequence[str] | None = None) -> None:
         from ..smoke_test import main as smoke_test_main
 
         smoke_test_main(args)
+    elif command == "integrity":
+        _dispatch_integrity(args)
     elif command == "experiment":
         _dispatch_experiment(args)
     else:
         raise SystemExit(f"icalens: unknown command {command!r}; run 'icalens --help'")
+
+
+def _dispatch_integrity(args: list[str]) -> None:
+    if not args or args[0] in {"-h", "--help"}:
+        print(_INTEGRITY_HELP)
+        return
+    operation = args.pop(0)
+    if operation != "reproduce":
+        raise SystemExit(f"icalens integrity: unknown operation {operation!r}; use 'reproduce'")
+    from .integrity import main
+
+    main(args)
 
 
 def _dispatch_experiment(args: list[str]) -> None:
@@ -170,9 +184,14 @@ commands:
   plot         Plot diagnostics from saved ICA Lens artifacts
   publish      Publish a local artifact to Hugging Face
   smoke-test   Verify installed text and chat analysis paths
+  integrity    Reproduce and compare a reference artifact
   experiment   Run experiments and create paper-ready figures
 
 Run 'icalens COMMAND --help' for command-specific options."""
+
+_INTEGRITY_HELP = """usage: icalens integrity reproduce [OPTIONS]
+
+Recapture, refit, reprofile, and compare one reference ICA Lens layer."""
 
 _PLOT_HELP = """usage: icalens plot PLOT [OPTIONS]
 

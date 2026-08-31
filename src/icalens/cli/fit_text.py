@@ -398,10 +398,13 @@ def resolve_text_dataset(
     *,
     split: str,
     api: HfApi | None = None,
+    revision: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Resolve an immutable identity and manifest provenance for a text dataset."""
     local_path = Path(dataset_id).expanduser()
     if local_path.is_file():
+        if revision is not None:
+            raise ValueError("--dataset-revision cannot be used with a local text dataset")
         resolved = local_path.resolve()
         digest = _file_sha256(resolved)
         return digest, {
@@ -411,12 +414,12 @@ def resolve_text_dataset(
         }
     if local_path.exists():
         raise ValueError(f"local text dataset must be a file: {local_path}")
-    revision = (api or HfApi()).dataset_info(dataset_id).sha
-    if revision is None:
+    resolved_revision = (api or HfApi()).dataset_info(dataset_id, revision=revision).sha
+    if resolved_revision is None:
         raise RuntimeError(f"Could not resolve an exact revision for {dataset_id}.")
-    return str(revision), {
+    return str(resolved_revision), {
         "repo_id": dataset_id,
-        "revision": str(revision),
+        "revision": str(resolved_revision),
         "split": split,
     }
 

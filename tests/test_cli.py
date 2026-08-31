@@ -46,6 +46,17 @@ def test_dispatches_publish(monkeypatch: pytest.MonkeyPatch) -> None:
     assert received == ["owner/lens", "--lens", "artifact"]
 
 
+def test_dispatches_integrity_reproduction(monkeypatch: pytest.MonkeyPatch) -> None:
+    from icalens.cli import integrity
+
+    received: list[str] = []
+    monkeypatch.setattr(integrity, "main", lambda args: received.extend(args))
+
+    cli.main(["integrity", "reproduce", "--layer", "6"])
+
+    assert received == ["--layer", "6"]
+
+
 def test_dispatches_autointerpretability(monkeypatch: pytest.MonkeyPatch) -> None:
     from icalens.experiments import autointerpretability
 

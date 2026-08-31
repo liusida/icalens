@@ -38,5 +38,6 @@ local-r-lens-models/
 .agents/
 .codex/
 .icalens-runs/
+.icalens-integrity/
 
 *-smoke.*

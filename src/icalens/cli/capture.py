@@ -47,15 +47,15 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
 
     api = HfApi()
     log(f"Resolving model {args.model} and dataset {args.dataset} revisions...")
-    model_revision = api.model_info(args.model).sha
+    model_revision = api.model_info(args.model, revision=args.model_revision).sha
     if model_revision is None:
         raise RuntimeError("Could not resolve the exact model revision.")
     if kind == "text":
         dataset_revision, dataset_provenance = resolve_text_dataset(
-            args.dataset, split=args.split, api=api
+            args.dataset, split=args.split, api=api, revision=args.dataset_revision
         )
     else:
-        dataset_revision = api.dataset_info(args.dataset).sha
+        dataset_revision = api.dataset_info(args.dataset, revision=args.dataset_revision).sha
         if dataset_revision is None:
             raise RuntimeError("Could not resolve the exact dataset revision.")
         dataset_provenance = {
@@ -319,9 +319,17 @@ def _parse_args(kind: str, argv: Sequence[str] | None) -> argparse.Namespace:
     default_dataset = "NeelNanda/pile-10k" if kind == "text" else "HuggingFaceH4/ultrachat_200k"
     parser.add_argument("--model", default=default_model)
     parser.add_argument(
+        "--model-revision",
+        help="Exact model revision; primarily used by reproducibility workflows.",
+    )
+    parser.add_argument(
         "--dataset",
         default=default_dataset,
         help="Dataset repository, or a local JSONL/Parquet file for text capture.",
+    )
+    parser.add_argument(
+        "--dataset-revision",
+        help="Exact Hub dataset revision; primarily used by reproducibility workflows.",
     )
     parser.add_argument("--split", default="train" if kind == "text" else "train_sft")
     parser.add_argument("--layers", default="all")
