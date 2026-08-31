@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import tempfile
 from collections.abc import Sequence
@@ -50,15 +51,13 @@ def render(
     force: bool,
 ) -> list[Path]:
     run_path = experiment / "run.json"
-    summary_path = experiment / "summary.csv"
-    if not run_path.is_file() or not summary_path.is_file():
-        raise ValueError(f"incomplete gradient ERF experiment: {experiment}")
-    import json
-
+    if not run_path.is_file():
+        raise ValueError(f"missing gradient ERF run manifest: {experiment}")
     run = json.loads(run_path.read_text(encoding="utf-8"))
-    if run.get("status") != "complete":
-        raise ValueError(f"gradient ERF experiment is not complete: {experiment}")
-    rows = list(csv.DictReader(summary_path.open(encoding="utf-8")))
+    complete = run.get("status") == "complete"
+    rows = _result_rows(experiment, complete=complete)
+    if not rows:
+        raise ValueError(f"gradient ERF experiment has no completed components: {experiment}")
     labels = list(run["resolved"].get("lens_order", run["resolved"]["lenses"]))
     titles = _titles(panel_titles, labels, run)
     outputs = [output_prefix.with_suffix(suffix) for suffix in (".png", ".pdf", ".txt")]
@@ -78,8 +77,9 @@ def render(
             zip(axes.ravel(), labels, titles, strict=True)
         ):
             model_rows = [row for row in rows if row["model"] == label]
-            layers = sorted({int(row["layer"]) for row in model_rows})
+            layers = [int(layer) for layer in run["resolved"]["lenses"][label]["layers"]]
             fractions = np.zeros((len(BIN_LABELS), len(layers)), dtype=float)
+            completed_per_layer: list[int] = []
             for column, layer in enumerate(layers):
                 values = np.asarray(
                     [
@@ -88,8 +88,11 @@ def render(
                         if int(row["layer"]) == layer
                     ]
                 )
-                if len(values) != int(run["resolved"]["components_per_layer"]):
+                completed_per_layer.append(len(values))
+                if complete and len(values) != int(run["resolved"]["components_per_layer"]):
                     raise ValueError(f"{label} layer {layer} has incomplete component results")
+                if not len(values):
+                    continue
                 bins = np.searchsorted(BIN_EDGES, values, side="right") - 1
                 fractions[:, column] = [np.mean(bins == index) for index in range(len(BIN_LABELS))]
             bottom = np.zeros(len(layers))
@@ -105,6 +108,19 @@ def render(
                 )
                 bottom += values
             axis.set_title(title, loc="left", fontweight="bold", pad=3)
+            if not complete:
+                expected = len(layers) * int(run["resolved"]["components_per_layer"])
+                axis.text(
+                    0.99,
+                    0.98,
+                    f"partial: n={sum(completed_per_layer)}/{expected}",
+                    transform=axis.transAxes,
+                    ha="right",
+                    va="top",
+                    fontsize=6.5,
+                    color="#687386",
+                    bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1},
+                )
             axis.set_ylim(0, 1)
             axis.set_xlim(min(layers) - 0.6, max(layers) + 0.6)
             tick_step = max(1, round(len(layers) / 6))
@@ -130,8 +146,31 @@ def render(
         figure.savefig(outputs[0], dpi=300, bbox_inches="tight")
         figure.savefig(outputs[1], bbox_inches="tight")
         plt.close(figure)
-    outputs[2].write_text(_caption(labels, titles, run), encoding="utf-8")
+    outputs[2].write_text(
+        _caption(labels, titles, run, rows=rows, complete=complete), encoding="utf-8"
+    )
     return outputs
+
+
+def _result_rows(experiment: Path, *, complete: bool) -> list[dict[str, Any]]:
+    summary_path = experiment / "summary.csv"
+    if complete and summary_path.is_file():
+        return list(csv.DictReader(summary_path.open(encoding="utf-8")))
+    rows = []
+    for path in sorted((experiment / "components").glob("*/layer_*/C*.json")):
+        try:
+            item = json.loads(path.read_text(encoding="utf-8"))
+            rows.append(
+                {
+                    "model": str(item["model_label"]),
+                    "layer": int(item["layer"]),
+                    "component": int(item["component"]),
+                    "gradient_erf_median": float(item["gradient_erf_median"]),
+                }
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+    return rows
 
 
 def _titles(panel_titles: str | None, labels: list[str], run: dict[str, Any]) -> list[str]:
@@ -150,17 +189,31 @@ def _titles(panel_titles: str | None, labels: list[str], run: dict[str, Any]) ->
     ]
 
 
-def _caption(labels: list[str], titles: list[str], run: dict[str, Any]) -> str:
+def _caption(
+    labels: list[str],
+    titles: list[str],
+    run: dict[str, Any],
+    *,
+    rows: list[dict[str, Any]],
+    complete: bool,
+) -> str:
     count = int(run["resolved"]["components_per_layer"])
     seed = int(run["resolved"]["seed"])
     panels = ", ".join(f"{label} ({title})" for label, title in zip(labels, titles, strict=True))
+    partial_note = ""
+    if not complete:
+        expected = count * sum(len(run["resolved"]["lenses"][label]["layers"]) for label in labels)
+        partial_note = (
+            f" Partial visualization based on {len(rows)} of {expected} planned components; "
+            "each non-empty layer bar is normalized over the components completed in that layer."
+        )
     return (
         "Layerwise distribution of gradient effective receptive field (ERF_grad). "
         f"Each layer contains {count} randomly sampled components (seed {seed}); each "
         "component is summarized by the median influence-weighted geometric token distance "
         "over its stored dominant-tail occurrences. Bars show fractions in the intervals "
         "[1,2), [2,3), [3,6), [6,11), and [11,infinity). "
-        f"Panels: {panels}.\n"
+        f"Panels: {panels}.{partial_note}\n"
     )
 
 

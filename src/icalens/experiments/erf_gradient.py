@@ -57,44 +57,36 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise ValueError("component, occurrence, and batch counts must be positive")
 
     lens_specs = _parse_lenses(args.lens)
+    output = args.output.expanduser().resolve()
+    cached = _load_prepared_run(output, lens_specs=lens_specs, args=args)
     lenses = {label: ICALens.from_pretrained(path) for label, path in lens_specs.items()}
-    selections = {
-        label: _sample_components(
-            lens,
-            label=label,
-            count=args.components_per_layer,
+    if cached is None:
+        selections: dict[str, dict[str, list[int]]] = {}
+        prepared_inputs: dict[str, dict[str, dict[str, Any]]] = {}
+        for label, lens in lenses.items():
+            selection, prepared = _prepare_component_inputs(
+                lens,
+                label=label,
+                count=args.components_per_layer,
+                seed=args.seed,
+                occurrence_limit=args.occurrences_per_component,
+            )
+            selections[label] = selection
+            prepared_inputs[label] = prepared
+        resolved = _resolved_configuration(
+            lens_specs=lens_specs,
+            lenses=lenses,
+            selections=selections,
+            components_per_layer=args.components_per_layer,
+            occurrences_per_component=args.occurrences_per_component,
             seed=args.seed,
-            occurrence_limit=args.occurrences_per_component,
         )
-        for label, lens in lenses.items()
-    }
-    resolved = {
-        "format": "icalens.erf_gradient",
-        "schema_version": SCHEMA_VERSION,
-        "icalens_version": __version__,
-        "method": METHOD,
-        "influence": "squared L2 norm of d(component score)/d(input token embedding)",
-        "distance": "target token is 1; preceding lexical positions increase by 1",
-        "sample_erf": "exp(sum_i normalized_influence_i * log(distance_i))",
-        "component_erf": "median sample_erf over stored dominant-tail occurrences",
-        "document_framing": "reported separately and excluded from lexical normalization",
-        "components_per_layer": args.components_per_layer,
-        "occurrences_per_component": args.occurrences_per_component,
-        "seed": args.seed,
-        # JSON objects may be serialized with sorted keys, so retain the CLI order
-        # explicitly for stable, intentional figure panel ordering.
-        "lens_order": list(lens_specs),
-        "lenses": {
-            label: _lens_identity(path, lenses[label], selections[label])
-            for label, path in lens_specs.items()
-        },
-        "selections": selections,
-    }
+    else:
+        resolved, selections, prepared_inputs = cached
     if args.dry_run:
         print(json.dumps(resolved, indent=2, sort_keys=True))
         return
 
-    output = args.output.expanduser().resolve()
     source = source_provenance()
     run = ResumableRun.open(
         output=output,
@@ -102,6 +94,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         source=source,
         status="measuring",
     )
+    if cached is None:
+        _write_prepared_inputs(output, prepared_inputs)
     units = _component_units(selections)
     completed_ids = {
         unit_id
@@ -159,11 +153,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                     display.phase(
                         "Measuring gradients", model=label, layer=layer, component=f"C{component}"
                     )
-                    profile = lens.component_profile(layer=layer, component=component)
-                    direction = str(profile["tail_direction"])
-                    occurrences = profile["examples"][direction]["occurrences"][
-                        : args.occurrences_per_component
-                    ]
+                    prepared_component = prepared_inputs[label][str(layer)][str(component)]
+                    direction = str(prepared_component["tail_direction"])
+                    occurrences = prepared_component["occurrences"]
                     result = _measure_component(
                         lens=lens,
                         model=model,
@@ -214,24 +206,31 @@ def _parse_lenses(values: list[str]) -> dict[str, Path]:
     return parsed
 
 
-def _sample_components(
+def _prepare_component_inputs(
     lens: ICALens,
     *,
     label: str,
     count: int,
     seed: int,
     occurrence_limit: int,
-) -> dict[str, list[int]]:
+) -> tuple[dict[str, list[int]], dict[str, dict[str, Any]]]:
     selections: dict[str, list[int]] = {}
+    prepared: dict[str, dict[str, Any]] = {}
     for layer in lens.available_layers:
         profile = lens._get_profile(lens._get_layer(layer))
-        eligible = []
+        eligible: list[int] = []
+        by_component: dict[int, dict[str, Any]] = {}
         for item in profile["components"]:
             component = int(item["component"])
             direction = str(item["tail_direction"])
             occurrences = item["examples"][direction]["occurrences"][:occurrence_limit]
             if occurrences:
                 eligible.append(component)
+                by_component[component] = {
+                    "component": component,
+                    "tail_direction": direction,
+                    "occurrences": occurrences,
+                }
         if len(eligible) < count:
             raise ValueError(
                 f"{label} layer {layer} has only {len(eligible)} profiled components with "
@@ -241,7 +240,137 @@ def _sample_components(
         rng = np.random.default_rng(layer_seed)
         selected = sorted(int(value) for value in rng.choice(eligible, size=count, replace=False))
         selections[str(layer)] = selected
-    return selections
+        prepared[str(layer)] = {str(component): by_component[component] for component in selected}
+    return selections, prepared
+
+
+def _resolved_configuration(
+    *,
+    lens_specs: dict[str, Path],
+    lenses: dict[str, ICALens],
+    selections: dict[str, dict[str, list[int]]],
+    components_per_layer: int,
+    occurrences_per_component: int,
+    seed: int,
+) -> dict[str, Any]:
+    return {
+        "format": "icalens.erf_gradient",
+        "schema_version": SCHEMA_VERSION,
+        "icalens_version": __version__,
+        "method": METHOD,
+        "influence": "squared L2 norm of d(component score)/d(input token embedding)",
+        "distance": "target token is 1; preceding lexical positions increase by 1",
+        "sample_erf": "exp(sum_i normalized_influence_i * log(distance_i))",
+        "component_erf": "median sample_erf over stored dominant-tail occurrences",
+        "document_framing": "reported separately and excluded from lexical normalization",
+        "components_per_layer": components_per_layer,
+        "occurrences_per_component": occurrences_per_component,
+        "seed": seed,
+        "lens_order": list(lens_specs),
+        "lenses": {
+            label: _lens_identity(path, lenses[label], selections[label])
+            for label, path in lens_specs.items()
+        },
+        "selections": selections,
+    }
+
+
+def _prepared_layer_path(output: Path, label: str, layer: int) -> Path:
+    return output / "prepared" / label / f"layer_{layer:02d}.json"
+
+
+def _write_prepared_inputs(
+    output: Path, prepared_inputs: dict[str, dict[str, dict[str, Any]]]
+) -> None:
+    for label, layers in prepared_inputs.items():
+        for layer_text, components in layers.items():
+            atomic_write_json(
+                _prepared_layer_path(output, label, int(layer_text)),
+                {
+                    "format": "icalens.erf_gradient.prepared_layer",
+                    "schema_version": SCHEMA_VERSION,
+                    "model_label": label,
+                    "layer": int(layer_text),
+                    "components": components,
+                },
+            )
+
+
+def _load_prepared_run(
+    output: Path, *, lens_specs: dict[str, Path], args: argparse.Namespace
+) -> (
+    tuple[
+        dict[str, Any],
+        dict[str, dict[str, list[int]]],
+        dict[str, dict[str, dict[str, Any]]],
+    ]
+    | None
+):
+    run_path = output / "run.json"
+    if not run_path.is_file():
+        return None
+    try:
+        state = json.loads(run_path.read_text(encoding="utf-8"))
+        resolved = state["resolved"]
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+        raise ValueError(f"{run_path} has no valid resolved configuration") from error
+    requested = {
+        "format": "icalens.erf_gradient",
+        "schema_version": SCHEMA_VERSION,
+        "method": METHOD,
+        "components_per_layer": args.components_per_layer,
+        "occurrences_per_component": args.occurrences_per_component,
+        "seed": args.seed,
+        "lens_order": list(lens_specs),
+        "lens_paths": {label: str(path) for label, path in lens_specs.items()},
+    }
+    existing = {
+        "format": resolved.get("format"),
+        "schema_version": resolved.get("schema_version"),
+        "method": resolved.get("method"),
+        "components_per_layer": resolved.get("components_per_layer"),
+        "occurrences_per_component": resolved.get("occurrences_per_component"),
+        "seed": resolved.get("seed"),
+        "lens_order": resolved.get("lens_order"),
+        "lens_paths": {
+            label: value.get("path") for label, value in resolved.get("lenses", {}).items()
+        },
+    }
+    if existing != requested:
+        differences = [
+            f"{key}: {existing[key]!r} -> {requested[key]!r}"
+            for key in requested
+            if existing[key] != requested[key]
+        ]
+        raise ValueError(
+            f"{run_path} belongs to a different configuration "
+            f"({'; '.join(differences)}); choose another output"
+        )
+    selections = resolved.get("selections")
+    if not isinstance(selections, dict):
+        raise ValueError(f"{run_path} has no valid component selections")
+    prepared_inputs: dict[str, dict[str, dict[str, Any]]] = {}
+    for label, layers in selections.items():
+        prepared_inputs[label] = {}
+        for layer_text, selected in layers.items():
+            path = _prepared_layer_path(output, label, int(layer_text))
+            if not path.is_file():
+                return None
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                components = payload["components"]
+            except (OSError, KeyError, TypeError, json.JSONDecodeError):
+                return None
+            if (
+                payload.get("format") != "icalens.erf_gradient.prepared_layer"
+                or payload.get("schema_version") != SCHEMA_VERSION
+                or payload.get("model_label") != label
+                or payload.get("layer") != int(layer_text)
+                or sorted(int(component) for component in components) != sorted(selected)
+            ):
+                return None
+            prepared_inputs[label][layer_text] = components
+    return resolved, selections, prepared_inputs
 
 
 def _stable_seed(seed: int, label: str, layer: int) -> int:

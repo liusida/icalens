@@ -4,6 +4,7 @@ import csv
 import json
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -12,7 +13,9 @@ from icalens.experiments.erf_gradient import (
     METHOD,
     _component_checkpoint_valid,
     _gradient_statistics,
+    _load_prepared_run,
     _stable_seed,
+    _write_prepared_inputs,
 )
 from icalens.experiments.erf_gradient_figure import render
 
@@ -56,6 +59,77 @@ def test_component_checkpoint_validation(tmp_path: Path) -> None:
     assert not _component_checkpoint_valid(path, label="gpt2", layer=2, component=6, method=METHOD)
 
 
+def test_prepared_run_cache_round_trip(tmp_path: Path) -> None:
+    lens_path = tmp_path / "lens"
+    lens_path.mkdir()
+    output = tmp_path / "run"
+    output.mkdir()
+    resolved = {
+        "format": "icalens.erf_gradient",
+        "schema_version": 1,
+        "method": METHOD,
+        "components_per_layer": 1,
+        "occurrences_per_component": 2,
+        "seed": 0,
+        "lens_order": ["gpt2"],
+        "lenses": {"gpt2": {"path": str(lens_path)}},
+        "selections": {"gpt2": {"0": [7]}},
+    }
+    (output / "run.json").write_text(json.dumps({"resolved": resolved}))
+    prepared = {
+        "gpt2": {
+            "0": {
+                "7": {
+                    "component": 7,
+                    "tail_direction": "positive",
+                    "occurrences": [{"source_index": 3}],
+                }
+            }
+        }
+    }
+    _write_prepared_inputs(output, prepared)
+    args = SimpleNamespace(
+        components_per_layer=1,
+        occurrences_per_component=2,
+        seed=0,
+    )
+
+    cached = _load_prepared_run(output, lens_specs={"gpt2": lens_path}, args=args)
+
+    assert cached is not None
+    cached_resolved, selections, cached_prepared = cached
+    assert cached_resolved == resolved
+    assert selections == resolved["selections"]
+    assert cached_prepared == prepared
+
+
+def test_prepared_run_cache_rejects_changed_seed(tmp_path: Path) -> None:
+    lens_path = tmp_path / "lens"
+    lens_path.mkdir()
+    output = tmp_path / "run"
+    output.mkdir()
+    resolved = {
+        "format": "icalens.erf_gradient",
+        "schema_version": 1,
+        "method": METHOD,
+        "components_per_layer": 1,
+        "occurrences_per_component": 2,
+        "seed": 0,
+        "lens_order": ["gpt2"],
+        "lenses": {"gpt2": {"path": str(lens_path)}},
+        "selections": {"gpt2": {"0": [7]}},
+    }
+    (output / "run.json").write_text(json.dumps({"resolved": resolved}))
+    args = SimpleNamespace(
+        components_per_layer=1,
+        occurrences_per_component=2,
+        seed=1,
+    )
+
+    with pytest.raises(ValueError, match="seed: 0 -> 1"):
+        _load_prepared_run(output, lens_specs={"gpt2": lens_path}, args=args)
+
+
 def test_erf_gradient_figure_writes_all_outputs(tmp_path: Path) -> None:
     experiment = tmp_path / "experiment"
     experiment.mkdir()
@@ -65,7 +139,12 @@ def test_erf_gradient_figure_writes_all_outputs(tmp_path: Path) -> None:
             "components_per_layer": 2,
             "seed": 3,
             "lens_order": ["gpt2"],
-            "lenses": {"gpt2": {"model": {"repo_id": "openai-community/gpt2", "revision": "r"}}},
+            "lenses": {
+                "gpt2": {
+                    "layers": [0],
+                    "model": {"repo_id": "openai-community/gpt2", "revision": "r"},
+                }
+            },
         },
     }
     (experiment / "run.json").write_text(json.dumps(run))
@@ -95,3 +174,45 @@ def test_erf_gradient_figure_writes_all_outputs(tmp_path: Path) -> None:
         tmp_path / "figure" / "erf-gradient.txt",
     ]
     assert all(path.is_file() for path in outputs)
+
+
+def test_erf_gradient_figure_reads_partial_component_checkpoints(tmp_path: Path) -> None:
+    experiment = tmp_path / "experiment"
+    component_dir = experiment / "components" / "gpt2" / "layer_00"
+    component_dir.mkdir(parents=True)
+    run = {
+        "status": "measuring",
+        "resolved": {
+            "components_per_layer": 2,
+            "seed": 0,
+            "lens_order": ["gpt2"],
+            "lenses": {
+                "gpt2": {
+                    "layers": [0, 1],
+                    "model": {"repo_id": "openai-community/gpt2", "revision": "r"},
+                }
+            },
+        },
+    }
+    (experiment / "run.json").write_text(json.dumps(run))
+    (component_dir / "C1.json").write_text(
+        json.dumps(
+            {
+                "model_label": "gpt2",
+                "layer": 0,
+                "component": 1,
+                "gradient_erf_median": 2.5,
+            }
+        )
+    )
+
+    outputs = render(
+        experiment,
+        output_prefix=tmp_path / "partial" / "erf-gradient",
+        panel_titles=None,
+        force=False,
+    )
+
+    caption = outputs[2].read_text()
+    assert "Partial visualization based on 1 of 4 planned components" in caption
+    assert "normalized over the components completed in that layer" in caption
