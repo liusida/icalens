@@ -62,7 +62,7 @@ token cards.
 - The profile title shows the tail selected by score skewness.
 - The compact statistics column shows **Skewness**, **Excess kurtosis**, and
   the fitting-time **Logcosh deviation** used to order component IDs.
-- **High-energy occurrences** shows representative places where that side was
+- **Top-score occurrences** shows representative places where that side was
   especially strong. Read the highlighted token together with its surrounding
   text to infer a possible meaning.
 - **Logit-lens tokens** shows vocabulary tokens promoted by the component's

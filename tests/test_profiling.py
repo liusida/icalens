@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from icalens import ICALens
-from icalens.profiling import _final_norm
+from icalens.profiling import _final_norm, _TopScoreOccurrences
 
 
 class TinyTokenizer:
@@ -37,6 +37,22 @@ def test_final_norm_supports_gpt_neox_layout() -> None:
     assert _final_norm(model) is model.gpt_neox.final_layer_norm
 
 
+def test_top_score_occurrences_ignore_relative_energy_rank() -> None:
+    selector = _TopScoreOccurrences(n_components=2, top_k=2)
+    selector.update(
+        torch.tensor([[0.01, 0.90], [0.20, 0.01], [0.10, 0.08]], dtype=torch.float64),
+        torch.tensor([[1.0, -1.0], [2.0, -2.0], [3.0, -3.0]], dtype=torch.float64),
+        row_offset=0,
+    )
+
+    examples = selector.finish(lambda row: {"row": row})
+
+    assert [item[0] for item in examples[0]["positive"]] == [3.0, 2.0]
+    assert [item[2]["energy"] for item in examples[0]["positive"]] == [0.10, 0.20]
+    assert [item[0] for item in examples[1]["negative"]] == [3.0, 2.0]
+    assert [item[2]["energy"] for item in examples[1]["negative"]] == [0.08, 0.01]
+
+
 def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> None:
     signals = np.asarray([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.2], [0.1, -1.0]], dtype=np.float32)
     lens = ICALens(model_id="example/model", model_revision="revision").fit(
@@ -54,7 +70,7 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     )
     monkeypatch.setattr(lens, "analyze", lambda *args, **kwargs: result)
 
-    profile = lens.profile_components(["example"], layer=1, min_energy=0.1, top_k_examples=2)
+    profile = lens.profile_components(["example"], layer=1, top_k_examples=2)
 
     assert profile["n_tokens"] == 2
     assert profile["components"][0]["sign_statistics"]["positive_fraction"] == 0.5
@@ -63,9 +79,12 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     assert profile["components"][0]["score_statistics"]["skewness"] == pytest.approx(0.0)
     assert profile["components"][0]["score_statistics"]["excess_kurtosis_rank"] == 1
     assert profile["components"][1]["score_statistics"]["excess_kurtosis_rank"] == 2
-    assert profile["components"][0]["examples"]["positive"]["tokens"] == [
-        {"text": " alpha", "count": 1}
+    assert profile["components"][0]["examples"]["negative"]["tokens"] == [
+        {"text": " beta", "count": 1}
     ]
+    assert profile["components"][0]["examples"]["negative"]["occurrences"]
+    assert profile["components"][0]["examples"]["positive"]["occurrences"] == []
+    assert profile["selection"]["example_selection"] == ("top_absolute_score_on_selected_tail")
     artifact = lens.save(tmp_path / "profiled")
     assert (artifact / "component_profiles/resid_post/layer_01.json.gz").is_file()
     lens.checkpoint_component_profile(artifact, layer=1)
@@ -116,7 +135,7 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     assert rendered.index("Logit-lens tokens") < rendered.index("Skewness")
     report = component.to_html(tmp_path / "component-profile.html")
     assert report.is_file()
-    assert "High-energy occurrences · negative" in report.read_text()
+    assert "Top-score occurrences · negative" in report.read_text()
     assert 'class="profile-occurrence-token" title="Token ID:' in report.read_text()
     assert profile["format_version"] == 1
 
@@ -151,7 +170,6 @@ def test_profiles_from_cached_activations_without_analyze(monkeypatch) -> None:
         records,
         layer=1,
         batch_size=2,
-        min_energy=0.0,
         device="cpu",
     )
 
@@ -177,7 +195,7 @@ def test_refresh_profile_statistics_uses_skewness_for_tail_direction(monkeypatch
         positions=torch.tensor([4, 5]),
     )
     monkeypatch.setattr(lens, "analyze", lambda *args, **kwargs: result)
-    lens.profile_components(["example"], layer=1, min_energy=0.1, top_k_examples=2)
+    lens.profile_components(["example"], layer=1, top_k_examples=2)
     monkeypatch.setattr(lens, "transform", lambda values, *, layer: values)
     activations = torch.tensor([[1.0, -1.0], [1.0, -0.5], [1.0, 0.0], [1.0, 0.5], [-1.8, 1.0]])
 
@@ -216,7 +234,7 @@ def test_add_r_lens_profile_preserves_existing_information(monkeypatch) -> None:
         positions=torch.tensor([4, 5]),
     )
     monkeypatch.setattr(lens, "analyze", lambda *args, **kwargs: result)
-    original = lens.profile_components(["example"], layer=1, min_energy=0.1, top_k_examples=2)
+    original = lens.profile_components(["example"], layer=1, top_k_examples=2)
     original_examples = original["components"][0]["examples"]
 
     enriched = lens.add_r_lens_profile(
@@ -261,7 +279,7 @@ def test_add_r_lens_profile_records_explicit_base_to_instruct_transfer(
         positions=torch.tensor([4, 5]),
     )
     monkeypatch.setattr(lens, "analyze", lambda *args, **kwargs: result)
-    lens.profile_components(["example"], layer=1, min_energy=0.1, top_k_examples=2)
+    lens.profile_components(["example"], layer=1, top_k_examples=2)
     r_lens = {
         "J": {1: torch.eye(2)},
         "d_model": 2,
@@ -277,7 +295,6 @@ def test_add_r_lens_profile_records_explicit_base_to_instruct_transfer(
     directly_profiled = lens.profile_components(
         ["example"],
         layer=1,
-        min_energy=0.1,
         top_k_examples=2,
         r_lens=r_lens,
         r_lens_top_k=2,

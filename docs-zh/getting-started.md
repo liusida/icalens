@@ -56,14 +56,14 @@ result
 - 画像标题显示由分数偏度选择的尾部。
 - 紧凑统计栏显示 **Skewness**、**Excess kurtosis**，以及用于排列成分 ID 的拟合时
   **Logcosh deviation**。
-- **High-energy occurrences** 给出该方向特别强的代表性位置。结合高亮 token 及其上下文，
+- **Top-score occurrences** 给出所选尾部中成分绝对分数最高的代表性位置。结合高亮 token 及其上下文，
   可以推测成分可能表达的含义。
 - **Logit-lens tokens** 显示该成分写入方向会提升的词表 token。这些 token 只是辅助
   线索，不能当作确定标签，也不是对模型生成结果的预测。
 - **R-lens tokens**（如果存在）近似纳入后续 Transformer block 的平均线性影响，可作为
   另一类读出证据。
 
-token 卡片上方的控件可以切换指标并调整显示的成分数量。阅读时可以先看高能量样例，
+token 卡片上方的控件可以切换指标并调整显示的成分数量。阅读时可以先看高分样例，
 检查不同上下文是否表达一致，再比较 Logit Lens 和 R-lens token 作为补充证据。
 
 ## 分析另一个输入

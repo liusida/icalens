@@ -244,7 +244,7 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert "Skewness" in html
     profile_layout = html[html.index("body.innerHTML = `") :]
     assert profile_layout.index("Logit-lens tokens") < profile_layout.index("scoreStatistics")
-    assert "High-energy occurrences · ${profile.dominant_sign}" in html
+    assert "Top-score occurrences · ${profile.dominant_sign}" in html
     assert "Logit-lens tokens · ${profile.dominant_sign}" in html
     assert "Suppressed logit-lens tokens" not in html
     assert 'class="profile-stat-row profile-stat-primary"' in html

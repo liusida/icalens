@@ -130,7 +130,7 @@ icalens profile \
   --max-tokens 10000
 ```
 
-Profiles add sign statistics, high-energy examples, Logit Lens tokens, and
+Profiles add sign statistics, top-score examples, Logit Lens tokens, and
 optional R-lens readouts to the existing Lens directory. They help label and
 inspect components without changing the fitted directions.
 

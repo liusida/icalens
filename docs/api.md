@@ -247,7 +247,6 @@ profile = lens.profile_components(
     token_scope="all",
     max_tokens=100000,
     top_k_examples=20,
-    min_energy=0.05,
     provenance={"dataset": {"repo_id": "owner/dataset", "split": "train"}},
     device="auto",
     progress=True,
@@ -260,8 +259,7 @@ profile = lens.profile_components(
 | `layer` | `int`, required | Fitted layer to profile |
 | `token_scope` | `str = "all"` | Eligible chat positions; raw text always uses all tokens |
 | `max_tokens` | `int \| None = 100000` | Maximum token positions included; `None` consumes the iterable |
-| `top_k_examples` | `int = 20` | Highest-energy occurrences retained per component and sign |
-| `min_energy` | `float = 0.05` | Minimum per-token component energy required for an example |
+| `top_k_examples` | `int = 20` | Largest absolute-score occurrences retained on the selected tail |
 | `logit_lens_top_k` | `int = 20` | Top and bottom vocabulary entries retained for each direction |
 | `logit_lens_batch_size` | `int = 64` | Writing directions unembedded together; lower this to reduce peak memory |
 | `r_lens` | `str \| Path \| dict \| None = None` | Compatible R-lens artifact used to add downstream-aware vocabulary readouts |
@@ -285,7 +283,7 @@ Each component entry contains:
 | `dominant_sign` | Compatibility alias for `tail_direction` |
 | `sign_statistics` | Positive/negative position fractions and positive/negative energy fractions |
 | `score_statistics` | Mean, variance, third central moment, skewness, excess kurtosis, and kurtosis rank |
-| `examples` | Retained positive and negative high-energy occurrences and token counts |
+| `examples` | Top-score occurrences on the selected tail and their token counts |
 | `logit_lens` | Vocabulary associations for the positive, negative, and dominant writing directions |
 | `r_lens` | Optional downstream-aware vocabulary associations when a compatible R-lens was supplied |
 
@@ -688,7 +686,7 @@ result
 ```
 
 `component_profiles` supplies the interactive result with sign statistics,
-high-energy occurrences, Logit Lens tokens, and optional R-lens tokens. Full
+top-score occurrences, Logit Lens tokens, and optional R-lens tokens. Full
 stored profiles remain available through `lens.component_profile(...)`.
 
 ### `add_logit_effects(...)`

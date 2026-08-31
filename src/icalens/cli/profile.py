@@ -58,7 +58,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-tokens", type=int, default=100_000)
     parser.add_argument("--context-length", type=int, default=1024)
     parser.add_argument("--top-k-examples", type=int, default=20)
-    parser.add_argument("--min-energy", type=float, default=0.05)
     parser.add_argument("--logit-lens-top-k", type=int, default=20)
     parser.add_argument("--logit-lens-batch-size", type=int, default=64)
     parser.add_argument(
@@ -151,7 +150,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             token_scope=args.token_scope,
             max_tokens=args.max_tokens,
             top_k_examples=args.top_k_examples,
-            min_energy=args.min_energy,
             logit_lens_top_k=args.logit_lens_top_k,
             logit_lens_batch_size=args.logit_lens_batch_size,
             r_lens=args.r_lens,
@@ -220,7 +218,6 @@ def _profile_cached_activations(
             layer=layer,
             batch_size=args.activation_batch_size,
             top_k_examples=args.top_k_examples,
-            min_energy=args.min_energy,
             logit_lens_top_k=args.logit_lens_top_k,
             logit_lens_batch_size=args.logit_lens_batch_size,
             r_lens=args.r_lens,
@@ -349,8 +346,8 @@ def _pending_profile_layers(
     if not (output / "icalens.json").is_file():
         return layers
     expected_selection = {
-        "top_k_examples_per_sign": args.top_k_examples,
-        "minimum_component_energy": args.min_energy,
+        "top_k_examples_on_selected_tail": args.top_k_examples,
+        "example_selection": "top_absolute_score_on_selected_tail",
         "logit_lens_top_k": args.logit_lens_top_k,
         "logit_lens_batch_size": args.logit_lens_batch_size,
         "score_statistics": "population_mean_variance_skewness_excess_kurtosis",

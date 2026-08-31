@@ -310,7 +310,7 @@ center or matrices. For every component, it records:
 
 - score skewness, excess kurtosis, and the tail selected by skewness;
 - positive and negative token-position frequencies and squared-energy fractions;
-- high-energy token occurrences, token counts, scores, positions, and short contexts; and
+- top-score token occurrences, token counts, scores, positions, and short contexts; and
 - top and bottom vocabulary tokens obtained by passing both writing-vector directions
   through the model's final norm and unembedding.
 
@@ -325,8 +325,7 @@ icalens profile \
   --split train_sft \
   --token-scope all \
   --max-tokens 100000 \
-  --top-k-examples 20 \
-  --min-energy 0.05
+  --top-k-examples 20
 ```
 
 `--max-tokens` is the profiling budget for each layer. Every completed profile
@@ -384,7 +383,6 @@ for layer in lens.available_layers:
         layer=layer,
         max_tokens=100000,
         top_k_examples=20,
-        min_energy=0.05,
         device="auto",
         progress=True,
     )
@@ -440,7 +438,7 @@ icalens profile add-r-lens \
   --r-lens local-r-lens-models/model/lens.pt
 ```
 
-This additive command preserves the score statistics, high-energy occurrences,
+This additive command preserves the score statistics, top-score occurrences,
 Logit Lens entries, and ICA matrices already stored in the artifact. It updates
 the same `component_profiles/` files in place, so no output path or dataset is
 required. By default it retains 20 R-lens tokens per direction and processes 8
@@ -478,7 +476,7 @@ After fitting and profiling, the artifact contains:
 - L2 preprocessing and fitted center;
 - reading and writing matrices;
 - FastICA configuration, objective history, and component ordering;
-- component score statistics, selected tails, representative high-energy occurrences, and
+- component score statistics, selected tails, representative top-score occurrences, and
   Logit Lens tokens for every profiled layer;
 - R-lens tokens and their provenance for layers enriched with a compatible
   R-lens;

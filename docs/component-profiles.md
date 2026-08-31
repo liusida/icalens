@@ -17,7 +17,7 @@ For each component, profiling records:
 - score skewness, excess kurtosis, and the tail selected by skewness;
 - how often its score is positive or negative;
 - how its squared score energy is divided between the two signs;
-- representative high-energy token occurrences and their surrounding text;
+- representative top-score token occurrences and their surrounding text;
 - vocabulary tokens associated with each writing direction through a logit-lens
   projection; and
 - when a compatible R-lens has been added, vocabulary tokens associated after
@@ -106,22 +106,23 @@ They are still diagnostic associations: the map is averaged over a fitting
 corpus and is not an exact input-specific causal effect. This row appears only
 when the artifact has been enriched with a compatible R-lens.
 
-### High-energy occurrences
+### Top-score occurrences
 
-These are corpus positions where the selected component accounts for a large
-share of that token's score energy. The highlighted token is the selected
-position; the lighter text provides its context.
+These are the corpus positions with the largest absolute component scores on
+the skewness-selected tail. The profile retains up to 20 without an energy
+cutoff. The highlighted token is the selected position; the lighter text
+provides its context.
 
 Read several occurrences together. Repeated words, topics, syntactic roles, or
 discourse patterns can suggest a working label. The list contains selected
-high-energy examples, not every activation of the component and not a frequency
+top-score examples, not every activation of the component and not a frequency
 table for the whole dataset.
 
 ## Form a working label
 
 A useful reading sequence is:
 
-1. Start with the selected tail and high-energy occurrences.
+1. Start with the selected tail and top-score occurrences.
 2. Look for a pattern that repeats across different contexts.
 3. Compare the Logit Lens and, when available, R-lens tokens with that
    interpretation.

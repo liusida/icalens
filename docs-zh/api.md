@@ -168,7 +168,6 @@ profile = lens.profile_components(
     layer=5,
     max_tokens=100000,
     top_k_examples=20,
-    min_energy=0.05,
     provenance={"dataset": {"repo_id": "owner/dataset", "split": "train"}},
     device="auto",
     progress=True,
@@ -181,8 +180,7 @@ profile = lens.profile_components(
 | `layer` | `int`，必填 | 要建立画像的已拟合层 |
 | `token_scope` | `str = "all"` | 对话中纳入统计的位置 |
 | `max_tokens` | `int \| None = 100000` | 最多统计的 token 数 |
-| `top_k_examples` | `int = 20` | 每个成分、每个符号方向保留的最高能量样例数 |
-| `min_energy` | `float = 0.05` | 样例需要达到的最小逐 token 成分能量 |
+| `top_k_examples` | `int = 20` | 在偏度所选尾部保留的最大绝对分数样例数 |
 | `logit_lens_top_k` | `int = 20` | 每个方向保留的最高和最低词表条目数 |
 | `logit_lens_batch_size` | `int = 64` | 同时反嵌入的写入方向数；调低可减少峰值显存 |
 | `r_lens` | `str \| Path \| dict \| None = None` | 用于加入后续层近似词表读出的兼容 R-lens 产物 |

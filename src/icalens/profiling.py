@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import heapq
 from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
@@ -11,6 +10,78 @@ from typing import Any, cast
 
 import torch
 from tqdm.auto import tqdm
+
+
+class _TopScoreOccurrences:
+    """Streaming top-absolute-score rows for every component and score sign."""
+
+    def __init__(self, n_components: int, top_k: int) -> None:
+        self.top_k = top_k
+        shape = (top_k, n_components)
+        self.priority = {
+            sign: torch.full(shape, -torch.inf, dtype=torch.float64)
+            for sign in ("positive", "negative")
+        }
+        self.energy = {
+            sign: torch.zeros(shape, dtype=torch.float64) for sign in ("positive", "negative")
+        }
+        self.rows = {
+            sign: torch.full(shape, -1, dtype=torch.int64) for sign in ("positive", "negative")
+        }
+        self.scores = {
+            sign: torch.zeros(shape, dtype=torch.float64) for sign in ("positive", "negative")
+        }
+
+    def update(self, energy: torch.Tensor, scores: torch.Tensor, *, row_offset: int) -> None:
+        batch_k = min(self.top_k, len(scores))
+        if batch_k == 0:
+            return
+        for sign, valid in (("positive", scores > 0), ("negative", scores < 0)):
+            candidates = scores.abs().masked_fill(~valid, -torch.inf)
+            batch_priority, batch_rows = torch.topk(candidates, batch_k, dim=0)
+            batch_scores = scores.gather(0, batch_rows)
+            batch_energy = energy.gather(0, batch_rows)
+            batch_rows = batch_rows + row_offset
+            merged_priority = torch.cat((self.priority[sign], batch_priority), dim=0)
+            merged_energy = torch.cat((self.energy[sign], batch_energy), dim=0)
+            merged_rows = torch.cat((self.rows[sign], batch_rows), dim=0)
+            merged_scores = torch.cat((self.scores[sign], batch_scores), dim=0)
+            retained_priority, retained = torch.topk(merged_priority, self.top_k, dim=0)
+            self.priority[sign] = retained_priority
+            self.energy[sign] = merged_energy.gather(0, retained)
+            self.rows[sign] = merged_rows.gather(0, retained)
+            self.scores[sign] = merged_scores.gather(0, retained)
+
+    def finish(
+        self, record_for_row: Any
+    ) -> list[dict[str, list[tuple[float, int, dict[str, Any]]]]]:
+        n_components = int(self.priority["positive"].shape[1])
+        examples = [{"positive": [], "negative": []} for _ in range(n_components)]
+        serial = 0
+        for component in range(n_components):
+            for sign in ("positive", "negative"):
+                for rank in range(self.top_k):
+                    priority = float(self.priority[sign][rank, component])
+                    energy = float(self.energy[sign][rank, component])
+                    row = int(self.rows[sign][rank, component])
+                    if row < 0 or not torch.isfinite(self.priority[sign][rank, component]):
+                        continue
+                    record = dict(record_for_row(row))
+                    record.update(
+                        score=float(self.scores[sign][rank, component]),
+                        energy=energy,
+                    )
+                    examples[component][sign].append((priority, serial, record))
+                    serial += 1
+        return examples
+
+    def retained_rows(self) -> set[int]:
+        return {
+            int(row)
+            for sign in ("positive", "negative")
+            for row in self.rows[sign].reshape(-1).tolist()
+            if row >= 0
+        }
 
 
 def add_r_lens_profile(
@@ -85,7 +156,6 @@ def profile_components(
     token_scope: str = "all",
     max_tokens: int | None = 100_000,
     top_k_examples: int = 20,
-    min_energy: float = 0.05,
     logit_lens_top_k: int = 20,
     logit_lens_batch_size: int = 64,
     r_lens: str | Path | dict[str, Any] | None = None,
@@ -108,8 +178,6 @@ def profile_components(
         or r_lens_batch_size <= 0
     ):
         raise ValueError("top-k values must be positive")
-    if not 0 <= min_energy <= 1:
-        raise ValueError("min_energy must be between 0 and 1")
 
     artifact = lens._get_layer(layer)
     n_components = artifact.n_components
@@ -119,10 +187,8 @@ def profile_components(
     negative_energy = torch.zeros(n_components, dtype=torch.float64)
     total_energy = torch.zeros(n_components, dtype=torch.float64)
     score_moments = torch.zeros((4, n_components), dtype=torch.float64)
-    examples: list[dict[str, list[tuple[float, int, dict[str, Any]]]]] = [
-        {"positive": [], "negative": []} for _ in range(n_components)
-    ]
-    serial = 0
+    occurrence_selector = _TopScoreOccurrences(n_components, top_k_examples)
+    occurrence_records: dict[int, dict[str, Any]] = {}
     token_count = 0
     source_count = 0
     iterator = tqdm(inputs, desc="Profile components", unit="input", disable=not progress)
@@ -158,41 +224,35 @@ def profile_components(
         for power in range(1, 5):
             score_moments[power - 1] += scores_cpu.pow(power).sum(dim=0)
 
-        candidates = torch.nonzero(energy_cpu >= min_energy, as_tuple=False)
-        for row, component in candidates.tolist():
-            score = float(scores_cpu[row, component])
-            if score == 0:
+        occurrence_selector.update(energy_cpu, scores_cpu, row_offset=token_count)
+        retained_rows = occurrence_selector.retained_rows()
+        occurrence_records = {
+            row: record for row, record in occurrence_records.items() if row in retained_rows
+        }
+        for global_row in retained_rows:
+            if not token_count <= global_row < token_count + count:
                 continue
-            sign = "positive" if score > 0 else "negative"
+            row = global_row - token_count
             position = int(result.positions[row])
             start = max(0, row - 4)
             end = min(count, row + 5)
             context_target_start = sum(len(text) for text in result.token_texts[start:row])
             context_target_end = context_target_start + len(result.token_texts[row])
-            record = {
+            occurrence_records[global_row] = {
                 "token": result.tokens[row],
                 "text": result.token_texts[row],
                 "token_id": int(result.token_ids[row]),
                 "position": position,
-                "score": score,
-                "energy": float(energy_cpu[row, component]),
                 "context": "".join(result.token_texts[start:end]),
                 "context_target_start": context_target_start,
                 "context_target_end": context_target_end,
                 "source_index": source_count,
             }
-            heap = examples[component][sign]
-            item = (record["energy"], serial, record)
-            serial += 1
-            if len(heap) < top_k_examples:
-                heapq.heappush(heap, item)
-            elif item[0] > heap[0][0]:
-                heapq.heapreplace(heap, item)
-
         token_count += count
         source_count += 1
         iterator.set_postfix(tokens=token_count)
 
+    examples = occurrence_selector.finish(occurrence_records.__getitem__)
     return _finish_profile(
         lens,
         artifact,
@@ -207,7 +267,6 @@ def profile_components(
         score_moments=score_moments,
         examples=examples,
         top_k_examples=top_k_examples,
-        min_energy=min_energy,
         logit_lens_top_k=logit_lens_top_k,
         logit_lens_batch_size=logit_lens_batch_size,
         r_lens=r_lens,
@@ -227,7 +286,6 @@ def profile_components_from_activations(
     layer: int,
     batch_size: int = 8192,
     top_k_examples: int = 20,
-    min_energy: float = 0.05,
     logit_lens_top_k: int = 20,
     logit_lens_batch_size: int = 64,
     r_lens: str | Path | dict[str, Any] | None = None,
@@ -241,8 +299,8 @@ def profile_components_from_activations(
     """Profile a layer from token-aligned, previously captured activations."""
     if activations.ndim != 2 or len(records) != int(activations.shape[0]):
         raise ValueError("activations and profiling records must have matching rows")
-    if batch_size <= 0 or not 0 <= min_energy <= 1:
-        raise ValueError("batch_size must be positive and min_energy must be in [0, 1]")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
     artifact = lens._get_layer(layer)
     n_components = artifact.n_components
     positive_count = torch.zeros(n_components, dtype=torch.int64)
@@ -251,9 +309,7 @@ def profile_components_from_activations(
     negative_energy = torch.zeros(n_components, dtype=torch.float64)
     total_energy = torch.zeros(n_components, dtype=torch.float64)
     score_moments = torch.zeros((4, n_components), dtype=torch.float64)
-    examples: list[dict[str, list[tuple[float, int, dict[str, Any]]]]] = [
-        {"positive": [], "negative": []} for _ in range(n_components)
-    ]
+    occurrence_selector = _TopScoreOccurrences(n_components, top_k_examples)
     target = _profiling_device(device)
     iterator = tqdm(
         range(0, len(records), batch_size),
@@ -261,7 +317,6 @@ def profile_components_from_activations(
         unit="batch",
         disable=not progress,
     )
-    serial = 0
     for start in iterator:
         end = min(len(records), start + batch_size)
         scores = lens.transform(activations[start:end].to(target), layer=layer)
@@ -278,24 +333,12 @@ def profile_components_from_activations(
         total_energy += squared.sum(dim=0)
         for power in range(1, 5):
             score_moments[power - 1] += scores_cpu.pow(power).sum(dim=0)
-        for row, component in torch.nonzero(energy_cpu >= min_energy).tolist():
-            score = float(scores_cpu[row, component])
-            if score == 0:
-                continue
-            sign = "positive" if score > 0 else "negative"
-            record = dict(records[start + row])
-            record.update(score=score, energy=float(energy_cpu[row, component]))
-            item = (record["energy"], serial, record)
-            serial += 1
-            heap = examples[component][sign]
-            if len(heap) < top_k_examples:
-                heapq.heappush(heap, item)
-            elif item[0] > heap[0][0]:
-                heapq.heapreplace(heap, item)
+        occurrence_selector.update(energy_cpu, scores_cpu, row_offset=start)
 
     from .analysis import _resolve_model_and_tokenizer
 
     _resolve_model_and_tokenizer(lens, None, None, device)
+    examples = occurrence_selector.finish(records.__getitem__)
     return _finish_profile(
         lens,
         artifact,
@@ -310,7 +353,6 @@ def profile_components_from_activations(
         score_moments=score_moments,
         examples=examples,
         top_k_examples=top_k_examples,
-        min_energy=min_energy,
         logit_lens_top_k=logit_lens_top_k,
         logit_lens_batch_size=logit_lens_batch_size,
         r_lens=r_lens,
@@ -444,7 +486,6 @@ def _finish_profile(
     score_moments: torch.Tensor,
     examples: list[dict[str, list[tuple[float, int, dict[str, Any]]]]],
     top_k_examples: int,
-    min_energy: float,
     logit_lens_top_k: int,
     logit_lens_batch_size: int,
     r_lens: str | Path | dict[str, Any] | None,
@@ -490,7 +531,11 @@ def _finish_profile(
         dominant = _tail_direction(float(statistics["skewness"][component]), pos_fraction)
         component_examples: dict[str, Any] = {}
         for sign in ("positive", "negative"):
-            retained = [item[2] for item in sorted(examples[component][sign], reverse=True)]
+            retained = (
+                [item[2] for item in sorted(examples[component][sign], reverse=True)]
+                if sign == dominant
+                else []
+            )
             counts = Counter(record["text"] for record in retained)
             component_examples[sign] = {
                 "occurrences": retained,
@@ -537,8 +582,8 @@ def _finish_profile(
         "n_tokens": token_count,
         "n_inputs": source_count,
         "selection": {
-            "top_k_examples_per_sign": top_k_examples,
-            "minimum_component_energy": min_energy,
+            "top_k_examples_on_selected_tail": top_k_examples,
+            "example_selection": "top_absolute_score_on_selected_tail",
             "logit_lens_top_k": logit_lens_top_k,
             "logit_lens_batch_size": logit_lens_batch_size,
             "r_lens_top_k": r_lens_top_k if r_lens_result is not None else None,

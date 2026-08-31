@@ -303,8 +303,7 @@ icalens profile \
   --split train_sft \
   --token-scope all \
   --max-tokens 100000 \
-  --top-k-examples 20 \
-  --min-energy 0.05
+  --top-k-examples 20
 ```
 
 `--max-tokens` 是每一层的画像 token 预算。每完成一层，其画像都会立即写入 Lens 的
@@ -355,7 +354,6 @@ for layer in lens.available_layers:
         layer=layer,
         max_tokens=100000,
         top_k_examples=20,
-        min_energy=0.05,
         device="auto",
         progress=True,
     )

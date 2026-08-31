@@ -281,7 +281,7 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
 <div class="profile-grid">
   <section><div class="profile-token-row"><h3>Logit-lens tokens · {html.escape(sign)}</h3><div class="profile-chips">{token_chips(logit_tokens)}</div></div>{r_lens}</section>
   <section>{score_statistics_html}</section>
-  <section class="profile-wide"><h3>High-energy occurrences · {html.escape(sign)}</h3><ol>{occurrence_items}</ol></section>
+  <section class="profile-wide"><h3>Top-score occurrences · {html.escape(sign)}</h3><ol>{occurrence_items}</ol></section>
 </div></details>
 <script>
 const vscodeHost=(()=>{{
@@ -886,7 +886,7 @@ def _document(payload: str) -> str:
           ${{rLensSection}}
         </section>
         <section class="profile-section">${{scoreStatistics}}</section>
-        <section class="profile-section profile-wide"><h3>High-energy occurrences · ${{profile.dominant_sign}}</h3><ol class="profile-list profile-occurrences">${{occurrenceItems}}</ol></section>`;
+        <section class="profile-section profile-wide"><h3>Top-score occurrences · ${{profile.dominant_sign}}</h3><ol class="profile-list profile-occurrences">${{occurrenceItems}}</ol></section>`;
     }}
 
     function updateLocalIntervention(component, tokenIndex) {{
