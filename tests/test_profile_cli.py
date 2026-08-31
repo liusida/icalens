@@ -122,3 +122,25 @@ def test_statistics_refresh_rejects_mixed_provenance_before_work() -> None:
             (0,),
             provenance={"activation_dataset": "new"},
         )
+
+
+def test_statistics_refresh_force_replaces_mixed_provenance() -> None:
+    profile = {
+        "selection": {
+            "score_statistics": "population_mean_variance_skewness_excess_kurtosis",
+            "sign_selection": "population_skewness",
+        },
+        "score_statistics_provenance": {"activation_dataset": "old"},
+    }
+    artifact = SimpleNamespace(profile_file="profiles/0.json.gz")
+    lens = SimpleNamespace(_layers={0: artifact}, _get_profile=lambda value: profile)
+
+    pending, completed = _pending_statistics_layers(
+        SimpleNamespace(force=True),
+        lens,
+        (0,),
+        provenance={"activation_dataset": "new"},
+    )
+
+    assert pending == (0,)
+    assert completed == ()

@@ -413,20 +413,19 @@ def _pending_statistics_layers(
             selection.get("score_statistics") == "population_mean_variance_skewness_excess_kurtosis"
             and selection.get("sign_selection") == "population_skewness"
         )
-        if not already_refreshed:
+        if args.force:
+            pending.append(layer)
+        elif not already_refreshed:
             pending.append(layer)
         elif profile.get("score_statistics_provenance") == provenance:
-            if args.force:
-                pending.append(layer)
-            else:
-                completed.append(layer)
+            completed.append(layer)
         else:
             incompatible.append(f"layer {layer}: statistics provenance differs")
     if incompatible:
         raise ValueError(
             "existing refreshed profile statistics are incompatible with this request ("
             + "; ".join(incompatible)
-            + "); use a separate compatible artifact for a different statistics configuration"
+            + "); use --force to deliberately replace them"
         )
     return tuple(pending), tuple(completed)
 

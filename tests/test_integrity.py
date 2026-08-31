@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+import pytest
 import torch
 
 from icalens._activation_dataset import ActivationDatasetWriter, sample_metadata
@@ -11,6 +12,8 @@ from icalens.cli.integrity import (
     _capture_command,
     _compare_activations,
     _discover_official_experiments,
+    _profile_commands,
+    _profile_configuration,
     _sample_indices,
 )
 
@@ -85,6 +88,43 @@ def test_capture_command_pins_recorded_revisions(tmp_path) -> None:
     assert command[command.index("--model-revision") + 1] == "model-sha"
     assert command[command.index("--dataset-revision") + 1] == "dataset-sha"
     assert command[command.index("--layers") + 1] == "6"
+
+
+def test_integrity_profiles_full_population_in_one_pass(tmp_path) -> None:
+    profile = {
+        "selection": {
+            "example_selection": "top_absolute_score_on_selected_tail",
+            "top_k_examples_on_selected_tail": 20,
+            "logit_lens_top_k": 20,
+            "logit_lens_batch_size": 64,
+        },
+        "provenance": {"profile_sampling": {"seed": 0, "selected_tokens": 100_000}},
+        "score_statistics_provenance": {
+            "statistics_sampling": {"selected_tokens": 1_000_000}
+        },
+        "example_provenance": {},
+    }
+    resolved = {
+        "device": "cuda",
+        "profile": _profile_configuration(profile, 1_000_000),
+    }
+
+    commands = _profile_commands(
+        resolved, tmp_path / "activations", tmp_path / "lens", 6
+    )
+
+    assert len(commands) == 1
+    assert commands[0][commands[0].index("--max-tokens") + 1] == "1000000"
+
+
+def test_integrity_rejects_legacy_reference_examples_before_work() -> None:
+    profile = {
+        "selection": {"top_k_examples_per_sign": 20},
+        "provenance": {"profile_sampling": {"seed": 0, "selected_tokens": 100_000}},
+    }
+
+    with pytest.raises(ValueError, match="refresh-examples"):
+        _profile_configuration(profile, 1_000_000)
 
 
 def test_official_experiment_audit_selects_model_and_layer(tmp_path) -> None:

@@ -291,14 +291,26 @@ def _fit_configuration(fitting: dict[str, Any]) -> dict[str, Any]:
 
 def _profile_configuration(profile: dict[str, Any], population: int) -> dict[str, Any]:
     selection = profile["selection"]
+    if (
+        selection.get("example_selection") != "top_absolute_score_on_selected_tail"
+        or "example_provenance" not in profile
+    ):
+        raise ValueError(
+            "reference Lens examples use an older or incomplete selection protocol; "
+            "run `icalens profile refresh-examples` for the requested layer before "
+            "integrity reproduction"
+        )
     sampling = profile["provenance"]["profile_sampling"]
     statistics = profile.get("score_statistics_provenance", {}).get("statistics_sampling", {})
+    statistics_tokens = int(statistics.get("selected_tokens", population))
     return {
         "sample_seed": int(sampling["seed"]),
-        "profile_tokens": int(sampling["selected_tokens"]),
-        "statistics_tokens": int(statistics.get("selected_tokens", population)),
+        "profile_tokens": max(
+            int(sampling["selected_tokens"]), statistics_tokens, population
+        ),
+        "statistics_tokens": statistics_tokens,
         "example_tokens": population,
-        "top_k_examples": int(selection["top_k_examples_per_sign"]),
+        "top_k_examples": int(selection["top_k_examples_on_selected_tail"]),
         "logit_lens_top_k": int(selection["logit_lens_top_k"]),
         "logit_lens_batch_size": int(selection["logit_lens_batch_size"]),
     }
@@ -384,31 +396,7 @@ def _profile_commands(
         "--device",
         resolved["device"],
     )
-    statistics = _cli(
-        "profile",
-        "refresh-statistics",
-        *common,
-        "--sample-seed",
-        str(config["sample_seed"]),
-        "--max-tokens",
-        str(config["statistics_tokens"]),
-        "--device",
-        resolved["device"],
-    )
-    examples = _cli(
-        "profile",
-        "refresh-examples",
-        *common,
-        "--sample-seed",
-        str(config["sample_seed"]),
-        "--max-tokens",
-        str(config["example_tokens"]),
-        "--top-k-examples",
-        str(config["top_k_examples"]),
-        "--device",
-        resolved["device"],
-    )
-    return [base, statistics, examples]
+    return [base]
 
 
 def _cli(*arguments: str) -> list[str]:
