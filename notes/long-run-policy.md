@@ -42,6 +42,8 @@ Each command defines an independently reusable work unit:
 | `icalens profile` | one profiled layer | profile that layer again |
 | reconstruction experiment | one dataset × layer × method result | evaluate that unit again |
 | sparse-probing experiment | one dataset × layer × method result | evaluate that unit again |
+| autointerpretability preparation | one accepted fragment or one prepared layer | sample the current document again or prepare that layer again |
+| autointerpretability evaluation | one explanation or one simulated fragment | request that explanation or simulation again |
 
 FastICA iteration state is not currently checkpointed. “Resume fitting” means
 preserving completed layers and restarting only the interrupted layer.
@@ -151,6 +153,18 @@ The warning applies consistently to capture, fit, profile, and experiment
 runs. Installed wheels outside a Git checkout report the source state as
 unknown and do not warn.
 
+### 11. New implementations use the reusable framework
+
+New long-running experiment implementations must use the reusable experiment
+run/display framework in `src/icalens/experiments/_run.py` and
+`src/icalens/experiments/_display.py`. They should extend those generic
+interfaces when a new workflow shape is needed instead of creating another
+command-specific run manifest, progress display, or logging wrapper.
+
+This requirement does not implicitly migrate existing commands. Changes to an
+existing runner remain separately reviewed so its resume and artifact semantics
+are preserved.
+
 ## Current implementation audit
 
 | Command | Current status | Required follow-up |
@@ -163,7 +177,17 @@ unknown and do not warn.
 | `profile` from a streamed dataset | Checkpoints each completed layer but recomputes it on rerun | Validate profile provenance before replay and skip compatible completed profiles |
 | reconstruction | Durable capture resumes per dataset/layer; measurement validates `run.json` and resumes per dataset/layer/method with shared progress and logs | Validate the final UI with long resumed runs |
 | sparse probing | Validates `run.json` and resumes missing work | Keep aligned with this policy |
+| autointerpretability prepare/evaluate | Uses the reusable experiment run/display framework; checkpoints and validates fragments, prepared layers, explanations, and simulations; resumes with durable progress and complete logs | Validate the final UI on a manually interrupted and resumed pilot |
 | experiment figures | Refuse replacement unless `--force` is supplied | Already aligned for derived outputs |
+
+The reusable experiment framework is intentionally compatible with the other
+long-run shapes in this table without migrating them yet. Its display accepts a
+caller-defined unit label, arbitrary phase context (for example layer, dataset,
+and method), an inherited worker start time, and optional hashable durable-unit
+identities so a checkpoint is counted only once. Its run-state helper keeps result
+configuration separate from lifecycle metadata and supports independently validated
+configuration sections. Existing capture, fit, profile, reconstruction, and sparse-
+probing runners remain unchanged until a dedicated migration is reviewed.
 
 Until the follow-up items are implemented, scripts must not assume that
 `fit text/chat` or `profile` skips prior work merely because it checkpoints

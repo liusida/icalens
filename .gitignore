@@ -17,6 +17,7 @@ site-zh/
 misc/
 /results/
 /experiments/*/pilot-runs/
+/experiments/autointerpretability/runs/
 /experiments/toy-example/work/
 /experiments/*/official/results/*/logs/
 /experiments/*/official/results/*/checkpoints/

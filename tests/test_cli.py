@@ -46,6 +46,17 @@ def test_dispatches_publish(monkeypatch: pytest.MonkeyPatch) -> None:
     assert received == ["owner/lens", "--lens", "artifact"]
 
 
+def test_dispatches_autointerpretability(monkeypatch: pytest.MonkeyPatch) -> None:
+    from icalens.experiments import autointerpretability
+
+    received: list[str] = []
+    monkeypatch.setattr(autointerpretability, "main", lambda args: received.extend(args))
+
+    cli.main(["experiment", "autointerpretability", "summarize", "--input", "run"])
+
+    assert received == ["summarize", "--input", "run"]
+
+
 def test_dispatches_profile(monkeypatch: pytest.MonkeyPatch) -> None:
     from icalens.cli import profile
 

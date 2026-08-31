@@ -32,6 +32,13 @@ dependencies = [
     "transformers>=5.0",
 ]
 
+[project.optional-dependencies]
+autointerpretability = [
+    "openai>=1.40,<3",
+    "tinker==0.25.0; python_version >= '3.11'",
+    "tinker-cookbook==0.5.5; python_version >= '3.11'",
+]
+
 [project.scripts]
 icalens = "icalens.cli:main"
 

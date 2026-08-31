@@ -53,12 +53,17 @@ def _dispatch_experiment(args: list[str]) -> None:
         from ..experiments.reconstruction import main
 
         main(args)
+    elif kind == "autointerpretability":
+        from ..experiments.autointerpretability import main
+
+        main(args)
     elif kind == "figure":
         _dispatch_experiment_figure(args)
     else:
         raise SystemExit(
             f"icalens experiment: unknown experiment {kind!r}; "
-            "use 'saebench-sparse-probing', 'reconstruction', or 'figure'"
+            "use 'saebench-sparse-probing', 'reconstruction', "
+            "'autointerpretability', or 'figure'"
         )
 
 
@@ -90,10 +95,14 @@ def _dispatch_experiment_figure(args: list[str]) -> None:
         from ..experiments.reconstruction_figure import main
 
         main(args)
+    elif kind == "autointerpretability":
+        from ..experiments.autointerpretability_figure import main
+
+        main(args)
     else:
         raise SystemExit(
             f"icalens experiment figure: unknown figure {kind!r}; "
-            "use 'sparse-probing' or 'reconstruction'"
+            "use 'sparse-probing', 'reconstruction', or 'autointerpretability'"
         )
 
 
@@ -195,6 +204,7 @@ Run reproducible ICA Lens paper experiments.
 commands:
   saebench-sparse-probing  Run SAEBench sparse probing for an ICA Lens
   reconstruction          Capture or evaluate held-out top-k reconstruction
+  autointerpretability     Explain features and predict held-out activations
   figure                   Create a paper-ready figure from saved results
 
 Run 'icalens experiment COMMAND --help' for command-specific options."""
@@ -206,5 +216,6 @@ Create paper-ready figures from saved experiment results.
 figures:
   sparse-probing  Plot one or more SAEBench sparse-probing runs
   reconstruction  Plot held-out reconstruction curves
+  autointerpretability  Plot feature-level explanation-prediction correlations
 
 Run 'icalens experiment figure FIGURE --help' for figure-specific options."""
