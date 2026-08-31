@@ -128,7 +128,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         for label, lens in lenses.items():
             pending = [
                 (int(layer), component)
-                for layer, components in selections[label].items()
+                for layer, components in _layers_in_numeric_order(selections[label])
                 for component in components
                 if _unit_id(label, int(layer), component) not in completed_ids
             ]
@@ -411,9 +411,15 @@ def _component_units(
     return [
         (_unit_id(label, int(layer), component), label, int(layer), component)
         for label, layers in selections.items()
-        for layer, components in layers.items()
+        for layer, components in _layers_in_numeric_order(layers)
         for component in components
     ]
+
+
+def _layers_in_numeric_order(
+    layers: dict[str, list[int]],
+) -> list[tuple[str, list[int]]]:
+    return sorted(layers.items(), key=lambda item: int(item[0]))
 
 
 def _unit_id(label: str, layer: int, component: int) -> str:

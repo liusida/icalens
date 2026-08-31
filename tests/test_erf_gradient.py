@@ -12,6 +12,7 @@ import torch
 from icalens.experiments.erf_gradient import (
     METHOD,
     _component_checkpoint_valid,
+    _component_units,
     _gradient_statistics,
     _load_prepared_run,
     _stable_seed,
@@ -37,6 +38,19 @@ def test_stable_seed_depends_on_label_and_layer() -> None:
     assert _stable_seed(7, "gpt2", 3) == _stable_seed(7, "gpt2", 3)
     assert _stable_seed(7, "gpt2", 3) != _stable_seed(7, "gpt2", 4)
     assert _stable_seed(7, "gpt2", 3) != _stable_seed(7, "gemma2", 3)
+
+
+def test_component_units_sort_serialized_layer_keys_numerically() -> None:
+    selections = {"gemma2": {"0": [1], "1": [2], "10": [3], "2": [4]}}
+
+    units = _component_units(selections)
+
+    assert [(layer, component) for _, _, layer, component in units] == [
+        (0, 1),
+        (1, 2),
+        (2, 4),
+        (10, 3),
+    ]
 
 
 def test_component_checkpoint_validation(tmp_path: Path) -> None:
