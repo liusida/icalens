@@ -1,12 +1,15 @@
 # Autointerpretability experiment
 
-This experiment will compare how accurately an LLM-generated explanation predicts
+This experiment compares how accurately an LLM-generated explanation predicts
 held-out ICA-component and SAE-feature activations. It reimplements only the
 autointerpretability protocol from Cunningham et al. (2023); it does not train a
 language model, ICA Lens, or SAE.
 
-The pilot pipeline is implemented. No paid evaluator calls or official measurements
-have been run yet.
+The Tinker pilot and the full three-model evaluation are complete. The saved full
+run covers four layers each of GPT-2 small, Gemma 2 2B, and Qwen 3.5 9B Base, with
+150 ICA components and 150 SAE features per layer (3,600 feature evaluations). It
+uses Inkling as explainer and Qwen3.8-27B as simulator. The OpenAI-compatible
+Cunningham-modern path is implemented but has not been used for these measurements.
 
 ## Run the GPT-2 pilot
 
@@ -125,25 +128,25 @@ predicted token activations and the true token activations on held-out top-activ
 and random text fragments. We call this the **top-and-random autointerpretability
 score**, following the paper.
 
-## Scope
+## Completed scope
 
-The initial comparison will cover:
+The completed full comparison covers:
 
-| Model | ICA Lens | Pretrained SAE | Initial layers |
+| Model | ICA Lens | Pretrained SAE | Layers |
 | --- | --- | --- | --- |
 | GPT-2 small | `sida/icalens-gpt2-small-pile10k` | GPT2-Small OAI v5 32k | 2, 5, 8, 11 |
 | Gemma 2 2B | `sida/icalens-gemma-2-2b-pile10k` | Gemma Scope 2B residual 16k | 5, 12, 18, 25 |
 | Qwen 3.5 9B Base | `sida/icalens-qwen3.5-9b-base-pile10k` | Qwen Scope residual 64k TopK-50 | 7, 15, 23, 31 |
 
 These are the layers nearest the 25%, 50%, 75%, and 100% depth marks under the
-project's zero-based post-block layer convention. All model, Lens, SAE, dataset, and
-evaluator revisions must be pinned in the run manifest. The SAE checkpoint
-definitions come from `src/icalens/experiments/baseline_registry.json`.
+project's zero-based post-block layer convention. Model, Lens, SAE, and dataset
+identities are recorded by preparation. Evaluator model IDs and prompt hashes are
+recorded in the durable per-feature checkpoints. The SAE checkpoint definitions
+come from `src/icalens/experiments/baseline_registry.json`.
 
-The first official run should use these four depth-matched layers per model rather
-than every layer. At 150 features per method, the complete matrix contains 3,600
-feature-method evaluations. We can extend to all layers after inspecting the pilot
-and official cost report.
+The completed runs use these four depth-matched layers rather than every layer. At
+150 features per method, the matrix contains 3,600 feature-method evaluations.
+Extending the measurement to every layer remains optional future work.
 
 ## Protocol
 
@@ -183,9 +186,8 @@ Instead, for every model, layer, and method:
 
 This samples uniformly from eligible features within each dictionary. ICA and SAE
 features cannot be paired by ID, so method confidence intervals and comparisons are
-across independent feature samples. The report will also show eligibility rates for
-the full attempted sample, including dead and insufficiently active features, so the
-filter cannot hide a method's failure to produce evaluable features.
+across independent feature samples. The results also record selected and rejected
+candidate counts so the eligibility filter remains visible.
 
 ### 3. Put ICA and SAE activations on the same one-sided contract
 
@@ -201,8 +203,8 @@ oriented_activation = max(0, tail_direction[c] * score[c])
 This removes the arbitrary ICA sign while retaining the original protocol's
 nonnegative feature-activation assumption. The run must fail if the selected ICA
 profile or tail-direction provenance is missing; it must never infer the sign from
-evaluation examples. We will preserve raw signed scores in diagnostic artifacts,
-but they are not shown to either evaluator LLM.
+evaluation examples. Raw signed scores remain in preparation diagnostics, but they
+are not shown to either evaluator LLM.
 
 ### 4. Construct records and splits
 
@@ -260,16 +262,15 @@ For each model, layer, and method, report:
 - the full per-feature score distribution;
 - top-only and random-only diagnostic means;
 - completion, evaluator failure, invalid-output, and undefined-correlation counts;
-- selected/rejected feature counts and reasons;
-- captured-token, local-compute, API-token, latency, and estimated-cost totals.
+- selected/rejected feature counts and reasons.
 
-The primary figure compares ICA and SAE within each model and layer. It must follow
-`notes/plot-style-policy.md`, use committed result files only, and export PNG, PDF,
-and the source-values text companion.
+The primary figure compares ICA and SAE within each model and layer. It follows
+`notes/plot-style-policy.md` and exports PNG, PDF, and the source-values text
+companion from completed saved result files.
 
 ## Reproducibility and resume contract
 
-The implementation will follow `notes/long-run-policy.md`:
+The implementation follows `notes/long-run-policy.md`:
 
 - repeating the same command and output path validates and resumes automatically;
 - incompatible configuration or provenance fails before model/API work;
@@ -281,22 +282,18 @@ The implementation will follow `notes/long-run-policy.md`:
 - complete logs live below the experiment output, and dirty source emits the shared
   visible warning.
 
-Before paid execution, a dry run must print the number of feature explanations,
-simulation calls, estimated input/output tokens, and a conservative cost bound. A
-configured budget ceiling stops dispatch before it can be exceeded.
+Before evaluator execution, use `--dry-run` to inspect the number of explanation,
+simulation-generation, and scoring requests. The current CLI does not implement a
+monetary budget ceiling, so paid-provider budgets must be controlled externally.
 
 ## Repository layout
 
 ```text
 experiments/autointerpretability/
 ├── README.md
-├── official/
-│   ├── README.md
-│   ├── config/
-│   ├── scripts/
-│   ├── results/
-│   └── figures/
-└── pilot-runs/                 # ignored local runs
+├── figures/                    # intended combined-figure output
+├── runs/                       # completed full preparations and evaluations
+└── pilot-runs/                 # completed local pilot runs
 
 src/icalens/experiments/
 ├── _display.py                         # reusable compact progress and full logging
@@ -305,52 +302,35 @@ src/icalens/experiments/
 └── autointerpretability_protocol.py     # prompts, splits, validation, scoring
 ```
 
-Only this experiment uses the reusable run/display framework for now. Existing
-experiments retain their current runners until they are migrated separately.
+Preparation and evaluation use the project's reusable run/display framework, atomic
+checkpoints, and configuration validation.
 
 The implementation reuses the current pretrained-SAE loader rather than duplicating
 checkpoint logic. Activation capture reuses the existing Hugging Face
 residual-stream and GB10 model-loading paths, including Qwen 3.5 support.
 
-## Implementation status and remaining stages
+## Implementation and run status
 
-1. **Pure protocol core — implemented.** Record selection, splitting, normalization,
-   prompt rendering, response validation, Pearson scoring, and aggregation with
-   deterministic unit tests and synthetic fixtures.
-2. **Feature adapters — implemented.** Reuse the ICA Lens transform and the pinned
-   pretrained-SAE encoder used by the existing experiment infrastructure. Output
-   equivalence tests against saved reconstruction/sparse-probing activations remain
-   part of protocol validation.
-3. **Capture and record cache — implemented.** Stream the 50,000 fragments, share
-   multi-layer capture, retain only selected-feature values, and atomically write
-   provenance.
-4. **Evaluator backend — implemented for Tinker/Inkling.** It has role-separated
-   prompts, indexed structured outputs, retries, response caching, and a request-count
-   dry run. Cost estimation, a hard monetary budget, and bounded concurrency remain
-   necessary before using a paid provider.
-5. **Pilot — ready to run.** Run one layer of GPT-2 with 10 features per method,
-   using Inkling as both explainer and simulator through Tinker. Manually inspect
-   selected records, explanations, indexed simulator output, resume behavior,
-   invalid outputs, eligibility coverage, and cost before scaling.
-6. **Protocol validation.** On the local Cunningham reproduction, compare record
-   splits, normalized labels, and correlations for a small fixed fixture. Exact
-   score equality is not expected when evaluator models differ, but all deterministic
-   preprocessing and scoring should agree.
-7. **Official run.** Freeze configs and prompts, evaluate 150 features per method at
-   the twelve model/layer pairs, then generate figures from committed results.
+- **Protocol, preparation, and feature adapters — complete.** Record selection,
+  splitting, normalization, ICA/SAE encoding, prompt rendering, validation, and
+  Pearson scoring have deterministic tests and durable caches.
+- **Tinker evaluation — complete.** The GPT-2 pilot and all 12 full model/layer
+  conditions completed with Inkling as explainer and Qwen3.8-27B as simulator.
+  Individual explanation, generation, scoring, and feature-result checkpoints are
+  retained below their evaluation directories.
+- **Figures — available.** Per-model PNG, PDF, and text companions have been
+  generated from the completed Tinker results. The documented three-input figure
+  command regenerates the combined model comparison under `figures/`; that combined
+  artifact is not currently present on disk.
+- **OpenAI evaluation — implemented, not run here.** It remains an alternate
+  Cunningham-modern evaluator condition rather than part of the completed result.
 
-## Decisions to freeze after the pilot
-
-- whether Inkling remains both the explainer and simulator or the official run uses
-  distinct pinned evaluator models;
-- evaluator temperature/seed support and whether to repeat generations;
-- OpenWebText repository revision and deterministic document-selection rule;
-- feature eligibility threshold and whether the sensitivity analysis warrants a
-  different primary population;
-- bootstrap seed and number of resamples;
-- official API budget ceiling.
-
-These choices must be frozen before looking at the full ICA-versus-SAE result.
+Before treating the local full runs as immutable official paper artifacts, freeze
+their evaluator condition and decide where the compact manifests, summaries, and
+figures should be tracked. The large fragment pools, candidate activations, and
+per-request checkpoints should remain external or ignored reproducibility artifacts.
+If the result schema or official outputs change, also review the release integrity
+check described in `notes/artifact-integrity.md`.
 
 ## References
 
