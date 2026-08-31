@@ -11,6 +11,7 @@ import os
 import statistics
 import tempfile
 from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -52,12 +53,21 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Archive an existing run and regenerate every prepared input and component.",
+    )
     args = parser.parse_args(argv)
     if min(args.components_per_layer, args.occurrences_per_component, args.batch_size) < 1:
         raise ValueError("component, occurrence, and batch counts must be positive")
 
     lens_specs = _parse_lenses(args.lens)
     output = args.output.expanduser().resolve()
+    if args.force and not args.dry_run:
+        archived = _archive_existing_run(output)
+        if archived is not None:
+            log(f"Archived forced ERF run to {archived}")
     cached = _load_prepared_run(output, lens_specs=lens_specs, args=args)
     lenses = {label: ICALens.from_pretrained(path) for label, path in lens_specs.items()}
     if cached is None:
@@ -346,6 +356,7 @@ def _load_prepared_run(
             f"{run_path} belongs to a different configuration "
             f"({'; '.join(differences)}); choose another output"
         )
+    _validate_lens_fingerprints(resolved, lens_specs)
     selections = resolved.get("selections")
     if not isinstance(selections, dict):
         raise ValueError(f"{run_path} has no valid component selections")
@@ -371,6 +382,69 @@ def _load_prepared_run(
                 return None
             prepared_inputs[label][layer_text] = components
     return resolved, selections, prepared_inputs
+
+
+def _validate_lens_fingerprints(
+    resolved: dict[str, Any], lens_specs: dict[str, Path]
+) -> None:
+    """Reject prepared inputs whose Lens manifest or profiles have changed."""
+    identities = resolved.get("lenses")
+    if not isinstance(identities, dict):
+        raise ValueError("prepared ERF run has no Lens fingerprints")
+    differences: list[str] = []
+    for label, path in lens_specs.items():
+        identity = identities.get(label)
+        if not isinstance(identity, dict):
+            differences.append(f"{label}: identity is missing")
+            continue
+        manifest_path = path / "icalens.json"
+        if not manifest_path.is_file():
+            differences.append(f"{label}: icalens.json is missing")
+            continue
+        recorded_manifest = identity.get("manifest_sha256")
+        if recorded_manifest != _sha256(manifest_path):
+            differences.append(f"{label}: Lens manifest changed")
+        profile_hashes = identity.get("profile_sha256")
+        if not isinstance(profile_hashes, dict):
+            differences.append(f"{label}: profile fingerprints are missing")
+            continue
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        layers = manifest.get("layers", {})
+        for layer_text, recorded_hash in profile_hashes.items():
+            entry = layers.get(str(layer_text))
+            relative = entry.get("component_profile") if isinstance(entry, dict) else None
+            profile_path = path / relative if isinstance(relative, str) else None
+            if profile_path is None or not profile_path.is_file():
+                differences.append(f"{label} layer {layer_text}: profile is missing")
+            elif _sha256(profile_path) != recorded_hash:
+                differences.append(f"{label} layer {layer_text}: profile changed")
+    if differences:
+        preview = "; ".join(differences[:8])
+        if len(differences) > 8:
+            preview += f"; and {len(differences) - 8} more"
+        raise ValueError(
+            "prepared ERF inputs are stale because their Lens dependencies changed ("
+            + preview
+            + "); rerun with --force"
+        )
+
+
+def _archive_existing_run(output: Path) -> Path | None:
+    """Move an existing run aside before a deliberate from-scratch run."""
+    if not output.exists():
+        return None
+    if not output.is_dir():
+        raise ValueError(f"ERF output exists and is not a directory: {output}")
+    if not any(output.iterdir()):
+        return None
+    stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+    archived = output.with_name(f"{output.name}.before-force-{stamp}")
+    suffix = 1
+    while archived.exists():
+        archived = output.with_name(f"{output.name}.before-force-{stamp}-{suffix}")
+        suffix += 1
+    output.replace(archived)
+    return archived
 
 
 def _stable_seed(seed: int, label: str, layer: int) -> int:
