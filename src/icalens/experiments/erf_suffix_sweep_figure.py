@@ -15,9 +15,9 @@ import numpy as np
 
 from .erf_gradient_figure import _basis_sizes, _paper_style, _titles
 
-BIN_EDGES = np.asarray([1.0, 2.0, 3.0, 6.0, 10.0 + 1e-9, np.inf])
-BIN_LABELS = ("1–<2", "2–<3", "3–<6", "6–≤10", ">10")
-BIN_COLORS = ("#4F8A63", "#8FBE85", "#E7B84B", "#CC7445", "#76558D")
+BIN_EDGES = np.asarray([1.0, 2.0, 3.0, 4.0, 8.0, 16.0, 32.0, np.inf])
+BIN_LABELS = ("[1, 2)", "[2, 3)", "[3, 4)", "[4, 8)", "[8, 16)", "[16, 32)", "[32, ∞)")
+BIN_COLORS = ("#4F8A63", "#8FBE85", "#B5D1A4", "#E7B84B", "#CC7445", "#9A78AE", "#684783")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -27,16 +27,21 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("experiment", type=Path)
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--panel-titles", default=None, help="Comma-separated titles.")
+    parser.add_argument("--top-k", type=int, default=15, help="Recorded rank threshold to plot.")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
     experiment = args.experiment.expanduser().resolve()
     output = (
-        experiment / "figures" / "erf-suffix-sweep"
+        experiment / "figures" / f"erf-suffix-sweep-top{args.top_k}"
         if args.output is None
         else args.output.expanduser().resolve()
     )
     for path in render(
-        experiment, output_prefix=output, panel_titles=args.panel_titles, force=args.force
+        experiment,
+        output_prefix=output,
+        panel_titles=args.panel_titles,
+        top_k=args.top_k,
+        force=args.force,
     ):
         print(path)
 
@@ -46,6 +51,7 @@ def render(
     *,
     output_prefix: Path,
     panel_titles: str | None,
+    top_k: int,
     force: bool,
 ) -> list[Path]:
     run_path = experiment / "run.json"
@@ -53,6 +59,11 @@ def render(
         raise ValueError(f"missing suffix-sweep ERF run manifest: {experiment}")
     run = json.loads(run_path.read_text(encoding="utf-8"))
     complete = run.get("status") == "complete"
+    thresholds = [int(value) for value in run["resolved"].get("rank_thresholds", [])]
+    if top_k not in thresholds:
+        raise ValueError(
+            f"top-k {top_k} was not recorded; choose one of {','.join(map(str, thresholds))}"
+        )
     rows = _result_rows(experiment, complete=complete)
     if not rows:
         raise ValueError(f"suffix-sweep ERF experiment has no completed components: {experiment}")
@@ -83,25 +94,33 @@ def render(
         for panel_index, (axis, label, title) in enumerate(
             zip(axes.ravel(), labels, titles, strict=True)
         ):
-            model_rows = [row for row in rows if row["model"] == label]
+            model_rows = [
+                row
+                for row in rows
+                if row["model"] == label and int(row["top_k"]) == top_k
+            ]
             layers = [int(layer) for layer in run["resolved"]["lenses"][label]["layers"]]
             fractions = np.zeros((len(BIN_LABELS), len(layers)), dtype=float)
             completed_per_layer = []
             for column, layer in enumerate(layers):
+                layer_rows = [row for row in model_rows if int(row["layer"]) == layer]
+                completed_per_layer.append(len(layer_rows))
+                if complete and len(layer_rows) != int(run["resolved"]["components_per_layer"]):
+                    raise ValueError(f"{label} layer {layer} has incomplete component results")
                 values = np.asarray(
                     [
                         float(row["suffix_erf_mean"])
-                        for row in model_rows
-                        if int(row["layer"]) == layer
+                        for row in layer_rows
+                        if row.get("suffix_erf_mean") not in (None, "")
                     ]
                 )
-                completed_per_layer.append(len(values))
-                if complete and len(values) != int(run["resolved"]["components_per_layer"]):
-                    raise ValueError(f"{label} layer {layer} has incomplete component results")
                 if not len(values):
                     continue
                 bins = np.searchsorted(BIN_EDGES, values, side="right") - 1
-                fractions[:, column] = [np.mean(bins == index) for index in range(len(BIN_LABELS))]
+                denominator = int(run["resolved"]["components_per_layer"])
+                fractions[:, column] = [
+                    np.sum(bins == index) / denominator for index in range(len(BIN_LABELS))
+                ]
             fractions *= basis_sizes[panel_index]
             bottom = np.zeros(len(layers))
             for values, color in zip(fractions, BIN_COLORS, strict=True):
@@ -154,7 +173,8 @@ def render(
         figure.savefig(outputs[1], bbox_inches="tight")
         plt.close(figure)
     outputs[2].write_text(
-        _caption(labels, titles, run, rows=rows, complete=complete), encoding="utf-8"
+        _caption(labels, titles, run, rows=rows, complete=complete, top_k=top_k),
+        encoding="utf-8",
     )
     return outputs
 
@@ -167,13 +187,15 @@ def _result_rows(experiment: Path, *, complete: bool) -> list[dict[str, Any]]:
     for path in sorted((experiment / "components").glob("*/layer_*/C*.json")):
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
-            rows.append(
+            rows.extend(
                 {
                     "model": str(value["model_label"]),
                     "layer": int(value["layer"]),
                     "component": int(value["component"]),
-                    "suffix_erf_mean": float(value["suffix_erf_mean"]),
+                    "top_k": int(threshold),
+                    "suffix_erf_mean": result["suffix_erf_mean"],
                 }
+                for threshold, result in value["threshold_results"].items()
             )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             continue
@@ -187,6 +209,7 @@ def _caption(
     *,
     rows: list[dict[str, Any]],
     complete: bool,
+    top_k: int,
 ) -> str:
     count = int(run["resolved"]["components_per_layer"])
     seed = int(run["resolved"]["seed"])
@@ -194,12 +217,16 @@ def _caption(
     partial = ""
     if not complete:
         expected = count * sum(len(run["resolved"]["lenses"][label]["layers"]) for label in labels)
-        partial = f" Partial visualization based on {len(rows)} of {expected} planned components."
+        plotted = sum(int(row["top_k"]) == top_k for row in rows)
+        partial = f" Partial visualization based on {plotted} of {expected} planned components."
     return (
         "Layerwise distribution of suffix-sweep effective receptive field. "
         f"Each layer contains {count} randomly sampled components (seed {seed}); each component "
-        "is summarized by the mean first recovered suffix length over its stored dominant-tail "
-        "occurrences. Results not recovered within 10 tokens are represented by the >10 bin. "
-        "Bars extrapolate sampled fractions to the model's full ICA basis. "
+        f"is evaluated at the full-context top-{top_k} eligibility threshold and summarized by "
+        "the mean exact-or-bracketed first-recovery length over eligible dominant-tail "
+        "occurrences. "
+        "Suffix lengths 1 through 10 are exact; later lengths use doubling and geometric-midpoint "
+        "estimates. Bar height also reflects the fraction of sampled components with at least one "
+        "eligible occurrence, and bars extrapolate to the model's full ICA basis. "
         f"Panels: {panels}.{partial}\n"
     )

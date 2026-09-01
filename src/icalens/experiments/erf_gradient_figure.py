@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 
 BIN_EDGES = np.asarray([1.0, 2.0, 3.0, 4.0, 8.0, 16.0, 32.0, np.inf])
-BIN_LABELS = ("1–<2", "2–<3", "3–<4", "4–<8", "8–<16", "16–<32", "≥32")
+BIN_LABELS = ("[1, 2)", "[2, 3)", "[3, 4)", "[4, 8)", "[8, 16)", "[16, 32)", "[32, ∞)")
 BIN_COLORS = (
     "#4F8A63",
     "#8FBE85",

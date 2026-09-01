@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import statistics
 from collections.abc import Sequence
 from pathlib import Path
@@ -30,14 +31,50 @@ from .erf_gradient import (
     _unit_id,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 FORMAT = "icalens.erf_suffix_sweep"
 PREPARED_FORMAT = "icalens.erf_suffix_sweep.prepared_layer"
-METHOD = "suffix-length-sweep-top15-selected-tail"
+METHOD = "suffix-length-sweep-multirank-selected-tail"
+DEFAULT_RANK_THRESHOLDS = (1, 3, 5, 10, 15)
 
 
 class _CapturedLayer(RuntimeError):
     """Stop a model forward after capturing the requested residual stream."""
+
+
+def _parse_rank_thresholds(value: str) -> tuple[int, ...]:
+    try:
+        thresholds = tuple(sorted({int(item.strip()) for item in value.split(",")}))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "rank thresholds must be comma-separated integers"
+        ) from error
+    if not thresholds or thresholds[0] < 1:
+        raise argparse.ArgumentTypeError("rank thresholds must be positive")
+    return thresholds
+
+
+def _validate_full_context_ranks(prepared_inputs: dict[str, Any]) -> None:
+    missing = []
+    for label, layers in prepared_inputs.items():
+        for layer, components in layers.items():
+            for component, value in components.items():
+                for occurrence_index, occurrence in enumerate(value["occurrences"], start=1):
+                    rank = occurrence.get("absolute_score_rank")
+                    if not isinstance(rank, int) or rank < 1:
+                        missing.append(
+                            f"{label} layer {layer} C{component} occurrence {occurrence_index}"
+                        )
+    if missing:
+        examples = ", ".join(missing[:3])
+        raise ValueError(
+            "suffix-sweep ERF requires absolute_score_rank on every stored occurrence; "
+            f"missing for {examples}. Run `icalens profile refresh-examples-rank` first."
+        )
+
+
+def _format_mean(value: Any) -> str:
+    return "n/a" if value is None else f"{float(value):.4f}"
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -53,8 +90,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     parser.add_argument("--components-per-layer", type=int, default=100)
     parser.add_argument("--occurrences-per-component", type=int, default=20)
-    parser.add_argument("--max-suffix-length", type=int, default=10)
-    parser.add_argument("--top-k", type=int, default=15)
+    parser.add_argument(
+        "--exact-suffix-length",
+        type=int,
+        default=10,
+        help="Test every suffix length through this value, then double the length.",
+    )
+    parser.add_argument(
+        "--rank-thresholds",
+        default=",".join(str(value) for value in DEFAULT_RANK_THRESHOLDS),
+        help="Comma-separated absolute-score rank thresholds recorded in one sweep.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-batch-size", type=int, default=64)
     parser.add_argument("--batch-token-budget", type=int, default=64)
@@ -62,18 +108,18 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    args.rank_thresholds = _parse_rank_thresholds(args.rank_thresholds)
     if (
         min(
             args.components_per_layer,
             args.occurrences_per_component,
-            args.max_suffix_length,
-            args.top_k,
+            args.exact_suffix_length,
             args.max_batch_size,
             args.batch_token_budget,
         )
         < 1
     ):
-        raise ValueError("component, occurrence, suffix, top-k, and batch values must be positive")
+        raise ValueError("component, occurrence, suffix, and batch values must be positive")
 
     lens_specs = _parse_lenses(args.lens)
     output = args.output.expanduser().resolve()
@@ -92,6 +138,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             selections[label] = selection
             prepared_inputs[label] = prepared
+        _validate_full_context_ranks(prepared_inputs)
         resolved = _resolved_configuration(
             lens_specs=lens_specs,
             lenses=lenses,
@@ -100,6 +147,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     else:
         resolved, selections, prepared_inputs = cached
+        _validate_full_context_ranks(prepared_inputs)
     if args.dry_run:
         print(json.dumps(resolved, indent=2, sort_keys=True))
         return
@@ -177,10 +225,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                             _component_path(output, _label, _layer, component), result
                         )
                         display.complete_unit(_unit_id(_label, _layer, component), refresh=True)
+                        display_threshold = max(args.rank_thresholds)
+                        display_result = result["threshold_results"][str(display_threshold)]
                         log(
                             f"Checkpointed {_label} layer {_layer} C{component}: "
-                            f"mean ERF {result['suffix_erf_mean']:.4f}, "
-                            f"recovered {result['n_recovered']}/{result['n_occurrences']}."
+                            f"top-{display_threshold} mean ERF "
+                            f"{_format_mean(display_result['suffix_erf_mean'])}, "
+                            f"eligible {display_result['n_eligible']}/"
+                            f"{result['n_occurrences']}."
                         )
 
                     _measure_layer(
@@ -194,8 +246,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                             component: prepared_inputs[label][str(layer)][str(component)]
                             for component in components
                         },
-                        max_suffix_length=args.max_suffix_length,
-                        top_k=args.top_k,
+                        exact_suffix_length=args.exact_suffix_length,
+                        rank_thresholds=args.rank_thresholds,
                         max_batch_size=args.max_batch_size,
                         batch_token_budget=args.batch_token_budget,
                         device=args.device,
@@ -220,14 +272,14 @@ def _measure_layer(
     token_cache: dict[tuple[str, int, int], list[int]],
     layer: int,
     prepared_components: dict[int, dict[str, Any]],
-    max_suffix_length: int,
-    top_k: int,
+    exact_suffix_length: int,
+    rank_thresholds: tuple[int, ...],
     max_batch_size: int,
     batch_token_budget: int,
     device: str,
     checkpoint: Any,
 ) -> None:
-    """Sweep a layer together so short suffixes can use large cross-component batches."""
+    """Sweep one layer, sharing each suffix forward across components and thresholds."""
     provenance = lens.metadata["layers"][str(layer)]["fitting"]["provenance"]
     states: dict[int, dict[str, Any]] = {}
     for component, value in prepared_components.items():
@@ -242,21 +294,41 @@ def _measure_layer(
             )
             for rank, occurrence in enumerate(value["occurrences"], start=1)
         ]
+        occurrence_states = {}
+        for item in prepared:
+            occurrence = item["occurrence"]
+            full_rank = int(occurrence["absolute_score_rank"])
+            eligible = {threshold for threshold in rank_thresholds if full_rank <= threshold}
+            occurrence_states[int(item["occurrence_rank"])] = {
+                "item": item,
+                "full_context_rank": full_rank,
+                "eligible": eligible,
+                "unresolved": set(eligible),
+                "last_failure": {threshold: 0 for threshold in eligible},
+                "recoveries": {},
+                "observations": [],
+            }
         states[component] = {
             "direction": str(value["tail_direction"]),
-            "prepared": prepared,
-            "unresolved": {int(item["occurrence_rank"]): item for item in prepared},
-            "observations": {rank: [] for rank in range(1, len(prepared) + 1)},
+            "occurrences": occurrence_states,
         }
     block = transformer_blocks(model)[layer]
+    maximum_context = max(
+        len(value["item"]["content_ids"])
+        for state in states.values()
+        for value in state["occurrences"].values()
+    )
     completed: set[int] = set()
-    for suffix_length in range(1, max_suffix_length + 1):
+    for suffix_length in _suffix_schedule(
+        exact_suffix_length=exact_suffix_length, maximum_context=maximum_context
+    ):
         active = [
-            (component, state["direction"], item)
+            (component, state["direction"], occurrence_state["item"])
             for component, state in states.items()
             if component not in completed
-            for item in state["unresolved"].values()
-            if len(item["content_ids"]) >= suffix_length
+            for occurrence_state in state["occurrences"].values()
+            if occurrence_state["unresolved"]
+            and len(occurrence_state["item"]["content_ids"]) >= suffix_length
         ]
         batch_size = _adaptive_batch_size(
             suffix_length,
@@ -273,46 +345,109 @@ def _measure_layer(
                 layer=layer,
                 batch=batch,
                 suffix_length=suffix_length,
-                top_k=top_k,
                 framing=provenance["document_framing"],
                 device=device,
             )
             for component, value in measured:
-                rank = int(value["occurrence_rank"])
-                states[component]["observations"][rank].append(value)
-                if value["recovered"]:
-                    states[component]["unresolved"].pop(rank, None)
+                occurrence_state = states[component]["occurrences"][
+                    int(value["occurrence_rank"])
+                ]
+                occurrence_state["observations"].append(value)
+                if not value["sign_matches_selected_tail"]:
+                    for threshold in occurrence_state["unresolved"]:
+                        occurrence_state["last_failure"][threshold] = suffix_length
+                    continue
+                crossed = {
+                    threshold
+                    for threshold in occurrence_state["unresolved"]
+                    if int(value["absolute_score_rank"]) <= threshold
+                }
+                for threshold in crossed:
+                    occurrence_state["recoveries"][threshold] = _recovery_estimate(
+                        lower=occurrence_state["last_failure"][threshold],
+                        upper=suffix_length,
+                        exact_suffix_length=exact_suffix_length,
+                        source="measured_suffix",
+                    )
+                occurrence_state["unresolved"].difference_update(crossed)
+                for threshold in occurrence_state["unresolved"]:
+                    occurrence_state["last_failure"][threshold] = suffix_length
+
         for component, state in states.items():
-            if component not in completed and not state["unresolved"]:
-                checkpoint(
-                    component,
-                    _finish_component_result(
-                        layer=layer,
-                        component=component,
-                        direction=state["direction"],
-                        prepared=state["prepared"],
-                        observations=state["observations"],
-                        max_suffix_length=max_suffix_length,
-                        top_k=top_k,
-                    ),
-                )
-                completed.add(component)
-        if len(completed) == len(states):
-            return
-    for component, state in states.items():
-        if component not in completed:
+            if component in completed or any(
+                value["unresolved"] for value in state["occurrences"].values()
+            ):
+                continue
             checkpoint(
                 component,
                 _finish_component_result(
                     layer=layer,
                     component=component,
                     direction=state["direction"],
-                    prepared=state["prepared"],
-                    observations=state["observations"],
-                    max_suffix_length=max_suffix_length,
-                    top_k=top_k,
+                    occurrence_states=state["occurrences"],
+                    exact_suffix_length=exact_suffix_length,
+                    rank_thresholds=rank_thresholds,
                 ),
             )
+            completed.add(component)
+        if len(completed) == len(states):
+            return
+
+    # The stored full-context rank is the authoritative final endpoint. It guarantees
+    # recovery for every eligible threshold without another full-context forward.
+    for component, state in states.items():
+        if component in completed:
+            continue
+        for occurrence_state in state["occurrences"].values():
+            full_length = len(occurrence_state["item"]["content_ids"])
+            for threshold in tuple(occurrence_state["unresolved"]):
+                occurrence_state["recoveries"][threshold] = _recovery_estimate(
+                    lower=min(occurrence_state["last_failure"][threshold], full_length - 1),
+                    upper=full_length,
+                    exact_suffix_length=exact_suffix_length,
+                    source="stored_full_context_rank",
+                )
+                occurrence_state["unresolved"].remove(threshold)
+        checkpoint(
+            component,
+            _finish_component_result(
+                layer=layer,
+                component=component,
+                direction=state["direction"],
+                occurrence_states=state["occurrences"],
+                exact_suffix_length=exact_suffix_length,
+                rank_thresholds=rank_thresholds,
+            ),
+        )
+
+
+def _suffix_schedule(*, exact_suffix_length: int, maximum_context: int) -> list[int]:
+    """Test 1..N exactly, then N*2, N*4, ... below the longest context."""
+    if min(exact_suffix_length, maximum_context) < 1:
+        raise ValueError("exact suffix length and maximum context must be positive")
+    schedule = list(range(1, min(exact_suffix_length, maximum_context) + 1))
+    length = exact_suffix_length * 2
+    while length < maximum_context:
+        schedule.append(length)
+        length *= 2
+    return schedule
+
+
+def _recovery_estimate(
+    *, lower: int, upper: int, exact_suffix_length: int, source: str
+) -> dict[str, Any]:
+    """Represent an exact or multiplicatively bracketed first-recovery length."""
+    if not 0 <= lower < upper or exact_suffix_length < 1:
+        raise ValueError("recovery bounds must satisfy 0 <= lower < upper")
+    exact = upper <= exact_suffix_length or upper == lower + 1
+    estimate = float(upper) if exact else math.sqrt(lower * upper)
+    return {
+        "erf_estimate": estimate,
+        "lower_bound_exclusive": None if exact else lower,
+        "upper_bound_inclusive": upper,
+        "exact": exact,
+        "source": source,
+    }
 
 
 def _adaptive_batch_size(suffix_length: int, *, max_batch_size: int, token_budget: int) -> int:
@@ -331,7 +466,6 @@ def _measure_mixed_batch(
     layer: int,
     batch: list[tuple[int, str, dict[str, Any]]],
     suffix_length: int,
-    top_k: int,
     framing: dict[str, Any],
     device: str,
 ) -> list[tuple[int, dict[str, Any]]]:
@@ -359,7 +493,6 @@ def _measure_mixed_batch(
         [direction == "positive" for _component, direction, _item in batch], device=device
     )
     sign_ok = torch.where(positive, selected > 0, selected < 0)
-    recovered = (ranks <= top_k) & sign_ok
     return [
         (
             component,
@@ -369,7 +502,6 @@ def _measure_mixed_batch(
                 "score": float(selected[row]),
                 "absolute_score_rank": int(ranks[row]),
                 "sign_matches_selected_tail": bool(sign_ok[row]),
-                "recovered": bool(recovered[row]),
             },
         )
         for row, (component, _direction, item) in enumerate(batch)
@@ -425,18 +557,24 @@ def _finish_component_result(
     layer: int,
     component: int,
     direction: str,
-    prepared: list[dict[str, Any]],
-    observations: dict[int, list[dict[str, Any]]],
-    max_suffix_length: int,
-    top_k: int,
+    occurrence_states: dict[int, dict[str, Any]],
+    exact_suffix_length: int,
+    rank_thresholds: tuple[int, ...],
 ) -> dict[str, Any]:
-    sentinel = max_suffix_length + 1
     results = []
-    for item in prepared:
-        rank = int(item["occurrence_rank"])
-        trace = observations[rank]
-        recovered = next((value for value in trace if value["recovered"]), None)
+    for rank, state in sorted(occurrence_states.items()):
+        item = state["item"]
         occurrence = item["occurrence"]
+        threshold_results = {}
+        for threshold in rank_thresholds:
+            eligible = threshold in state["eligible"]
+            recovery = state["recoveries"].get(threshold)
+            if eligible and recovery is None:
+                raise RuntimeError("eligible suffix-sweep threshold has no recovery estimate")
+            threshold_results[str(threshold)] = {
+                "eligible": eligible,
+                **({"recovery": recovery} if recovery is not None else {}),
+            }
         results.append(
             {
                 "occurrence_rank": rank,
@@ -447,35 +585,39 @@ def _finish_component_result(
                 "context": str(occurrence["context"]),
                 "stored_score": float(occurrence["score"]),
                 "stored_energy": float(occurrence["energy"]),
+                "full_context_absolute_score_rank": int(state["full_context_rank"]),
                 "content_tokens": len(item["content_ids"]),
-                "recovered": recovered is not None,
-                "suffix_erf": (
-                    int(recovered["suffix_length"]) if recovered is not None else sentinel
-                ),
-                "suffix_erf_label": (
-                    str(recovered["suffix_length"])
-                    if recovered is not None
-                    else f">{max_suffix_length}"
-                ),
-                "sweep": trace,
+                "thresholds": threshold_results,
+                "sweep": state["observations"],
             }
         )
-    values = [int(item["suffix_erf"]) for item in results]
-    recovered_count = sum(bool(item["recovered"]) for item in results)
+    component_thresholds = {}
+    for threshold in rank_thresholds:
+        recoveries = [
+            item["thresholds"][str(threshold)].get("recovery")
+            for item in results
+            if item["thresholds"][str(threshold)]["eligible"]
+        ]
+        values = [float(value["erf_estimate"]) for value in recoveries]
+        component_thresholds[str(threshold)] = {
+            "top_k": threshold,
+            "n_occurrences": len(results),
+            "n_eligible": len(values),
+            "eligible_fraction": len(values) / len(results),
+            "n_exact": sum(bool(value["exact"]) for value in recoveries),
+            "suffix_erf_median": statistics.median(values) if values else None,
+            "suffix_erf_mean": statistics.mean(values) if values else None,
+            "suffix_erf_min": min(values) if values else None,
+            "suffix_erf_max": max(values) if values else None,
+        }
     return {
         "layer": layer,
         "component": component,
         "tail_direction": direction,
-        "max_suffix_length": max_suffix_length,
-        "unrecovered_sentinel": sentinel,
-        "top_k": top_k,
+        "exact_suffix_length": exact_suffix_length,
+        "rank_thresholds": list(rank_thresholds),
         "n_occurrences": len(results),
-        "n_recovered": recovered_count,
-        "recovered_fraction": recovered_count / len(results),
-        "suffix_erf_median": statistics.median(values),
-        "suffix_erf_mean": statistics.mean(values),
-        "suffix_erf_min": min(values),
-        "suffix_erf_max": max(values),
+        "threshold_results": component_thresholds,
         "occurrences": results,
     }
 
@@ -506,13 +648,18 @@ def _resolved_configuration(
         "schema_version": SCHEMA_VERSION,
         "icalens_version": __version__,
         "method": METHOD,
-        "recovery": "absolute-score rank <= top_k and score on selected tail",
-        "occurrence_erf": "first recovered suffix length; max_suffix_length + 1 means censored",
-        "component_erf": "mean occurrence ERF with censored sentinel",
+        "recovery": "score on selected tail and absolute-score rank <= each recorded threshold",
+        "eligibility": "stored full-context absolute-score rank <= threshold",
+        "suffix_schedule": "1..exact_suffix_length, then exact_suffix_length * 2^n",
+        "occurrence_erf": (
+            "exact first recovery through the exact sweep; geometric midpoint of later "
+            "recovery bracket"
+        ),
+        "component_erf": "mean estimated occurrence ERF over threshold-eligible occurrences",
         "components_per_layer": args.components_per_layer,
         "occurrences_per_component": args.occurrences_per_component,
-        "max_suffix_length": args.max_suffix_length,
-        "top_k": args.top_k,
+        "exact_suffix_length": args.exact_suffix_length,
+        "rank_thresholds": list(args.rank_thresholds),
         "seed": args.seed,
         "lens_order": list(lens_specs),
         "lenses": {
@@ -560,8 +707,8 @@ def _load_prepared_run(
         "method",
         "components_per_layer",
         "occurrences_per_component",
-        "max_suffix_length",
-        "top_k",
+        "exact_suffix_length",
+        "rank_thresholds",
         "seed",
         "lens_order",
     )
@@ -571,8 +718,8 @@ def _load_prepared_run(
         "method": METHOD,
         "components_per_layer": args.components_per_layer,
         "occurrences_per_component": args.occurrences_per_component,
-        "max_suffix_length": args.max_suffix_length,
-        "top_k": args.top_k,
+        "exact_suffix_length": args.exact_suffix_length,
+        "rank_thresholds": list(args.rank_thresholds),
         "seed": args.seed,
         "lens_order": list(lens_specs),
     }
@@ -640,7 +787,7 @@ def _component_checkpoint_valid(path: Path, *, label: str, layer: int, component
         and value.get("layer") == layer
         and value.get("component") == component
         and value.get("method") == METHOD
-        and isinstance(value.get("suffix_erf_median"), (int, float))
+        and isinstance(value.get("threshold_results"), dict)
         and isinstance(value.get("occurrences"), list)
         and len(value["occurrences"]) == value.get("n_occurrences")
     )
@@ -650,18 +797,23 @@ def _write_summaries(output: Path, units: list[tuple[str, str, int, int]]) -> No
     rows = []
     for _, label, layer, component in units:
         value = json.loads(_component_path(output, label, layer, component).read_text())
-        rows.append(
-            {
-                "model": label,
-                "layer": layer,
-                "component": component,
-                "suffix_erf_median": value["suffix_erf_median"],
-                "suffix_erf_mean": value["suffix_erf_mean"],
-                "n_occurrences": value["n_occurrences"],
-                "n_recovered": value["n_recovered"],
-                "recovered_fraction": value["recovered_fraction"],
-            }
-        )
+        for threshold_text, result in value["threshold_results"].items():
+            rows.append(
+                {
+                    "model": label,
+                    "layer": layer,
+                    "component": component,
+                    "top_k": int(threshold_text),
+                    "suffix_erf_median": result["suffix_erf_median"],
+                    "suffix_erf_mean": result["suffix_erf_mean"],
+                    "suffix_erf_min": result["suffix_erf_min"],
+                    "suffix_erf_max": result["suffix_erf_max"],
+                    "n_occurrences": result["n_occurrences"],
+                    "n_eligible": result["n_eligible"],
+                    "eligible_fraction": result["eligible_fraction"],
+                    "n_exact": result["n_exact"],
+                }
+            )
     atomic_write_json(output / "summary.json", {"format": FORMAT, "rows": rows})
     path = output / "summary.csv"
     path.parent.mkdir(parents=True, exist_ok=True)

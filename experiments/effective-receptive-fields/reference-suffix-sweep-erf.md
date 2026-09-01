@@ -8,41 +8,53 @@ broader preceding context.
 
 ## One occurrence
 
-For one stored dominant-tail occurrence, we try suffix lengths
-$k=1,2,\ldots,K_{\max}$. At each length, we rerun the model on only the last $k$
-tokens ending at the target.
+For one stored dominant-tail occurrence, we test every suffix length from 1 to
+10, followed by 20, 40, 80, and so on. At each length, we rerun the model on
+only the last $k$ tokens ending at the target.
 
 At the target position, we recompute all ICA component scores. The component is
-considered recovered at length $k$ when both conditions hold:
+For each rank threshold $r\in\{1,3,5,10,15\}$, the component is considered
+recovered at length $k$ when both conditions hold:
 
-1. **Magnitude:** it is among the top 15 components by absolute score.
+1. **Magnitude:** it is among the top $r$ components by absolute score.
 2. **Sign:** its score remains on the selected tail.
 
 The occurrence-level ERF is the shortest suffix that succeeds:
 
 $$
-\operatorname{ERF}_{\mathrm{suffix}}
-= \min\{k:\text{the component is recovered at length }k\}.
+\operatorname{ERF}_{\mathrm{suffix}}(r)
+= \min\{k:\text{the component is recovered within the top }r\}.
 $$
 
-Results not recovered within 10 tokens are reported simply as $>10$.
+Lengths through 10 are exact. Beyond 10, recovery is bracketed by the last
+failed and first successful tested lengths. If those lengths are $a$ and $b$,
+the estimate is their geometric midpoint:
+
+$$
+\widehat{\operatorname{ERF}}_{\mathrm{suffix}}(r)=\sqrt{ab}.
+$$
+
+An occurrence participates at threshold $r$ only when its stored full-context
+absolute-score rank is at most $r$. The full context is the final successful
+endpoint, so no artificial value is assigned to an unrecovered truncated
+suffix.
 
 ## One component
 
-We compute the occurrence-level ERF for each of the component's stored
-top-scoring examples on its selected tail, normally 20.
+At each threshold, we compute occurrence-level ERF for the eligible stored
+top-scoring examples on the component's selected tail, normally up to 20.
 
 The component's reported ERF is their arithmetic mean:
 
 $$
-\operatorname{ERF}_{\mathrm{component}}
-= \frac{\operatorname{ERF}_1+\cdots+\operatorname{ERF}_n}{n}.
+\operatorname{ERF}_{\mathrm{component}}(r)
+= \frac{\operatorname{ERF}_1(r)+\cdots+\operatorname{ERF}_{n_r}(r)}{n_r}.
 $$
 
-For example, an ERF of 2 means that the component typically becomes a top-15
-component with the correct sign using about two tokens ending at the target.
+For example, a top-3 ERF of 2 means that the component typically becomes one of
+the three strongest components, with the correct sign, using about two tokens
+ending at the target.
 
-This is a threshold-based recovery measure. It records the first successful
-suffix, not how strongly each earlier token influences the score. Its value also
-depends on the chosen top-15 criterion and the maximum tested length; an example
-reported as $>10$ requires more than 10 tokens under this recovery criterion.
+This is a rank-based recovery measure. It records the first successful suffix,
+not how strongly each earlier token influences the score. All five thresholds
+are recorded in one run and can be plotted separately afterward.
