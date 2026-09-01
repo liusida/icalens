@@ -75,6 +75,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     group_size = int(concept.sum())
     random_indices = background_indices[random_order[:group_size]]
     direction_a = _unit(torch.randn(x.shape[1], generator=generator, dtype=x.dtype))
+    plane_direction = torch.randn(x.shape[1], generator=generator, dtype=x.dtype)
+    plane_direction = _unit(plane_direction - torch.dot(plane_direction, direction_a) * direction_a)
+    plane_v_coordinates = torch.empty(0, dtype=x.dtype)
     direction_b = _unit(z[target_index])
     direction_c = _unit(z[concept].mean(dim=0))
     direction_d = _unit(z[random_indices].mean(dim=0))
@@ -93,7 +96,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         reading = _unit(reading)
         component_scores = z @ reading
         if component_scores[concept].mean() < component_scores[background].mean():
+            reading = -reading
             component_scores = -component_scores
+        plane_direction = _unit(reading - torch.dot(reading, direction_a) * direction_a)
+        plane_v_coordinates = torch.stack(
+            (torch.dot(reading, direction_a), torch.dot(reading, plane_direction))
+        )
         raw_projections["c1"] = component_scores
         evaluation_masks["c1"] = torch.ones(len(samples), dtype=torch.bool)
     projections = {
@@ -143,6 +151,22 @@ def main(argv: Sequence[str] | None = None) -> None:
             "nearest_token": samples[target_nearest_index],
             "nearest_cosine_similarity": target_nearest_similarity,
         },
+        "direction_a_top_tokens": [
+            {
+                **samples[index],
+                "projection": float(raw_projections["a"][index]),
+            }
+            for index in torch.argsort(raw_projections["a"], descending=True)[:10].tolist()
+        ],
+        "direction_ica_top_tokens": [
+            {
+                **samples[index],
+                "projection": float(raw_projections["c1"][index]),
+            }
+            for index in torch.argsort(
+                raw_projections["c1"], descending=True
+            )[:10].tolist()
+        ] if "c1" in raw_projections else [],
         "direction_c_tokens": [samples[i] for i in torch.nonzero(concept).flatten().tolist()],
         "direction_e_tokens": [samples[i] for i in random_indices.tolist()],
         "coherence": coherence,
@@ -150,6 +174,21 @@ def main(argv: Sequence[str] | None = None) -> None:
     }
     output.mkdir(parents=True, exist_ok=True)
     results_path.write_text(json.dumps(results, ensure_ascii=False, indent=2) + "\n")
+    np.savez_compressed(
+        output / "overview-data.npz",
+        projection_a=raw_projections["a"].numpy(),
+        projection_plane=z.numpy() @ plane_direction.numpy(),
+        plane_v_coordinates=plane_v_coordinates.numpy(),
+        projection_b=raw_projections["b"].numpy(),
+        projection_c=raw_projections["c"].numpy(),
+        projection_ica=raw_projections.get("c1", torch.empty(0)).numpy(),
+        projection_e=raw_projections["d"].numpy(),
+        background=background.numpy(),
+        concept=concept.numpy(),
+        tokens=np.asarray([sample["token"] for sample in samples]),
+        random_indices=random_indices.numpy(),
+        target_index=np.asarray(target_index),
+    )
     _plot_all(projections, evaluation_masks, background, concept, target_index,
               random_indices, statistics, output, b_selection=args.b_selection,
               ica_component=args.ica_component if args.ica_lens is not None else None)

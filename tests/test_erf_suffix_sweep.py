@@ -17,7 +17,7 @@ from icalens.experiments.erf_suffix_sweep import (
     _suffix_schedule,
     _unrecovered_assignment,
 )
-from icalens.experiments.erf_suffix_sweep_figure import render
+from icalens.experiments.erf_suffix_sweep_figure import _selected_thresholds, render
 
 
 def test_recovery_requires_rank_and_selected_tail_sign() -> None:
@@ -178,3 +178,16 @@ def test_suffix_sweep_figure_writes_all_outputs(tmp_path: Path) -> None:
         experiment / "figures" / "suffix.txt",
     ]
     assert all(path.is_file() for path in outputs)
+
+
+def test_suffix_sweep_figure_selects_all_recorded_thresholds(tmp_path: Path) -> None:
+    experiment = tmp_path / "experiment"
+    experiment.mkdir()
+    (experiment / "run.json").write_text(
+        json.dumps({"resolved": {"rank_thresholds": [1, 3, 5, 10, 15]}})
+    )
+
+    assert _selected_thresholds(experiment, "all") == [1, 3, 5, 10, 15]
+    assert _selected_thresholds(experiment, "5") == [5]
+    with pytest.raises(ValueError, match="was not recorded"):
+        _selected_thresholds(experiment, "4")

@@ -27,23 +27,53 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("experiment", type=Path)
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--panel-titles", default=None, help="Comma-separated titles.")
-    parser.add_argument("--top-k", type=int, default=15, help="Recorded rank threshold to plot.")
+    parser.add_argument(
+        "--top-k",
+        default="15",
+        help="Recorded rank threshold to plot, or 'all' to create one figure set per threshold.",
+    )
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
     experiment = args.experiment.expanduser().resolve()
-    output = (
-        experiment / "figures" / f"erf-suffix-sweep-top{args.top_k}"
-        if args.output is None
-        else args.output.expanduser().resolve()
-    )
-    for path in render(
-        experiment,
-        output_prefix=output,
-        panel_titles=args.panel_titles,
-        top_k=args.top_k,
-        force=args.force,
-    ):
-        print(path)
+    thresholds = _selected_thresholds(experiment, args.top_k)
+    explicit_output = args.output.expanduser().resolve() if args.output is not None else None
+    for top_k in thresholds:
+        if explicit_output is None:
+            output = experiment / "figures" / f"erf-suffix-sweep-top{top_k}"
+        elif len(thresholds) == 1:
+            output = explicit_output
+        else:
+            output = explicit_output.with_name(f"{explicit_output.name}-top{top_k}")
+        for path in render(
+            experiment,
+            output_prefix=output,
+            panel_titles=args.panel_titles,
+            top_k=top_k,
+            force=args.force,
+        ):
+            print(path)
+
+
+def _selected_thresholds(experiment: Path, value: str) -> list[int]:
+    run_path = experiment / "run.json"
+    if not run_path.is_file():
+        raise ValueError(f"missing suffix-sweep ERF run manifest: {experiment}")
+    run = json.loads(run_path.read_text(encoding="utf-8"))
+    recorded = [int(item) for item in run.get("resolved", {}).get("rank_thresholds", [])]
+    if not recorded:
+        raise ValueError(f"suffix-sweep ERF run records no rank thresholds: {experiment}")
+    if value.lower() == "all":
+        return recorded
+    try:
+        selected = int(value)
+    except ValueError as error:
+        raise ValueError("--top-k must be an integer or 'all'") from error
+    if selected not in recorded:
+        raise ValueError(
+            f"top-k {selected} was not recorded; choose one of "
+            f"{','.join(map(str, recorded))}, or 'all'"
+        )
+    return [selected]
 
 
 def render(
@@ -224,8 +254,9 @@ def _caption(
         f"Each layer contains {count} randomly sampled components (seed {seed}); each component "
         f"is evaluated at the top-{top_k} rank threshold and summarized by the mean "
         "exact-or-bracketed first-recovery length over all dominant-tail occurrences. "
-        "Suffix lengths 1 through 10 are exact; later lengths use doubling and geometric-midpoint "
-        "estimates. An occurrence that never reaches the threshold is assigned its full available "
+        "Suffix lengths 1 through 10 are exact; later lengths use progressively coarser geometric "
+        "steps and geometric-midpoint estimates. An occurrence that never reaches the threshold "
+        "is assigned its full available "
         "context length. Bars extrapolate sampled fractions to the model's full ICA basis. "
         f"Panels: {panels}.{partial}\n"
     )

@@ -13,10 +13,18 @@ if [[ ! -f "$work_dir/source/ica-fit/lens/icalens.json" ]]; then
 fi
 
 uv run python "$experiment_dir/scripts/make_ica_direction_toy.py" --force
-uv run python "$experiment_dir/scripts/analyze.py" \
+uv run --with scipy python "$experiment_dir/scripts/analyze.py" \
   --b-selection concept \
   --b-concept-rank 10 \
   --ica-lens "$work_dir/source/ica-fit/lens" \
+  --force
+
+uv run --with scipy python "$experiment_dir/scripts/make_overview_figure.py" \
+  --version 1 \
+  --force
+uv run --with scipy python "$experiment_dir/scripts/make_overview_figure.py" \
+  --version 2 \
+  --activation-index 138 \
   --force
 
 cp "$work_dir/render/directions-row-raw.png" \
