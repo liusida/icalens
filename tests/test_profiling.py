@@ -143,6 +143,7 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     assert report.is_file()
     assert "Top-score occurrences · negative" in report.read_text()
     assert 'class="profile-occurrence-token" title="Token ID:' in report.read_text()
+    assert "Absolute-score rank among all components at this token" in report.read_text()
     assert profile["format_version"] == 1
 
 

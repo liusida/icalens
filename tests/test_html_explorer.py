@@ -78,6 +78,7 @@ def analysis_result() -> AnalysisResult:
                         "context": "interested in biology",
                         "score": -12.0,
                         "energy": 0.4,
+                        "absolute_score_rank": 2,
                     }
                 ],
                 "logit_tokens": [{"text": "�", "token": "Ļ", "token_id": 247, "logit": 6.5}],
@@ -270,6 +271,9 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert 'class="profile-occurrence-token"' in html
     assert 'class="profile-occurrence-token" title="${esc(tokenHint(item))}"' in html
     assert 'class="profile-occurrence-metrics"' in html
+    assert 'class="profile-occurrence-rank"' in html
+    assert "Absolute-score rank among all components at this token" in html
+    assert "(#${item.absolute_score_rank})" in html
     assert "font-size: 9px" in html
     assert "font-size: 13px; line-height: 1.5" in html
     assert "font-weight: inherit; text-decoration: underline" in html

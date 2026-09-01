@@ -185,12 +185,22 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
             + html.escape(_visible_context(context[end:]))
         )
 
+    def occurrence_rank(item: dict[str, Any]) -> str:
+        rank = item.get("absolute_score_rank")
+        if not isinstance(rank, int) or rank < 1:
+            return ""
+        return (
+            ' <span class="profile-occurrence-rank" '
+            'title="Absolute-score rank among all components at this token">'
+            f"(#{rank})</span>"
+        )
+
     occurrence_items = "".join(
         "<li>"
         f'<span class="profile-occurrence-token" title="{html.escape(_token_hint(item), quote=True)}">{html.escape(json.dumps(str(item.get("text", "")), ensure_ascii=False))}</span>'
         f'<span class="profile-context">{highlighted_context(item)}</span>'
         '<span class="profile-occurrence-metrics">'
-        f'<span title="Signed ICA score">↕ {float(item.get("score", 0)):+.2f}</span> · '
+        f'<span title="Signed ICA score">↕ {float(item.get("score", 0)):+.2f}</span>{occurrence_rank(item)} · '
         f'<span title="Component energy">⚡ {percentage(item.get("energy", 0))}</span>'
         "</span></li>"
         for item in occurrences
@@ -273,7 +283,7 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
   .profile-score-stat-rank {{margin-left:6px;color:#647084;font-size:10px}}
   .profile-chips {{display:flex;flex-wrap:wrap;gap:6px}} .profile-token-chip {{display:inline-flex;gap:6px;padding:4px 7px;border:1px solid #d5dce7;border-radius:999px;background:#f8fafc;font-size:11px}}
   .profile-value {{color:var(--muted);font-variant-numeric:tabular-nums}} ol {{margin:0;padding-left:20px;columns:3 360px;column-gap:32px}} li {{break-inside:avoid;margin:0 0 8px;overflow-wrap:anywhere}}
-  .profile-occurrence-token {{color:#435066;font-size:11px}} .profile-context {{display:block;color:#3f4a5c;font-size:13px;line-height:1.5}} .profile-occurrence-metrics {{display:block;margin-top:2px;color:#929bab;font-size:9px}}
+  .profile-occurrence-token {{color:#435066;font-size:11px}} .profile-context {{display:block;color:#3f4a5c;font-size:13px;line-height:1.5}} .profile-occurrence-metrics {{display:block;margin-top:2px;color:#929bab;font-size:9px}} .profile-occurrence-rank {{font-size:8px;color:#7f8999}}
   .profile-target {{padding:0 1px;border-radius:2px;background:#fff1a8;color:#273244;text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:2px}}
   @media(max-width:700px){{.profile-grid{{grid-template-columns:1fr}}.profile-wide{{grid-column:auto}}}}
 </style></head><body>
@@ -523,6 +533,7 @@ def _document(payload: str) -> str:
     .profile-occurrence-token {{ color: #435066; font-size: 11px; }}
     .profile-occurrence-metrics {{ display: block; margin-top: 2px; color: #929bab;
       font-size: 9px; font-weight: 400; }}
+    .profile-occurrence-rank {{ color: #7f8999; font-size: 8px; }}
     .profile-metric {{ white-space: nowrap; }}
     .profile-metric-icon {{ font-weight: 600; }}
     .profile-context {{ display: block; color: #3f4a5c; font-size: 13px; line-height: 1.5; }}
@@ -849,7 +860,8 @@ def _document(payload: str) -> str:
       const occurrenceItems = profile.occurrences.map(item =>
         `<li><span class="profile-occurrence-token" title="${{esc(tokenHint(item))}}">${{esc(JSON.stringify(String(item.text || "")))}}</span>` +
         `<span class="profile-context">${{highlightedContext(item)}}</span>` +
-        `<span class="profile-occurrence-metrics"><span class="profile-metric" title="Signed ICA score" aria-label="Signed ICA score"><span class="profile-metric-icon">↕</span> ${{Number(item.score) >= 0 ? "+" : ""}}${{Number(item.score).toFixed(2)}}</span> · ` +
+        `<span class="profile-occurrence-metrics"><span class="profile-metric" title="Signed ICA score" aria-label="Signed ICA score"><span class="profile-metric-icon">↕</span> ${{Number(item.score) >= 0 ? "+" : ""}}${{Number(item.score).toFixed(2)}}</span>` +
+        `${{Number.isInteger(item.absolute_score_rank) && item.absolute_score_rank > 0 ? ` <span class="profile-occurrence-rank" title="Absolute-score rank among all components at this token">(#${{item.absolute_score_rank}})</span>` : ""}} · ` +
         `<span class="profile-metric" title="Component energy" aria-label="Component energy"><span class="profile-metric-icon">⚡</span> ${{percentage(item.energy)}}</span></span></li>`
       ).join("");
       const tokenItems = items => items.map((item, index) =>
