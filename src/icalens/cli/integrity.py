@@ -128,9 +128,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     reproduced_activations = output / "captured"
     reproduced_lens = output / "reproduced-lens"
     report_path = output / "report.json"
-    completed = _durable_completed_stages(
-        completed, output=output, layer=args.layer, stages=stages
-    )
+    completed = _durable_completed_stages(completed, output=output, layer=args.layer, stages=stages)
     run.update(completed_stages=completed)
 
     try:
@@ -231,6 +229,9 @@ def _durable_completed_stages(
                     not all("score_statistics" in item for item in profile["components"])
                     or not isinstance(profile.get("score_statistics_provenance"), dict)
                     or not isinstance(profile.get("example_provenance"), dict)
+                    or profile.get("selection", {}).get("example_absolute_score_rank")
+                    != "competition_rank_by_absolute_score"
+                    or not _profile_occurrence_ranks_complete(profile)
                 ):
                     break
             elif stage == "compare_results":
@@ -255,9 +256,7 @@ def _validate_references(lens: ICALens, dataset: ActivationDataset, layer: int) 
         raise ValueError("reference Lens and activations have different hidden sizes")
 
 
-def _validate_sampling_provenance(
-    fitting: dict[str, Any], dataset: ActivationDataset
-) -> None:
+def _validate_sampling_provenance(fitting: dict[str, Any], dataset: ActivationDataset) -> None:
     """Reject a cache that does not represent the Lens fitting population."""
     expected = fitting.get("provenance")
     if not isinstance(expected, dict):
@@ -323,11 +322,14 @@ def _profile_configuration(profile: dict[str, Any], population: int) -> dict[str
     selection = profile["selection"]
     if (
         selection.get("example_selection") != "top_absolute_score_on_selected_tail"
+        or selection.get("example_absolute_score_rank") != "competition_rank_by_absolute_score"
         or "example_provenance" not in profile
+        or not _profile_occurrence_ranks_complete(profile)
     ):
         raise ValueError(
             "reference Lens examples use an older or incomplete selection protocol; "
-            "run `icalens profile refresh-examples` for the requested layer before "
+            "run `icalens profile refresh-examples-rank` for existing artifacts, or "
+            "`icalens profile refresh-examples` to regenerate examples, before "
             "integrity reproduction"
         )
     sampling = profile["provenance"]["profile_sampling"]
@@ -335,15 +337,23 @@ def _profile_configuration(profile: dict[str, Any], population: int) -> dict[str
     statistics_tokens = int(statistics.get("selected_tokens", population))
     return {
         "sample_seed": int(sampling["seed"]),
-        "profile_tokens": max(
-            int(sampling["selected_tokens"]), statistics_tokens, population
-        ),
+        "profile_tokens": max(int(sampling["selected_tokens"]), statistics_tokens, population),
         "statistics_tokens": statistics_tokens,
         "example_tokens": population,
         "top_k_examples": int(selection["top_k_examples_on_selected_tail"]),
         "logit_lens_top_k": int(selection["logit_lens_top_k"]),
         "logit_lens_batch_size": int(selection["logit_lens_batch_size"]),
     }
+
+
+def _profile_occurrence_ranks_complete(profile: dict[str, Any]) -> bool:
+    return all(
+        isinstance(occurrence.get("absolute_score_rank"), int)
+        and occurrence["absolute_score_rank"] >= 1
+        for component in profile.get("components", [])
+        for sign in ("positive", "negative")
+        for occurrence in component.get("examples", {}).get(sign, {}).get("occurrences", [])
+    )
 
 
 def _capture_command(resolved: dict[str, Any], output: Path, layer: int) -> list[str]:
@@ -579,7 +589,15 @@ def _example_identities(component: dict[str, Any]) -> Any:
     for sign in ("negative", "positive"):
         values = component.get("examples", {}).get(sign, {}).get("occurrences", [])
         result.append(
-            [(v.get("source_index"), v.get("position"), v.get("token_id")) for v in values]
+            [
+                (
+                    v.get("source_index"),
+                    v.get("position"),
+                    v.get("token_id"),
+                    v.get("absolute_score_rank"),
+                )
+                for v in values
+            ]
         )
     return result
 
@@ -649,10 +667,9 @@ def _audit_official_experiments(artifacts: list[dict[str, Any]]) -> dict[str, An
             for key in ("experiment", "model_id")
         )
         status_complete = run.get("status") == "complete"
-        checksums_match = (
-            artifact["run_sha256"] == _sha256(directory / "run.json")
-            and artifact["results_sha256"] == _sha256(directory / "results.json")
-        )
+        checksums_match = artifact["run_sha256"] == _sha256(directory / "run.json") and artifact[
+            "results_sha256"
+        ] == _sha256(directory / "results.json")
         item_passed = bool(
             status_complete and identity_matches and metrics_finite and checksums_match
         )

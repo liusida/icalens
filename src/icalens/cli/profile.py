@@ -27,12 +27,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "operation",
         nargs="?",
-        choices=("add-r-lens", "refresh-statistics", "refresh-examples"),
+        choices=(
+            "add-r-lens",
+            "refresh-statistics",
+            "refresh-examples",
+            "refresh-examples-rank",
+        ),
         help=(
             "Optional profile operation. Use 'add-r-lens' to enrich existing "
             "profiles, or 'refresh-statistics' to recompute moments and tail "
             "selection from captured activations, or 'refresh-examples' to gather "
-            "top-score examples on the already selected tail."
+            "top-score examples on the already selected tail, or "
+            "'refresh-examples-rank' to add ranks to already stored examples."
         ),
     )
     parser.add_argument("--lens", required=True, help="Local lens directory or Hub repository.")
@@ -128,6 +134,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         if args.activations is None or args.dataset is not None:
             raise ValueError("'refresh-examples' requires --activations and no --dataset")
         _refresh_cached_examples(args, lens, layers, output)
+        return
+    if args.operation == "refresh-examples-rank":
+        if args.activations is None or args.dataset is not None:
+            raise ValueError("'refresh-examples-rank' requires --activations and no --dataset")
+        _refresh_cached_example_ranks(args, lens, layers, output)
         return
     if (args.dataset is None) == (args.activations is None):
         raise ValueError("full profiling requires exactly one of --dataset or --activations")
@@ -345,6 +356,105 @@ def _refresh_cached_examples(
         log(f"Checkpointed profiled lens to {saved_to}")
 
 
+def _refresh_cached_example_ranks(
+    args: argparse.Namespace, lens: ICALens, layers: tuple[int, ...], output: Path
+) -> None:
+    if not (output / "icalens.json").is_file():
+        raise ValueError("'refresh-examples-rank' requires an existing local lens artifact")
+    dataset = ActivationDataset(args.activations)
+    _validate_cached_dataset(dataset, lens, layers)
+    profiles: dict[int, dict[str, Any]] = {}
+    required_positions: set[tuple[int, int]] = set()
+    for layer in layers:
+        artifact = lens._layers[layer]
+        if artifact.profile_file is None:
+            raise ValueError(f"layer {layer} has no component profile")
+        profile = lens._get_profile(artifact)
+        expected_cache = dataset.provenance["activation_dataset"]["manifest_sha256"]
+        actual_cache = (
+            profile.get("example_provenance", {})
+            .get("activation_dataset", {})
+            .get("manifest_sha256")
+        )
+        if actual_cache != expected_cache:
+            raise ValueError(
+                f"layer {layer} examples came from activation cache {actual_cache!r}, "
+                f"not the requested cache {expected_cache!r}"
+            )
+        profiles[layer] = profile
+        for component in profile.get("components", []):
+            for sign in ("positive", "negative"):
+                for occurrence in (
+                    component.get("examples", {}).get(sign, {}).get("occurrences", [])
+                ):
+                    required_positions.add(
+                        (int(occurrence["source_index"]), int(occurrence["position"]))
+                    )
+    metadata = dataset.samples()
+    row_by_position: dict[tuple[int, int], tuple[int, int]] = {}
+    for row, (source, position, token_id) in enumerate(
+        zip(
+            metadata["document_index"].tolist(),
+            metadata["position"].tolist(),
+            metadata["token_id"].tolist(),
+            strict=True,
+        )
+    ):
+        key = (int(source), int(position))
+        if key in required_positions:
+            if key in row_by_position:
+                raise ValueError(f"activation cache contains duplicate token position {key}")
+            row_by_position[key] = (row, int(token_id))
+    for layer in layers:
+        profile = profiles[layer]
+        occurrence_rows: list[tuple[int, str, int, int]] = []
+        missing: list[str] = []
+        for component_index, component in enumerate(profile.get("components", [])):
+            for sign in ("positive", "negative"):
+                occurrences = component.get("examples", {}).get(sign, {}).get("occurrences", [])
+                for occurrence_index, occurrence in enumerate(occurrences):
+                    key = (int(occurrence["source_index"]), int(occurrence["position"]))
+                    match = row_by_position.get(key)
+                    if match is None:
+                        missing.append(
+                            f"C{component_index} {sign} occurrence {occurrence_index + 1}"
+                        )
+                    else:
+                        row, token_id = match
+                        if int(occurrence["token_id"]) != token_id:
+                            raise ValueError(
+                                f"layer {layer} C{component_index} occurrence token does not "
+                                "match the activation cache"
+                            )
+                        occurrence_rows.append((component_index, sign, occurrence_index, row))
+        if missing:
+            raise ValueError(
+                f"layer {layer} has {len(missing)} occurrences absent from the activation cache; "
+                f"first missing: {missing[0]}"
+            )
+        already_ranked = profile.get("selection", {}).get(
+            "example_absolute_score_rank"
+        ) == "competition_rank_by_absolute_score" and all(
+            "absolute_score_rank"
+            in profile["components"][component]["examples"][sign]["occurrences"][occurrence]
+            for component, sign, occurrence, _row in occurrence_rows
+        )
+        if already_ranked and not args.force:
+            log(f"Layer {layer} example ranks are already complete.")
+            continue
+        log(f"Adding absolute-score ranks to {len(occurrence_rows)} examples in layer {layer}...")
+        lens.refresh_profile_example_ranks_from_activations(
+            dataset.layer(layer),
+            occurrence_rows,
+            layer=layer,
+            batch_size=args.activation_batch_size,
+            device=args.device,
+            progress=not args.no_progress,
+        )
+        saved_to = lens.checkpoint_component_profile(output, layer=layer)
+        log(f"Checkpointed ranked examples for layer {layer} to {saved_to}")
+
+
 def _pending_example_layers(
     args: argparse.Namespace,
     lens: ICALens,
@@ -373,6 +483,7 @@ def _pending_example_layers(
         has_new_examples = (
             selection.get("example_selection") == "top_absolute_score_on_selected_tail"
             and selection.get("top_k_examples_on_selected_tail") == args.top_k_examples
+            and selection.get("example_absolute_score_rank") == "competition_rank_by_absolute_score"
             and "example_provenance" in profile
         )
         if args.force or not has_new_examples:
@@ -445,6 +556,7 @@ def _pending_profile_layers(
     expected_selection = {
         "top_k_examples_on_selected_tail": args.top_k_examples,
         "example_selection": "top_absolute_score_on_selected_tail",
+        "example_absolute_score_rank": "competition_rank_by_absolute_score",
         "logit_lens_top_k": args.logit_lens_top_k,
         "logit_lens_batch_size": args.logit_lens_batch_size,
         "score_statistics": "population_mean_variance_skewness_excess_kurtosis",

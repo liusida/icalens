@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from icalens import ICALens
-from icalens.profiling import _final_norm, _TopScoreOccurrences
+from icalens.profiling import _absolute_score_ranks, _final_norm, _TopScoreOccurrences
 
 
 class TinyTokenizer:
@@ -51,6 +51,12 @@ def test_top_score_occurrences_ignore_relative_energy_rank() -> None:
     assert [item[2]["energy"] for item in examples[0]["positive"]] == [0.10, 0.20]
     assert [item[0] for item in examples[1]["negative"]] == [3.0, 2.0]
     assert [item[2]["energy"] for item in examples[1]["negative"]] == [0.08, 0.01]
+
+
+def test_absolute_score_ranks_use_one_based_competition_ranking() -> None:
+    scores = torch.tensor([[3.0, -3.0, 2.0, -1.0], [0.0, -4.0, 2.0, -3.0]])
+
+    assert _absolute_score_ranks(scores).tolist() == [[1, 1, 3, 4], [4, 1, 3, 2]]
 
 
 def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> None:
@@ -256,6 +262,51 @@ def test_refresh_examples_uses_existing_tail_and_preserves_statistics(monkeypatc
     assert refreshed["components"][0]["examples"]["negative"]["occurrences"] == []
     assert refreshed["components"][0]["score_statistics"] == before
     assert refreshed["example_provenance"] == {"source": "cached"}
+    assert all(
+        occurrence["absolute_score_rank"] >= 1
+        for component in refreshed["components"]
+        for sign in ("positive", "negative")
+        for occurrence in component["examples"][sign]["occurrences"]
+    )
+
+
+def test_refresh_example_ranks_enriches_existing_occurrences_without_reselection(
+    monkeypatch,
+) -> None:
+    signals = np.asarray([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.2], [0.1, -1.0]], dtype=np.float32)
+    lens = ICALens(model_id="example/model", model_revision="revision").fit(
+        signals, layer=1, n_components=2, max_iter=2
+    )
+    lens._analysis_model = TinyModel()
+    lens._analysis_tokenizer = TinyTokenizer()
+    result = SimpleNamespace(
+        scores=torch.tensor([[2.0, -1.0], [-3.0, 0.5]]),
+        energy=torch.tensor([[0.8, 0.2], [0.97, 0.03]]),
+        tokens=("A", "B"),
+        token_texts=(" alpha", " beta"),
+        token_ids=torch.tensor([10, 11]),
+        positions=torch.tensor([4, 5]),
+    )
+    monkeypatch.setattr(lens, "analyze", lambda *args, **kwargs: result)
+    profile = lens.profile_components(["example"], layer=1, top_k_examples=2)
+    occurrence = profile["components"][0]["examples"]["negative"]["occurrences"][0]
+    occurrence.pop("absolute_score_rank")
+    before = dict(occurrence)
+    monkeypatch.setattr(lens, "transform", lambda values, *, layer: values)
+
+    enriched = lens.refresh_profile_example_ranks_from_activations(
+        torch.tensor([[1.0, 4.0], [5.0, 2.0]]),
+        [(0, "negative", 0, 1)],
+        layer=1,
+        device="cpu",
+    )
+
+    enriched_occurrence = enriched["components"][0]["examples"]["negative"]["occurrences"][0]
+    assert {key: enriched_occurrence[key] for key in before} == before
+    assert enriched_occurrence["absolute_score_rank"] == 1
+    assert enriched["selection"]["example_absolute_score_rank"] == (
+        "competition_rank_by_absolute_score"
+    )
 
 
 def test_add_r_lens_profile_preserves_existing_information(monkeypatch) -> None:

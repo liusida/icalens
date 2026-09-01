@@ -75,13 +75,17 @@ def _dispatch_experiment(args: list[str]) -> None:
         from ..experiments.erf_gradient import main
 
         main(args)
+    elif kind == "erf-suffix-sweep":
+        from ..experiments.erf_suffix_sweep import main
+
+        main(args)
     elif kind == "figure":
         _dispatch_experiment_figure(args)
     else:
         raise SystemExit(
             f"icalens experiment: unknown experiment {kind!r}; "
             "use 'saebench-sparse-probing', 'reconstruction', "
-            "'autointerpretability', 'erf-gradient', or 'figure'"
+            "'autointerpretability', 'erf-gradient', 'erf-suffix-sweep', or 'figure'"
         )
 
 
@@ -119,11 +123,15 @@ def _dispatch_experiment_figure(args: list[str]) -> None:
         from ..experiments.erf_gradient_figure import main
 
         main(args)
+    elif kind == "erf-suffix-sweep":
+        from ..experiments.erf_suffix_sweep_figure import main
+
+        main(args)
     else:
         raise SystemExit(
             f"icalens experiment figure: unknown figure {kind!r}; "
             "use 'sparse-probing', 'reconstruction', 'autointerpretability', "
-            "or 'erf-gradient'"
+            "'erf-gradient', or 'erf-suffix-sweep'"
         )
 
 
@@ -232,6 +240,7 @@ commands:
   reconstruction          Capture or evaluate held-out top-k reconstruction
   autointerpretability     Explain features and predict held-out activations
   erf-gradient             Measure gradient effective receptive fields
+  erf-suffix-sweep         Measure suffix-sweep effective receptive fields
   figure                   Create a paper-ready figure from saved results
 
 Run 'icalens experiment COMMAND --help' for command-specific options."""
@@ -245,5 +254,6 @@ figures:
   reconstruction  Plot held-out reconstruction curves
   autointerpretability  Plot feature-level explanation-prediction correlations
   erf-gradient          Plot layerwise gradient ERF distributions
+  erf-suffix-sweep      Plot layerwise suffix-sweep ERF distributions
 
 Run 'icalens experiment figure FIGURE --help' for figure-specific options."""

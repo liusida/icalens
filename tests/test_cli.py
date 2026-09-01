@@ -79,6 +79,17 @@ def test_dispatches_erf_gradient(monkeypatch: pytest.MonkeyPatch) -> None:
     assert received == ["--output", "run"]
 
 
+def test_dispatches_erf_suffix_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
+    from icalens.experiments import erf_suffix_sweep
+
+    received: list[str] = []
+    monkeypatch.setattr(erf_suffix_sweep, "main", lambda args: received.extend(args))
+
+    cli.main(["experiment", "erf-suffix-sweep", "--output", "run"])
+
+    assert received == ["--output", "run"]
+
+
 def test_dispatches_erf_gradient_figure(monkeypatch: pytest.MonkeyPatch) -> None:
     from icalens.experiments import erf_gradient_figure
 
@@ -86,6 +97,17 @@ def test_dispatches_erf_gradient_figure(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(erf_gradient_figure, "main", lambda args: received.extend(args))
 
     cli.main(["experiment", "figure", "erf-gradient", "run"])
+
+    assert received == ["run"]
+
+
+def test_dispatches_erf_suffix_sweep_figure(monkeypatch: pytest.MonkeyPatch) -> None:
+    from icalens.experiments import erf_suffix_sweep_figure
+
+    received: list[str] = []
+    monkeypatch.setattr(erf_suffix_sweep_figure, "main", lambda args: received.extend(args))
+
+    cli.main(["experiment", "figure", "erf-suffix-sweep", "run"])
 
     assert received == ["run"]
 

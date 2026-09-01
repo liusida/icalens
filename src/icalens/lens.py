@@ -423,6 +423,21 @@ class ICALens:
             self, activations, records, layer=layer, **kwargs
         )
 
+    def refresh_profile_example_ranks_from_activations(
+        self,
+        activations: torch.Tensor,
+        occurrence_rows: list[tuple[int, str, int, int]],
+        *,
+        layer: int,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Add absolute-score ranks to stored selected-tail occurrences."""
+        from .profiling import refresh_profile_example_ranks_from_activations
+
+        return refresh_profile_example_ranks_from_activations(
+            self, activations, occurrence_rows, layer=layer, **kwargs
+        )
+
     def component_profile(self, *, layer: int, component: int) -> ComponentProfile:
         """Return a dictionary-compatible, notebook-displayable component profile."""
         from .analysis import ComponentProfile
@@ -693,6 +708,7 @@ class ICALens:
                             "context_target_end",
                             "score",
                             "energy",
+                            "absolute_score_rank",
                         )
                         if key in occurrence
                     }

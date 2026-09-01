@@ -40,6 +40,21 @@ def test_parses_example_refresh_operation() -> None:
     assert args.operation == "refresh-examples"
 
 
+def test_parses_example_rank_refresh_operation() -> None:
+    args = parse_args(
+        [
+            "refresh-examples-rank",
+            "--lens",
+            "artifact",
+            "--layers",
+            "all",
+            "--activations",
+            "capture",
+        ]
+    )
+    assert args.operation == "refresh-examples-rank"
+
+
 def test_example_refresh_treats_legacy_examples_as_pending() -> None:
     profile = {
         "selection": {"sign_selection": "population_skewness"},

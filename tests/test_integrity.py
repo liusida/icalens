@@ -126,24 +126,22 @@ def test_integrity_profiles_full_population_in_one_pass(tmp_path) -> None:
     profile = {
         "selection": {
             "example_selection": "top_absolute_score_on_selected_tail",
+            "example_absolute_score_rank": "competition_rank_by_absolute_score",
             "top_k_examples_on_selected_tail": 20,
             "logit_lens_top_k": 20,
             "logit_lens_batch_size": 64,
         },
         "provenance": {"profile_sampling": {"seed": 0, "selected_tokens": 100_000}},
-        "score_statistics_provenance": {
-            "statistics_sampling": {"selected_tokens": 1_000_000}
-        },
+        "score_statistics_provenance": {"statistics_sampling": {"selected_tokens": 1_000_000}},
         "example_provenance": {},
+        "components": [],
     }
     resolved = {
         "device": "cuda",
         "profile": _profile_configuration(profile, 1_000_000),
     }
 
-    commands = _profile_commands(
-        resolved, tmp_path / "activations", tmp_path / "lens", 6
-    )
+    commands = _profile_commands(resolved, tmp_path / "activations", tmp_path / "lens", 6)
 
     assert len(commands) == 1
     assert commands[0][commands[0].index("--max-tokens") + 1] == "1000000"
@@ -167,9 +165,7 @@ def test_official_experiment_audit_selects_model_and_layer(tmp_path) -> None:
         "model_id": "owner/model",
         "layers": [6],
     }
-    (result / "run.json").write_text(
-        json.dumps({"status": "complete", "resolved": resolved})
-    )
+    (result / "run.json").write_text(json.dumps({"status": "complete", "resolved": resolved}))
     (result / "results.json").write_text(
         json.dumps(
             {
@@ -195,9 +191,7 @@ def test_official_experiment_audit_rejects_non_finite_metric(tmp_path) -> None:
         "model_id": "owner/model",
         "layers": [6],
     }
-    (result / "run.json").write_text(
-        json.dumps({"status": "complete", "resolved": resolved})
-    )
+    (result / "run.json").write_text(json.dumps({"status": "complete", "resolved": resolved}))
     (result / "results.json").write_text(
         json.dumps(
             {

@@ -245,6 +245,8 @@ def test_erf_gradient_figure_writes_all_outputs(tmp_path: Path) -> None:
         tmp_path / "figure" / "erf-gradient.txt",
     ]
     assert all(path.is_file() for path in outputs)
+    caption = outputs[2].read_text()
+    assert "[1,2), [2,3), [3,4), [4,8), [8,16), [16,32), and [32,infinity)" in caption
 
 
 def test_erf_gradient_figure_reads_partial_component_checkpoints(tmp_path: Path) -> None:

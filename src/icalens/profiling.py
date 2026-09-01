@@ -24,8 +24,16 @@ class _TopScoreOccurrences:
         self.energy = torch.zeros(shape, dtype=torch.float64)
         self.rows = torch.full(shape, -1, dtype=torch.int64)
         self.scores = torch.zeros(shape, dtype=torch.float64)
+        self.absolute_score_ranks = torch.zeros(shape, dtype=torch.int64)
 
-    def update(self, energy: torch.Tensor, scores: torch.Tensor, *, row_offset: int) -> None:
+    def update(
+        self,
+        energy: torch.Tensor,
+        scores: torch.Tensor,
+        *,
+        row_offset: int,
+        absolute_score_ranks: torch.Tensor | None = None,
+    ) -> None:
         batch_k = min(self.top_k, len(scores))
         if batch_k == 0:
             return
@@ -37,19 +45,26 @@ class _TopScoreOccurrences:
         batch_priority, batch_rows = torch.topk(candidates, batch_k, dim=0)
         batch_scores = scores.gather(0, batch_rows)
         batch_energy = energy.gather(0, batch_rows)
+        batch_ranks = (
+            torch.zeros_like(batch_rows)
+            if absolute_score_ranks is None
+            else absolute_score_ranks.gather(0, batch_rows)
+        )
         batch_rows = batch_rows + row_offset
         merged_priority = torch.cat((self.priority, batch_priority), dim=0)
         merged_energy = torch.cat((self.energy, batch_energy), dim=0)
         merged_rows = torch.cat((self.rows, batch_rows), dim=0)
         merged_scores = torch.cat((self.scores, batch_scores), dim=0)
+        merged_ranks = torch.cat((self.absolute_score_ranks, batch_ranks), dim=0)
         retained_priority, retained = torch.topk(merged_priority, self.top_k, dim=0)
         self.priority = retained_priority
         self.energy = merged_energy.gather(0, retained)
         self.rows = merged_rows.gather(0, retained)
         self.scores = merged_scores.gather(0, retained)
+        self.absolute_score_ranks = merged_ranks.gather(0, retained)
 
     def finish(
-        self, record_for_row: Any
+        self, record_for_row: Any, rank_for: Any | None = None
     ) -> list[dict[str, list[tuple[float, int, dict[str, Any]]]]]:
         n_components = int(self.priority.shape[1])
         examples = [{"positive": [], "negative": []} for _ in range(n_components)]
@@ -64,12 +79,24 @@ class _TopScoreOccurrences:
                     continue
                 record = dict(record_for_row(row))
                 record.update(score=float(self.scores[rank, component]), energy=energy)
+                if rank_for is not None:
+                    record["absolute_score_rank"] = int(rank_for(component, row))
+                elif int(self.absolute_score_ranks[rank, component]) > 0:
+                    record["absolute_score_rank"] = int(self.absolute_score_ranks[rank, component])
                 examples[component][sign].append((priority, serial, record))
                 serial += 1
         return examples
 
     def retained_rows(self) -> set[int]:
         return {int(row) for row in self.rows.reshape(-1).tolist() if row >= 0}
+
+    def retained_components_by_row(self) -> dict[int, set[int]]:
+        result: dict[int, set[int]] = {}
+        for component in range(int(self.rows.shape[1])):
+            for row in self.rows[:, component].tolist():
+                if row >= 0:
+                    result.setdefault(int(row), set()).add(component)
+        return result
 
 
 def add_r_lens_profile(
@@ -393,11 +420,21 @@ def refresh_profile_examples_from_activations(
         scores_cpu = scores.detach().to(device="cpu", dtype=torch.float64)
         energy_cpu = lens.energy(scores).detach().to(device="cpu", dtype=torch.float64)
         selector.update(energy_cpu, scores_cpu, row_offset=start)
+    ranks = _retained_absolute_score_ranks(
+        lens,
+        activations,
+        selector.retained_components_by_row(),
+        layer=layer,
+        rows=rows,
+        batch_size=batch_size,
+        device=target,
+        progress=progress,
+    )
     return _apply_selected_examples(
         lens,
         artifact,
         profile,
-        selector.finish(records.__getitem__),
+        selector.finish(records.__getitem__, lambda component, row: ranks[(row, component)]),
         top_k_examples=top_k_examples,
         provenance=provenance,
     )
@@ -444,7 +481,12 @@ def _refresh_profile_examples_from_inputs(
             continue
         scores_cpu = scores.to(device="cpu", dtype=torch.float64)
         energy_cpu = lens.energy(scores).to(device="cpu", dtype=torch.float64)
-        selector.update(energy_cpu, scores_cpu, row_offset=token_count)
+        selector.update(
+            energy_cpu,
+            scores_cpu,
+            row_offset=token_count,
+            absolute_score_ranks=_absolute_score_ranks(scores_cpu),
+        )
         retained_rows = selector.retained_rows()
         records = {row: record for row, record in records.items() if row in retained_rows}
         for global_row in retained_rows:
@@ -518,9 +560,104 @@ def _apply_selected_examples(
     selection = profile.setdefault("selection", {})
     selection["top_k_examples_on_selected_tail"] = top_k_examples
     selection["example_selection"] = "top_absolute_score_on_selected_tail"
+    selection["example_absolute_score_rank"] = "competition_rank_by_absolute_score"
     profile["example_provenance"] = provenance
     artifact.profile = profile
     return cast(dict[str, Any], profile)
+
+
+def refresh_profile_example_ranks_from_activations(
+    lens: Any,
+    activations: torch.Tensor,
+    occurrence_rows: list[tuple[int, str, int, int]],
+    *,
+    layer: int,
+    batch_size: int = 8192,
+    device: str | torch.device | None = "auto",
+    progress: bool = False,
+) -> dict[str, Any]:
+    """Add absolute-score ranks to already selected profile occurrences."""
+    if activations.ndim != 2 or batch_size <= 0:
+        raise ValueError("activations must be 2D and batch_size must be positive")
+    artifact = lens._get_layer(layer)
+    profile = lens._get_profile(artifact)
+    components = profile.get("components")
+    if not isinstance(components, list) or len(components) != artifact.n_components:
+        raise ValueError("existing component profile does not match the fitted layer")
+    by_row: dict[int, set[int]] = {}
+    for component, _sign, _occurrence, row in occurrence_rows:
+        if not 0 <= component < artifact.n_components or not 0 <= row < len(activations):
+            raise ValueError("profile occurrence references an invalid component or activation row")
+        by_row.setdefault(row, set()).add(component)
+    ranks = _retained_absolute_score_ranks(
+        lens,
+        activations,
+        by_row,
+        layer=layer,
+        rows=None,
+        batch_size=batch_size,
+        device=_profiling_device(device),
+        progress=progress,
+    )
+    for component, sign, occurrence, row in occurrence_rows:
+        components[component]["examples"][sign]["occurrences"][occurrence][
+            "absolute_score_rank"
+        ] = ranks[(row, component)]
+    profile.setdefault("selection", {})["example_absolute_score_rank"] = (
+        "competition_rank_by_absolute_score"
+    )
+    artifact.profile = profile
+    return cast(dict[str, Any], profile)
+
+
+def _retained_absolute_score_ranks(
+    lens: Any,
+    activations: torch.Tensor,
+    components_by_row: dict[int, set[int]],
+    *,
+    layer: int,
+    rows: torch.Tensor | None,
+    batch_size: int,
+    device: torch.device,
+    progress: bool,
+) -> dict[tuple[int, int], int]:
+    """Rank only retained occurrences, avoiding ranks for the full candidate population."""
+    retained = sorted(components_by_row)
+    result: dict[tuple[int, int], int] = {}
+    iterator = tqdm(
+        range(0, len(retained), batch_size),
+        desc="Rank retained profile examples",
+        unit="batch",
+        disable=not progress,
+    )
+    for start in iterator:
+        local_rows = retained[start : start + batch_size]
+        activation_rows = torch.tensor(
+            [row if rows is None else int(rows[row]) for row in local_rows], dtype=torch.int64
+        )
+        scores = lens.transform(
+            activations.index_select(0, activation_rows).to(device), layer=layer
+        )
+        absolute = scores.detach().abs().to(device="cpu", dtype=torch.float64)
+        for batch_row, local_row in enumerate(local_rows):
+            for component in components_by_row[local_row]:
+                value = absolute[batch_row, component]
+                result[(local_row, component)] = int((absolute[batch_row] > value).sum()) + 1
+    return result
+
+
+def _absolute_score_ranks(scores: torch.Tensor) -> torch.Tensor:
+    """Return one-based competition ranks by descending absolute score."""
+    absolute = scores.abs()
+    order = absolute.argsort(dim=1, descending=True, stable=True)
+    positions = torch.arange(1, scores.shape[1] + 1, device=scores.device).expand_as(order)
+    sorted_absolute = absolute.gather(1, order)
+    starts = torch.ones_like(sorted_absolute, dtype=torch.bool)
+    starts[:, 1:] = sorted_absolute[:, 1:] != sorted_absolute[:, :-1]
+    competition_sorted = torch.where(starts, positions, 0).cummax(dim=1).values
+    result = torch.empty_like(order)
+    result.scatter_(1, order, competition_sorted)
+    return result
 
 
 def refresh_profile_statistics_from_activations(

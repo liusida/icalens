@@ -1,4 +1,4 @@
-"""Plot layerwise distributions of component-level gradient ERF."""
+"""Plot layerwise distributions of component-level suffix-sweep ERF."""
 
 from __future__ import annotations
 
@@ -13,22 +13,16 @@ from typing import Any
 
 import numpy as np
 
-BIN_EDGES = np.asarray([1.0, 2.0, 3.0, 4.0, 8.0, 16.0, 32.0, np.inf])
-BIN_LABELS = ("1–<2", "2–<3", "3–<4", "4–<8", "8–<16", "16–<32", "≥32")
-BIN_COLORS = (
-    "#4F8A63",
-    "#8FBE85",
-    "#B7D3A8",
-    "#E7B84B",
-    "#CC7445",
-    "#A58AB8",
-    "#76558D",
-)
+from .erf_gradient_figure import _basis_sizes, _paper_style, _titles
+
+BIN_EDGES = np.asarray([1.0, 2.0, 3.0, 6.0, 10.0 + 1e-9, np.inf])
+BIN_LABELS = ("1–<2", "2–<3", "3–<6", "6–≤10", ">10")
+BIN_COLORS = ("#4F8A63", "#8FBE85", "#E7B84B", "#CC7445", "#76558D")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        prog="icalens experiment figure erf-gradient", description=__doc__
+        prog="icalens experiment figure erf-suffix-sweep", description=__doc__
     )
     parser.add_argument("experiment", type=Path)
     parser.add_argument("--output", type=Path, default=None)
@@ -37,17 +31,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
     experiment = args.experiment.expanduser().resolve()
     output = (
-        experiment / "figures" / "erf-gradient"
+        experiment / "figures" / "erf-suffix-sweep"
         if args.output is None
         else args.output.expanduser().resolve()
     )
-    paths = render(
-        experiment,
-        output_prefix=output,
-        panel_titles=args.panel_titles,
-        force=args.force,
-    )
-    for path in paths:
+    for path in render(
+        experiment, output_prefix=output, panel_titles=args.panel_titles, force=args.force
+    ):
         print(path)
 
 
@@ -60,12 +50,12 @@ def render(
 ) -> list[Path]:
     run_path = experiment / "run.json"
     if not run_path.is_file():
-        raise ValueError(f"missing gradient ERF run manifest: {experiment}")
+        raise ValueError(f"missing suffix-sweep ERF run manifest: {experiment}")
     run = json.loads(run_path.read_text(encoding="utf-8"))
     complete = run.get("status") == "complete"
     rows = _result_rows(experiment, complete=complete)
     if not rows:
-        raise ValueError(f"gradient ERF experiment has no completed components: {experiment}")
+        raise ValueError(f"suffix-sweep ERF experiment has no completed components: {experiment}")
     labels = list(run["resolved"].get("lens_order", run["resolved"]["lenses"]))
     titles = _titles(panel_titles, labels, run)
     outputs = [output_prefix.with_suffix(suffix) for suffix in (".png", ".pdf", ".txt")]
@@ -96,11 +86,11 @@ def render(
             model_rows = [row for row in rows if row["model"] == label]
             layers = [int(layer) for layer in run["resolved"]["lenses"][label]["layers"]]
             fractions = np.zeros((len(BIN_LABELS), len(layers)), dtype=float)
-            completed_per_layer: list[int] = []
+            completed_per_layer = []
             for column, layer in enumerate(layers):
                 values = np.asarray(
                     [
-                        float(row["gradient_erf_median"])
+                        float(row["suffix_erf_mean"])
                         for row in model_rows
                         if int(row["layer"]) == layer
                     ]
@@ -137,7 +127,6 @@ def render(
                     va="top",
                     fontsize=6.5,
                     color="#687386",
-                    bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1},
                 )
             axis.set_ylim(0, max(basis_sizes))
             axis.set_xlim(min(layers) - 0.6, max(layers) + 0.6)
@@ -171,52 +160,24 @@ def render(
 
 
 def _result_rows(experiment: Path, *, complete: bool) -> list[dict[str, Any]]:
-    summary_path = experiment / "summary.csv"
-    if complete and summary_path.is_file():
-        return list(csv.DictReader(summary_path.open(encoding="utf-8")))
+    summary = experiment / "summary.csv"
+    if complete and summary.is_file():
+        return list(csv.DictReader(summary.open(encoding="utf-8")))
     rows = []
     for path in sorted((experiment / "components").glob("*/layer_*/C*.json")):
         try:
-            item = json.loads(path.read_text(encoding="utf-8"))
+            value = json.loads(path.read_text(encoding="utf-8"))
             rows.append(
                 {
-                    "model": str(item["model_label"]),
-                    "layer": int(item["layer"]),
-                    "component": int(item["component"]),
-                    "gradient_erf_median": float(item["gradient_erf_median"]),
+                    "model": str(value["model_label"]),
+                    "layer": int(value["layer"]),
+                    "component": int(value["component"]),
+                    "suffix_erf_mean": float(value["suffix_erf_mean"]),
                 }
             )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             continue
     return rows
-
-
-def _titles(panel_titles: str | None, labels: list[str], run: dict[str, Any]) -> list[str]:
-    if panel_titles:
-        values = [value.strip() for value in panel_titles.split(",")]
-        if len(values) != len(labels):
-            raise ValueError("--panel-titles must provide one title per model")
-        return values
-    known = {
-        "openai-community/gpt2": "GPT-2 small",
-        "google/gemma-2-2b": "Gemma 2 2B",
-        "Qwen/Qwen3.5-9B-Base": "Qwen 3.5 9B Base",
-    }
-    return [
-        known.get(run["resolved"]["lenses"][label]["model"]["repo_id"], label) for label in labels
-    ]
-
-
-def _basis_sizes(labels: list[str], run: dict[str, Any]) -> list[int]:
-    known = {
-        "openai-community/gpt2": 768,
-        "google/gemma-2-2b": 2304,
-        "Qwen/Qwen3.5-9B-Base": 4096,
-    }
-    sizes = [known.get(run["resolved"]["lenses"][label]["model"]["repo_id"]) for label in labels]
-    if all(size is not None for size in sizes):
-        return [int(size) for size in sizes]
-    return [1] * len(labels)
 
 
 def _caption(
@@ -230,36 +191,15 @@ def _caption(
     count = int(run["resolved"]["components_per_layer"])
     seed = int(run["resolved"]["seed"])
     panels = ", ".join(f"{label} ({title})" for label, title in zip(labels, titles, strict=True))
-    partial_note = ""
+    partial = ""
     if not complete:
         expected = count * sum(len(run["resolved"]["lenses"][label]["layers"]) for label in labels)
-        partial_note = (
-            f" Partial visualization based on {len(rows)} of {expected} planned components; "
-            "each non-empty layer bar is normalized over the components completed in that layer."
-        )
+        partial = f" Partial visualization based on {len(rows)} of {expected} planned components."
     return (
-        "Layerwise distribution of gradient effective receptive field (ERF_grad). "
-        f"Each layer contains {count} randomly sampled components (seed {seed}); each "
-        "component is summarized by the median influence-weighted geometric token distance "
-        "over its stored dominant-tail occurrences. Each stacked bar extrapolates the sampled "
-        "fractions to the model's full ICA basis and therefore shows estimated component counts "
-        "in the intervals "
-        "[1,2), [2,3), [3,4), [4,8), [8,16), [16,32), and [32,infinity). "
-        f"Panels: {panels}.{partial_note}\n"
+        "Layerwise distribution of suffix-sweep effective receptive field. "
+        f"Each layer contains {count} randomly sampled components (seed {seed}); each component "
+        "is summarized by the mean first recovered suffix length over its stored dominant-tail "
+        "occurrences. Results not recovered within 10 tokens are represented by the >10 bin. "
+        "Bars extrapolate sampled fractions to the model's full ICA basis. "
+        f"Panels: {panels}.{partial}\n"
     )
-
-
-def _paper_style() -> dict[str, Any]:
-    return {
-        "font.family": "serif",
-        "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
-        "font.size": 7.5,
-        "axes.titlesize": 8,
-        "axes.labelsize": 8,
-        "xtick.labelsize": 7,
-        "ytick.labelsize": 7,
-        "legend.fontsize": 7,
-        "axes.linewidth": 0.7,
-        "pdf.fonttype": 42,
-        "ps.fonttype": 42,
-    }
