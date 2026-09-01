@@ -8,12 +8,14 @@ import torch
 
 from icalens.experiments.erf_suffix_sweep import (
     METHOD,
+    SCHEMA_VERSION,
     _adaptive_batch_size,
     _component_checkpoint_valid,
     _finish_component_result,
     _recovery_estimate,
     _recovery_from_scores,
     _suffix_schedule,
+    _unrecovered_assignment,
 )
 from icalens.experiments.erf_suffix_sweep_figure import render
 
@@ -43,12 +45,13 @@ def test_adaptive_batch_size_uses_a_fixed_token_budget() -> None:
     assert _adaptive_batch_size(10, max_batch_size=64, token_budget=64) == 6
 
 
-def test_suffix_schedule_is_exact_through_ten_then_doubles() -> None:
-    assert _suffix_schedule(exact_suffix_length=10, maximum_context=95) == [
+def test_suffix_schedule_is_exact_then_uses_coarser_long_context_steps() -> None:
+    assert _suffix_schedule(exact_suffix_length=10, maximum_context=700) == [
         *range(1, 11),
         20,
         40,
-        80,
+        160,
+        640,
     ]
     assert _suffix_schedule(exact_suffix_length=10, maximum_context=16) == [*range(1, 11)]
 
@@ -64,7 +67,7 @@ def test_recovery_estimate_uses_geometric_midpoint_after_exact_sweep() -> None:
     assert estimated["erf_estimate"] == pytest.approx(200**0.5)
 
 
-def test_component_result_records_threshold_specific_eligibility() -> None:
+def test_component_result_includes_unrecovered_full_context_assignments() -> None:
     occurrence = {
         "source_index": 4,
         "position": 7,
@@ -77,12 +80,15 @@ def test_component_result_records_threshold_specific_eligibility() -> None:
     state = {
         "item": {"occurrence_rank": 1, "occurrence": occurrence, "content_ids": [1] * 20},
         "full_context_rank": 4,
-        "eligible": {5, 10, 15},
         "recoveries": {
-            threshold: _recovery_estimate(
-                lower=10, upper=20, exact_suffix_length=10, source="measured_suffix"
-            )
-            for threshold in (5, 10, 15)
+            1: _unrecovered_assignment(full_length=20),
+            3: _unrecovered_assignment(full_length=20),
+            **{
+                threshold: _recovery_estimate(
+                    lower=10, upper=20, exact_suffix_length=10, source="measured_suffix"
+                )
+                for threshold in (5, 10, 15)
+            },
         },
         "observations": [],
     }
@@ -96,9 +102,17 @@ def test_component_result_records_threshold_specific_eligibility() -> None:
         rank_thresholds=(1, 3, 5, 10, 15),
     )
 
-    assert result["threshold_results"]["3"]["n_eligible"] == 0
-    assert result["threshold_results"]["5"]["n_eligible"] == 1
-    assert result["occurrences"][0]["thresholds"]["3"] == {"eligible": False}
+    assert result["threshold_results"]["3"]["n_recovered"] == 0
+    assert result["threshold_results"]["3"]["suffix_erf_mean"] == 20
+    assert result["threshold_results"]["5"]["n_recovered"] == 1
+    assert result["occurrences"][0]["thresholds"]["3"] == {
+        "recovered": False,
+        "erf_estimate": 20.0,
+        "lower_bound_exclusive": None,
+        "upper_bound_inclusive": 20,
+        "exact": False,
+        "source": "unrecovered_assigned_full_context_length",
+    }
 
 
 def test_component_checkpoint_validation(tmp_path: Path) -> None:
@@ -109,7 +123,8 @@ def test_component_checkpoint_validation(tmp_path: Path) -> None:
                 "model_label": "gpt2",
                 "layer": 2,
                 "component": 5,
-                "method": METHOD,
+                    "method": METHOD,
+                    "schema_version": SCHEMA_VERSION,
                     "threshold_results": {"15": {"suffix_erf_mean": 3.0}},
                 "n_occurrences": 1,
                 "occurrences": [{}],

@@ -222,11 +222,10 @@ def _caption(
     return (
         "Layerwise distribution of suffix-sweep effective receptive field. "
         f"Each layer contains {count} randomly sampled components (seed {seed}); each component "
-        f"is evaluated at the full-context top-{top_k} eligibility threshold and summarized by "
-        "the mean exact-or-bracketed first-recovery length over eligible dominant-tail "
-        "occurrences. "
+        f"is evaluated at the top-{top_k} rank threshold and summarized by the mean "
+        "exact-or-bracketed first-recovery length over all dominant-tail occurrences. "
         "Suffix lengths 1 through 10 are exact; later lengths use doubling and geometric-midpoint "
-        "estimates. Bar height also reflects the fraction of sampled components with at least one "
-        "eligible occurrence, and bars extrapolate to the model's full ICA basis. "
+        "estimates. An occurrence that never reaches the threshold is assigned its full available "
+        "context length. Bars extrapolate sampled fractions to the model's full ICA basis. "
         f"Panels: {panels}.{partial}\n"
     )
