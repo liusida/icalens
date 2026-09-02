@@ -91,7 +91,7 @@ result = lens.analyze("She deposited the check.", layer=6)
 
 ### `generate(...)`
 
-生成续写，并可选择钳制一个带符号的 ICA 坐标：
+生成续写，并可选择对带符号的 ICA 坐标增加偏移或进行钳制：
 
 ```python
 baseline = lens.generate(messages, max_new_tokens=16)
@@ -99,7 +99,7 @@ baseline = lens.generate(messages, max_new_tokens=16)
 steered = lens.generate(
     messages,
     layer=5,
-    clamp=(188, -20.0),
+    steer=(188, -12.0),
     max_new_tokens=16,
 )
 ```
@@ -110,6 +110,8 @@ lens.generate(
     *,
     layer=None,
     clamp=None,
+    steer=None,
+    steering_scope="current-position",
     max_new_tokens=64,
     device="auto",
     model=None,
@@ -121,8 +123,10 @@ lens.generate(
 | 参数 | 类型 / 默认值 | 含义 |
 | --- | --- | --- |
 | `prompt` | `str \| list[dict[str, str]]`，必填 | 原始提示词或聊天消息；消息会自动套用聊天模板 |
-| `layer` | `int \| None = None` | 要修改的残差流层；使用 `clamp` 时必填 |
+| `layer` | `int \| None = None` | 要修改的残差流层；使用 `clamp` 或 `steer` 时必填 |
 | `clamp` | `tuple[int, float] \| Mapping[int, float] \| None = None` | 一个 `(成分, 目标分数)`，或多个同时钳制目标的映射；应用于每个处理位置和每个生成步骤 |
+| `steer` | `tuple[int, float] \| Mapping[int, float] \| None = None` | 一个 `(成分, 分数偏移)`，或多个同时施加的加性偏移；不能与 `clamp` 同时使用 |
+| `steering_scope` | `"current-position" \| "all-positions" = "current-position"` | 使用 `steer` 时，只修改运行时当前位置，或修改预填充与解码期间处理的所有位置 |
 | `max_new_tokens` | `int = 64` | 最多生成多少个续写 token |
 | `device` | `str \| torch.device \| None = "auto"` | 模型设备；自动模式优先 CUDA |
 | `model` | `torch.nn.Module \| None = None` | 可选的外部语言模型 |
@@ -130,9 +134,10 @@ lens.generate(
 | `**generation_kwargs` | 关键字参数 | 继续传给 `model.generate()` 的参数 |
 | **返回** | `str` | 只包含续写、不包含提示词的解码文本 |
 
-不提供 `clamp` 时，这是普通生成。提供 `clamp` 后，ICA Lens 会修改指定层的
-`resid_post` 激活，并在送回模型之前恢复每个激活的原始范数。默认使用贪心解码；也可
-传入标准生成参数选择其他策略。语言模型会按需加载，并由同一个 Lens 的后续调用复用。
+不提供 `clamp` 或 `steer` 时，这是普通生成。`clamp` 会替换绝对分数并恢复激活范数；
+`steer` 会把 `分数偏移 * 写入方向` 直接加到残差流中，因此要求 Lens 未做逐行归一化，
+且没有预处理中心。默认使用贪心解码；也可传入标准生成参数选择其他策略。语言模型会
+按需加载，并由同一个 Lens 的后续调用复用。
 
 ### `capture(...)`
 

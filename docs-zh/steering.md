@@ -92,6 +92,34 @@ print("Steered:", steered)
 在我们的测试中，回答以 **Neuroplasticity** 开头。多次调用会复用内存中的语言模型
 权重。
 
+### 改为增加分数偏移
+
+钳制会设置一个绝对坐标值；加性引导则把坐标移动一个经过校准的偏移量：
+
+```python
+steered = lens.generate(
+    messages,
+    layer=5,
+    steer=(188, -12.0),
+    steering_scope="current-position",
+    max_new_tokens=16,
+)
+```
+
+这里，`steer=(188, -12.0)` 执行
+
+$$
+h \leftarrow h - 12 A_{:,188},
+$$
+
+其中 $A_{:,188}$ 是该成分的写入方向。默认的 `current-position` 会在预填充时修改
+提示词的最后一个位置，并在每个解码步骤修改新生成位置，通常是最经济的干预方式。
+使用 `steering_scope="all-positions"` 时，同一偏移还会在预填充时加到提示词的每个
+位置。
+
+加性引导要求 Lens 在拟合时没有逐行归一化，也没有预处理中心。`clamp` 与 `steer`
+不能同时使用。
+
 ### 5. 检查生成后的对话
 
 ```python
@@ -162,7 +190,7 @@ edited_hidden_states = lens.restore_norm(
 )
 ```
 
-`lens.generate()` 会自动安装并移除模型 hook。
+无论使用钳制还是加性引导，`lens.generate()` 都会自动安装并移除模型 hook。
 
 ## 实践注意事项
 

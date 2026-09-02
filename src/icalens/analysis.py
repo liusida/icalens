@@ -414,13 +414,15 @@ def generate(
     *,
     layer: int | None = None,
     clamp: tuple[int, float] | Mapping[int, float] | None = None,
+    steer: tuple[int, float] | Mapping[int, float] | None = None,
+    steering_scope: Literal["current-position", "all-positions"] = "current-position",
     max_new_tokens: int = 64,
     device: str | torch.device | None = "auto",
     model: torch.nn.Module | None = None,
     tokenizer: Any = None,
     **generation_kwargs: Any,
 ) -> str:
-    """Generate text, optionally clamping one signed ICA score at resid_post."""
+    """Generate text, optionally clamping or additively steering ICA scores."""
     if isinstance(prompt, list):
         prompt = _normalize_messages(prompt)
         if not prompt:
@@ -429,26 +431,61 @@ def generate(
         raise TypeError("prompt must be a string or a list of messages")
     if max_new_tokens <= 0:
         raise ValueError("max_new_tokens must be positive")
-    if clamp is None:
+    if clamp is not None and steer is not None:
+        raise ValueError("clamp and steer are mutually exclusive")
+    intervention = clamp if clamp is not None else steer
+    intervention_name = "clamp" if clamp is not None else "steer"
+    if intervention is None:
         if layer is not None:
-            raise ValueError("layer is only used when clamp is provided")
+            raise ValueError("layer is only used when clamp or steer is provided")
     else:
         if layer is None:
-            raise ValueError("layer is required when clamp is provided")
+            raise ValueError(f"layer is required when {intervention_name} is provided")
         if lens.activation_site != "resid_post":
-            raise ValueError("generation clamping currently requires activation_site='resid_post'")
-        clamps = dict(clamp.items()) if isinstance(clamp, Mapping) else {clamp[0]: clamp[1]}
-        if not clamps:
-            raise ValueError("clamp mapping cannot be empty")
-        for component, target in clamps.items():
+            raise ValueError(
+                "generation interventions currently require activation_site='resid_post'"
+            )
+        values = (
+            dict(intervention.items())
+            if isinstance(intervention, Mapping)
+            else {intervention[0]: intervention[1]}
+        )
+        if not values:
+            raise ValueError(f"{intervention_name} mapping cannot be empty")
+        for component, value in values.items():
             if isinstance(component, bool) or not isinstance(component, int) or component < 0:
-                raise ValueError("clamp components must be non-negative integers")
+                raise ValueError(f"{intervention_name} components must be non-negative integers")
             if (
-                isinstance(target, bool)
-                or not isinstance(target, (int, float))
-                or not torch.isfinite(torch.tensor(float(target)))
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not torch.isfinite(torch.tensor(float(value)))
             ):
-                raise ValueError("clamp targets must be finite numbers")
+                noun = "targets" if clamp is not None else "offsets"
+                raise ValueError(f"{intervention_name} {noun} must be finite numbers")
+    if steering_scope not in ("current-position", "all-positions"):
+        raise ValueError("steering_scope must be 'current-position' or 'all-positions'")
+
+    steering_direction: torch.Tensor | None = None
+    if steer is not None:
+        assert layer is not None
+        artifact = lens._get_layer(layer)
+        if lens.row_normalize or artifact.preprocessing_center is not None:
+            raise ValueError(
+                "additive steering requires an unnormalized Lens without a preprocessing center"
+            )
+        if artifact.writing_matrix is None:
+            raise ValueError(f"layer {layer} has no ICA writing matrix")
+        for component in values:
+            if component >= artifact.writing_matrix.shape[1]:
+                raise ValueError(
+                    f"steer component {component} is unavailable; "
+                    f"layer {layer} has {artifact.writing_matrix.shape[1]} components"
+                )
+        steering_direction = torch.zeros(artifact.writing_matrix.shape[0], dtype=torch.float32)
+        for component, offset in values.items():
+            steering_direction += float(offset) * torch.from_numpy(
+                artifact.writing_matrix[:, component]
+            )
 
     model, tokenizer = _resolve_model_and_tokenizer(lens, model, tokenizer, device)
     is_text_prompt = isinstance(prompt, str)
@@ -482,9 +519,7 @@ def generate(
                     (prefix_mask, encoded["attention_mask"]), dim=1
                 )
         elif not prompt:
-            raise ValueError(
-                "an empty prompt requires a recorded BOS/EOS document-framing token"
-            )
+            raise ValueError("an empty prompt requires a recorded BOS/EOS document-framing token")
     model_device = next(model.parameters()).device
     model_inputs = {
         name: value.to(model_device)
@@ -495,7 +530,7 @@ def generate(
     kwargs = {"do_sample": False, **generation_kwargs}
     model_generate = cast(Any, model).generate
 
-    if clamp is None:
+    if intervention is None:
         with torch.inference_mode():
             generated = model_generate(
                 **model_inputs,
@@ -504,24 +539,43 @@ def generate(
             )
     else:
         assert layer is not None
-        clamps = dict(clamp.items()) if isinstance(clamp, Mapping) else {clamp[0]: clamp[1]}
+        values = (
+            dict(intervention.items())
+            if isinstance(intervention, Mapping)
+            else {intervention[0]: intervention[1]}
+        )
 
-        def edit(hidden: torch.Tensor) -> torch.Tensor:
+        def clamp_scores(hidden: torch.Tensor) -> torch.Tensor:
             original_dtype = hidden.dtype
             scores = lens.transform(hidden.float(), layer=layer)
-            for component, target in clamps.items():
+            for component, value in values.items():
                 if component >= scores.shape[-1]:
                     raise ValueError(
-                        f"clamp component {component} is unavailable; "
+                        f"{intervention_name} component {component} is unavailable; "
                         f"layer {layer} has {scores.shape[-1]} components"
                     )
-                scores[..., component] = float(target)
+                scores[..., component] = float(value)
             reconstructed = cast(torch.Tensor, lens.inverse_transform(scores, layer=layer))
             restored = cast(
                 torch.Tensor,
                 lens.restore_norm(reconstructed, reference=hidden.float()),
             )
             return restored.to(original_dtype)
+
+        def edit(hidden: torch.Tensor) -> torch.Tensor:
+            if steer is None:
+                return clamp_scores(hidden)
+            assert steering_direction is not None
+            steering = steering_direction.to(device=hidden.device, dtype=hidden.dtype)
+            if steering_scope == "all-positions":
+                return hidden + steering
+            if hidden.ndim != 3:
+                raise ValueError(
+                    "current-position steering requires a [batch, sequence, hidden] tensor"
+                )
+            edited = hidden.clone()
+            edited[:, -1, :] += steering
+            return edited
 
         with clamp_resid_post(model, layer=layer, edit=edit), torch.inference_mode():
             generated = model_generate(

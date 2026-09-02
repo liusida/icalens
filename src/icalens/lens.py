@@ -467,7 +467,7 @@ class ICALens:
         return destination
 
     def generate(self, prompt: Any, **kwargs: Any) -> str:
-        """Generate a continuation, optionally clamping one ICA coordinate."""
+        """Generate a continuation, optionally clamping or steering ICA coordinates."""
         from .analysis import generate
 
         return generate(self, prompt, **kwargs)

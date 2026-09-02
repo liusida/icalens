@@ -98,6 +98,36 @@ print("Steered:", steered)
 In our test, the response starts with **Neuroplasticity**. The language-model
 weights remain cached between calls.
 
+### Add a score offset instead
+
+Clamping sets an absolute coordinate value. Additive steering instead moves the
+coordinate by a calibrated offset:
+
+```python
+steered = lens.generate(
+    messages,
+    layer=5,
+    steer=(188, -12.0),
+    steering_scope="current-position",
+    max_new_tokens=16,
+)
+```
+
+Here, `steer=(188, -12.0)` applies
+
+$$
+h \leftarrow h - 12 A_{:,188},
+$$
+
+where $A_{:,188}$ is the component's writing direction. The default
+`current-position` scope edits the final position of the prompt during prefill
+and the newly generated position at every decoding step. This is usually the
+most economical intervention. With `steering_scope="all-positions"`, the same
+offset is also added to every prompt position during prefill.
+
+Additive steering requires a Lens fitted without row normalization or a
+preprocessing center. `clamp` and `steer` are mutually exclusive.
+
 ### 5. Inspect the resulting conversation
 
 ```python
@@ -174,7 +204,8 @@ edited_hidden_states = lens.restore_norm(
 )
 ```
 
-`lens.generate()` installs and removes the model hook automatically.
+`lens.generate()` installs and removes the model hook automatically for both
+clamping and additive steering.
 
 ## Practical cautions
 

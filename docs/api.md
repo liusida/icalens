@@ -158,7 +158,8 @@ loading, capture, and transformation stages visible.
 
 ### `generate(...)`
 
-Generate a continuation, optionally clamping one signed ICA coordinate:
+Generate a continuation, optionally adding offsets to or clamping signed ICA
+coordinates:
 
 ```python
 baseline = lens.generate(messages, max_new_tokens=16)
@@ -166,7 +167,7 @@ baseline = lens.generate(messages, max_new_tokens=16)
 steered = lens.generate(
     messages,
     layer=5,
-    clamp=(188, -20.0),
+    steer=(188, -12.0),
     max_new_tokens=16,
 )
 ```
@@ -177,6 +178,8 @@ lens.generate(
     *,
     layer=None,
     clamp=None,
+    steer=None,
+    steering_scope="current-position",
     max_new_tokens=64,
     device="auto",
     model=None,
@@ -188,8 +191,10 @@ lens.generate(
 | Argument | Type / default | Meaning |
 | --- | --- | --- |
 | `prompt` | `str \| list[dict[str, str]]`, required | Raw prompt or chat messages; chat templates are applied automatically |
-| `layer` | `int \| None = None` | Zero-based residual-stream layer to edit; required with `clamp` |
+| `layer` | `int \| None = None` | Zero-based residual-stream layer to edit; required with `clamp` or `steer` |
 | `clamp` | `tuple[int, float] \| Mapping[int, float] \| None = None` | One `(component, target_score)` pair or a mapping of simultaneous clamps, applied at every processed token position and generation step |
+| `steer` | `tuple[int, float] \| Mapping[int, float] \| None = None` | One `(component, score_offset)` pair or a mapping of simultaneous additive score offsets; mutually exclusive with `clamp` |
+| `steering_scope` | `"current-position" \| "all-positions" = "current-position"` | With `steer`, edit only the runtime current position, or every position processed during prefill and decoding |
 | `max_new_tokens` | `int = 64` | Maximum number of continuation tokens |
 | `device` | `str \| torch.device \| None = "auto"` | Model device; automatic mode prefers CUDA and otherwise uses CPU |
 | `model` | `torch.nn.Module \| None = None` | Optional caller-supplied language model |
@@ -197,11 +202,12 @@ lens.generate(
 | `**generation_kwargs` | keyword arguments | Additional arguments forwarded to `model.generate()` |
 | **Returns** | `str` | Decoded continuation only, without the prompt |
 
-Without `clamp`, this is ordinary generation. With `clamp`, ICA Lens edits the
-`resid_post` activation at the selected layer, then restores each activation's
-original norm before returning it to the model. Greedy decoding is the default;
-pass standard generation arguments to choose another decoding strategy. The
-language model is loaded lazily and reused by later calls on the same lens.
+Without `clamp` or `steer`, this is ordinary generation. A clamp replaces an
+absolute score and restores the activation norm. Additive steering adds
+`score_offset * writing_direction` directly to the residual stream. It requires
+an unnormalized Lens without a preprocessing center. Greedy decoding is the
+default; pass standard generation arguments to choose another decoding strategy.
+The language model is loaded lazily and reused by later calls on the same lens.
 
 ### `capture(...)`
 

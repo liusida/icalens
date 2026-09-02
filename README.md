@@ -66,7 +66,8 @@ turns are grouped in the interactive result.
 
 ## Steering
 
-Generate normally or clamp a signed ICA coordinate during generation:
+Generate normally, add an ICA-score offset at the current position, or clamp a
+signed ICA coordinate:
 
 ```python
 messages = [{
@@ -78,10 +79,14 @@ baseline = lens.generate(messages, max_new_tokens=16)
 steered = lens.generate(
     messages,
     layer=5,
-    clamp=(188, -20.0),
+    steer=(188, -12.0),
     max_new_tokens=16,
 )
 ```
+
+Additive steering defaults to the current position at each generation step.
+Use `steering_scope="all-positions"` to edit the entire prompt during prefill as
+well. Absolute `clamp=(component, target_score)` interventions remain available.
 
 Component labels, signs, and suitable targets must be established empirically
 for the exact Lens and layer. See the
