@@ -22,7 +22,6 @@ from icalens import ICALens
 from icalens.experiments._saebench_worker import SAEFeatureEncoder
 
 ROOT = Path(__file__).parent
-RUNS = ROOT / "runs"
 MODEL = "gpt-4.1-mini-2025-04-14"
 RUBRIC_VERSION = "language-quality-v1"
 LANGUAGES = {
@@ -33,7 +32,8 @@ LANGUAGES = {
 }
 METHODS = {"sae": ("SAE", "feature", "F"), "ica": ("ICA", "component", "C")}
 CONVENTION = "all-positions"
-GENERATION_PROMPT = "Leaves change color in autumn because"
+DEFAULT_RUN = ROOT / "runs" / f"all-methods-all-languages-layers19-21-{CONVENTION}"
+ARTIFICIAL_INTELLIGENCE_PROMPT = "Artificial intelligence is important because"
 
 
 class JudgmentSchema(BaseModel):
@@ -42,7 +42,6 @@ class JudgmentSchema(BaseModel):
     quality: int = Field(ge=0, le=4)
     relevance: int = Field(ge=0, le=4)
     degenerate: bool
-    reason: str
 
 
 @dataclass(frozen=True)
@@ -52,7 +51,6 @@ class Judgment:
     quality: int
     relevance: int
     degenerate: bool
-    reason: str
 
     @property
     def passes(self) -> bool:
@@ -124,19 +122,20 @@ class OpenAIEvaluator:
             ).encode()
         ).hexdigest()
         if key in self.cache:
-            return Judgment(**self.cache[key])
+            cached = JudgmentSchema.model_validate(self.cache[key])
+            return Judgment(**cached.model_dump())
         response = await self.client.responses.parse(
             model=self.model,
             store=False,
             temperature=0,
+            max_output_tokens=64,
             instructions=(
                 "Evaluate a language-steered continuation, excluding the English prompt. "
                 "Use integer scores from 0 (failed) to 4 (excellent). Language adherence "
                 "measures use of the requested language; substantial code-mixing scores at "
                 "most 2. Quality measures fluency, coherence, grammar, and non-repetition. "
                 "Relevance measures whether it sensibly continues the prompt. Set degenerate "
-                "true for loops, repeated templates/options, gibberish, or severe malformation. "
-                "Give one short factual reason."
+                "true for loops, repeated templates/options, gibberish, or severe malformation."
             ),
             input=(
                 f"Target language: {target_language}\n"
@@ -166,7 +165,12 @@ class OpenAIEvaluator:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--layer", type=int, default=20)
-    parser.add_argument("--runs", type=Path, default=RUNS)
+    parser.add_argument(
+        "--runs",
+        type=Path,
+        default=DEFAULT_RUN,
+        help="Run directory containing results/ (default: %(default)s)",
+    )
     parser.add_argument("--model", default=MODEL)
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
     parser.add_argument(
@@ -175,6 +179,15 @@ def parse_args() -> argparse.Namespace:
         default=ROOT / "evaluation-cache" / "openai-language-quality.json",
     )
     parser.add_argument("--output", type=Path, default=ROOT / "RESULTS.md")
+    parser.add_argument(
+        "--display-prompt",
+        choices=("best", "artificial-intelligence"),
+        default="best",
+        help=(
+            "Choose the generation shown for each selected candidate: its best passing "
+            "sample, or the shared Artificial intelligence prompt (default: %(default)s)"
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print without writing the report.")
     return parser.parse_args()
 
@@ -212,6 +225,11 @@ async def async_main() -> None:
         compute_cosines(payloads, selections, layer=args.layer),
         layer=args.layer,
         model=args.model,
+        display_prompt=(
+            ARTIFICIAL_INTELLIGENCE_PROMPT
+            if args.display_prompt == "artificial-intelligence"
+            else None
+        ),
     )
     if args.dry_run:
         print(report, end="")
@@ -222,7 +240,7 @@ async def async_main() -> None:
 
 def load_payloads(runs: Path, layer: int) -> dict[tuple[str, str], dict[str, Any]]:
     payloads: dict[tuple[str, str], dict[str, Any]] = {}
-    results = runs / f"all-methods-all-languages-layers19-21-{CONVENTION}" / "results"
+    results = runs / "results"
     for method in METHODS:
         for language in LANGUAGES:
             path = results / f"{method}-english-to-{language}-layer{layer}.json"
@@ -300,6 +318,7 @@ def render_report(
     *,
     layer: int,
     model: str,
+    display_prompt: str | None,
 ) -> str:
     configuration = next(iter(payloads.values()))["configuration"]
     lines = [
@@ -319,7 +338,7 @@ def render_report(
         "## Selection",
         "",
         "Evaluate each of the three largest activation contrasts on four prompts. Select",
-        "the candidate with the most passing outputs, then display its best passing sample.",
+        "the candidate with the most passing outputs.",
         "",
         "| Language | SAE feature | SAE offset | ICA component | ICA offset | Signed cosine |",
         "|---|---:|---:|---:|---:|---:|",
@@ -332,6 +351,21 @@ def render_report(
             f"C{ica.identifier} | {ica.offset:+.4f} | {cosines[language]:.4f} |"
         )
     lines.extend(["", "## Generations", ""])
+    if display_prompt is None:
+        lines.extend(
+            [
+                "For every selected feature and component, show its best passing sample.",
+                "",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "For every selected feature and component, show the generation from the",
+                f"shared prompt *{display_prompt}*.",
+                "",
+            ]
+        )
     lines.extend(
         [
             '<table style="width: 100%; table-layout: fixed;">',
@@ -348,9 +382,20 @@ def render_report(
         cells = []
         for method, (_, _, prefix) in METHODS.items():
             row = selections[(method, language)]
-            sample = row.best_sample
+            sample = (
+                row.best_sample
+                if display_prompt is None
+                else next(
+                    (sample for sample in row.samples if sample.prompt == display_prompt),
+                    None,
+                )
+            )
             if sample is None:
-                cells.append("*No generation passed the quality threshold.*")
+                cells.append(
+                    "*No generation passed the quality threshold.*"
+                    if display_prompt is None
+                    else "*The requested prompt is missing from this run.*"
+                )
             else:
                 prompt = html.escape(sample.prompt)
                 text = html.escape(sample.text).replace("\n", "<br>")
