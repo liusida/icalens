@@ -28,3 +28,12 @@ uv run experiments/steering-language-control/run.py --layers 0,4-6,10
 `--layer 20` remains available as a compatibility alias for a single layer. Likewise,
 `--method sae` or `--method ica` and `--target-language french` restrict the method or
 language grid.
+
+After the Layer-20 comparison runs are available, fill the signed effective-vector
+cosines in `RESULTS.md` with:
+
+```bash
+uv run experiments/steering-language-control/fill_cosine_similarities.py
+```
+
+Use `--dry-run` to print the values without modifying the document.
