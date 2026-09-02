@@ -20,6 +20,7 @@ misc/
 /experiments/autointerpretability/runs/
 /experiments/effective-receptive-fields/runs/
 /experiments/steering-language-control/runs/
+/experiments/steering-language-control/official/logs/
 /experiments/steering-language-control/calibration-cache/
 /experiments/steering-language-control/data/
 experiments/steering-language-control/evaluation-cache/

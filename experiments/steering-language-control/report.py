@@ -32,7 +32,7 @@ LANGUAGES = {
 }
 METHODS = {"sae": ("SAE", "feature", "F"), "ica": ("ICA", "component", "C")}
 CONVENTION = "all-positions"
-DEFAULT_RUN = ROOT / "runs" / f"all-methods-all-languages-layers19-21-{CONVENTION}"
+DEFAULT_RUN = ROOT / "official"
 ARTIFICIAL_INTELLIGENCE_PROMPT = "Artificial intelligence is important because"
 
 
