@@ -52,7 +52,7 @@ def plot_fitting_curves(
     else:
         figure.suptitle(f"FastICA fitting · {model_id}", y=0.995)
         figure.supxlabel("Iteration")
-        figure.supylabel("Mean contrast over fitting tokens")
+        figure.supylabel("Logcosh contrast")
         figure.legend(
             handles,
             labels,
@@ -119,7 +119,7 @@ def _plot_fitting_axis(
     axis.set_title(f"Layer {layer}")
     if show_axis_labels:
         axis.set_xlabel("Iteration")
-        axis.set_ylabel("Mean contrast over fitting tokens")
+        axis.set_ylabel("Logcosh contrast")
     axis.grid(axis="y", alpha=0.2)
 
 

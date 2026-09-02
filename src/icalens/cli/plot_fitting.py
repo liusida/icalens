@@ -123,7 +123,7 @@ def render_fitting_summary(
         for axis in axes.flat[len(lenses):]:
             axis.remove()
 
-        figure.supylabel("Mean contrast over fitting tokens", x=0.015)
+        figure.supylabel("Logcosh contrast", x=0.015)
         figure.supxlabel("FastICA iteration", y=0.04)
         handles, labels = axes.flat[0].get_legend_handles_labels()
         figure.legend(
