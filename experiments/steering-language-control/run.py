@@ -46,10 +46,10 @@ TARGET_LANGUAGES = {
 DOWNLOAD_USER_AGENT = (
     "Mozilla/5.0 (compatible; ICA-Lens-research/0.3; +https://github.com/liusida/icalens)"
 )
-PAPER_PROMPT = "Artificial intelligence is important because"
+PAPER_PROMPT = "Leaves change color in autumn because"
 DEFAULT_PROMPTS = (
+    "Artificial intelligence is important because",
     PAPER_PROMPT,
-    "Leaves change color in autumn because",
     "A practical way to organize a small kitchen is",
     "The difference between weather and climate is",
 )
@@ -93,10 +93,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--sae-checkpoint",
-        help=(
-            "Override the registered Gemma Scope checkpoint, for example "
-            "layer_20/width_16k/average_l0_71/params.npz."
-        ),
+        default="layer_20/width_16k/average_l0_71/params.npz",
+        help="Gemma Scope checkpoint used for the selected layer.",
     )
     parser.add_argument("--pairs", type=int, default=1000)
     parser.add_argument(
@@ -111,12 +109,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--offset-multipliers", default="1")
     parser.add_argument(
         "--steering-convention",
-        choices=("all-positions", "current-position", "decode-only", "prefill-only"),
-        default="current-position",
-        help=(
-            "Where to apply the intervention: every position; only the final/current "
-            "position; decoding calls after prefill; or the initial prefill call only."
-        ),
+        choices=("all-positions",),
+        default="all-positions",
+        help="Apply the intervention to every position processed during generation.",
     )
     parser.add_argument("--max-new-tokens", type=int, default=50)
     parser.add_argument("--temperature", type=float, default=0.5)
@@ -451,7 +446,6 @@ def _run_condition(
                         layer=args.layer,
                         feature=int(candidate[unit_name]),
                         offset=offset,
-                        convention=args.steering_convention,
                     ):
                         text = generate(
                             model,
@@ -460,7 +454,7 @@ def _run_condition(
                             max_new_tokens=args.max_new_tokens,
                             temperature=args.temperature,
                         )
-                elif args.steering_convention in ("current-position", "all-positions"):
+                else:
                     text = lens.generate(
                         prompt,
                         layer=args.layer,
@@ -472,22 +466,6 @@ def _run_condition(
                         do_sample=True,
                         temperature=args.temperature,
                     )
-                else:
-                    with additive_ica_steering(
-                        model,
-                        lens,
-                        layer=args.layer,
-                        component=int(candidate[unit_name]),
-                        offset=offset,
-                        convention=args.steering_convention,
-                    ):
-                        text = generate(
-                            model,
-                            tokenizer,
-                            prompt,
-                            max_new_tokens=args.max_new_tokens,
-                            temperature=args.temperature,
-                        )
                 row["steered"].append(
                     {
                         "candidate_rank": candidate["rank"],
@@ -858,22 +836,13 @@ def additive_sae_steering(
     layer: int,
     feature: int,
     offset: float,
-    convention: str,
 ) -> Iterator[None]:
     blocks = transformer_blocks(model)
-    call_index = 0
 
     def hook(_: torch.nn.Module, __: tuple[Any, ...], output: Any) -> Any:
-        nonlocal call_index
         hidden = output[0] if isinstance(output, tuple) else output
         direction = sae.W_dec[feature].to(device=hidden.device, dtype=hidden.dtype)
-        edited = apply_steering_convention(
-            hidden,
-            offset * direction,
-            convention=convention,
-            call_index=call_index,
-        )
-        call_index += 1
+        edited = hidden + offset * direction
         return (edited, *output[1:]) if isinstance(output, tuple) else edited
 
     handle = blocks[layer].register_forward_hook(hook)
@@ -881,71 +850,6 @@ def additive_sae_steering(
         yield
     finally:
         handle.remove()
-
-
-@contextmanager
-def additive_ica_steering(
-    model: torch.nn.Module,
-    lens: ICALens,
-    *,
-    layer: int,
-    component: int,
-    offset: float,
-    convention: str,
-) -> Iterator[None]:
-    """Retain legacy prefill/decode-only ICA steering for pilot comparisons."""
-    artifact = lens._get_layer(layer)
-    if lens.row_normalize or artifact.preprocessing_center is not None:
-        raise ValueError(
-            "exact additive ICA steering currently requires an unnormalized Lens "
-            "without a preprocessing center"
-        )
-    if artifact.writing_matrix is None:
-        raise ValueError(f"layer {layer} has no ICA writing matrix")
-    direction_cpu = torch.from_numpy(artifact.writing_matrix[:, component])
-    blocks = transformer_blocks(model)
-    call_index = 0
-
-    def hook(_: torch.nn.Module, __: tuple[Any, ...], output: Any) -> Any:
-        nonlocal call_index
-        hidden = output[0] if isinstance(output, tuple) else output
-        direction = direction_cpu.to(device=hidden.device, dtype=hidden.dtype)
-        edited = apply_steering_convention(
-            hidden,
-            offset * direction,
-            convention=convention,
-            call_index=call_index,
-        )
-        call_index += 1
-        return (edited, *output[1:]) if isinstance(output, tuple) else edited
-
-    handle = blocks[layer].register_forward_hook(hook)
-    try:
-        yield
-    finally:
-        handle.remove()
-
-
-def apply_steering_convention(
-    hidden: torch.Tensor,
-    steering: torch.Tensor,
-    *,
-    convention: str,
-    call_index: int,
-) -> torch.Tensor:
-    """Apply a steering vector according to prefill/decode position semantics."""
-    is_prefill = call_index == 0
-    if convention == "all-positions":
-        return hidden + steering
-    if convention == "current-position":
-        edited = hidden.clone()
-        edited[:, -1, :] += steering
-        return edited
-    if convention == "decode-only":
-        return hidden if is_prefill else hidden + steering
-    if convention == "prefill-only":
-        return hidden + steering if is_prefill else hidden
-    raise ValueError(f"unsupported steering convention: {convention!r}")
 
 
 def generate(

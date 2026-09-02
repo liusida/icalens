@@ -22,6 +22,7 @@ misc/
 /experiments/steering-language-control/runs/
 /experiments/steering-language-control/calibration-cache/
 /experiments/steering-language-control/data/
+experiments/steering-language-control/evaluation-cache/
 /experiments/toy-example/work/
 /experiments/*/official/results/*/logs/
 /experiments/*/official/results/*/checkpoints/
@@ -45,3 +46,5 @@ local-r-lens-models/
 
 *-smoke.*
 paper/
+
+AGENTS.md

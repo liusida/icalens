@@ -1,167 +1,40 @@
 # English-to-target language steering
 
-## Setup
+Minimal SAE/ICA language-steering comparison based on
+[Causal Language Control in Multilingual Transformers via Sparse Feature Steering](https://arxiv.org/abs/2507.13410).
 
-- **Reference:** [Causal Language Control in Multilingual Transformers via
-  Sparse Feature Steering](https://arxiv.org/abs/2507.13410)
-- **Language model:** `google/gemma-2-2b`
-  (`c5ebcd40d208330abc697524c919956e692655cf`)
-- **Transformer layer:** 20 (zero-based)
-- **SAE:** Gemma Scope 2B residual width 16k,
-  `layer_20/width_16k/average_l0_38/params.npz`
-- **ICA Lens:** `sida/icalens-gemma-2-2b-pile10k`
-- **Data:** 1,000 English/target-language sentence pairs per language from
-  Tatoeba via [ManyThings](https://www.manythings.org/anki/)
-- **Generation:** temperature 0.5 and 50 new tokens
+- **Model:** `google/gemma-2-2b`
+- **Layer:** 20
+- **Calibration pairs:** 1000 per language
+- **Final-token mode:** `text`
+- **Steering:** `all-positions`
+- **Evaluator:** `gpt-4.1-mini-2025-04-14`
 
-This pilot uses one layer to test whether ICA components can steer generation
-language in the same way as SAE features. It is not a systematic layer search.
+## Selection
 
-## Procedure
+Evaluate each of the three largest activation contrasts on four prompts. Select
+the candidate with the most passing outputs, then display its best passing sample.
 
-For each English/target-language pair, we take the residual-stream activation
-at the last text token. At Layer 20, we encode it into either SAE feature
-activations or signed ICA component scores and compute
-
-$$
-\Delta = \mathbb{E}[z_{\mathrm{target}}]
-       - \mathbb{E}[z_{\mathrm{English}}].
-$$
-
-For each representation, we test the three coordinates with the largest
-$|\Delta|$, using the signed difference as the steering offset. The table below
-reports the candidate that produced the clearest target-language response among
-those three.
-
-The cosine similarity compares the two effective steering vectors, including
-their measured signed offsets:
-
-$$
-\cos\!\left(\Delta_f d_f,\; \Delta_c a_c\right),
-$$
-
-where $d_f$ is the SAE decoder direction and $a_c$ is the ICA writing
-direction. Including the offsets makes the comparison invariant to the
-arbitrary sign of an ICA component axis.
-
-## Selected candidates
-
-| Target language | SAE feature | SAE offset | ICA component | ICA offset | Effective-vector cosine similarity |
+| Language | SAE feature | SAE offset | ICA component | ICA offset | Signed cosine |
 |---|---:|---:|---:|---:|---:|
-| Chinese | F13458 | +73.6488 | C105 | +21.4227 | <!-- cosine:chinese -->—<!-- /cosine:chinese --> |
-| French | F13692 | +107.4795 | C25 | +23.0798 | <!-- cosine:french -->—<!-- /cosine:french --> |
-| Japanese | F3953 | +90.2733 | C145 | −23.3301 | <!-- cosine:japanese -->—<!-- /cosine:japanese --> |
-| Spanish | F3375 | +97.2529 | C42 | +17.2218 | <!-- cosine:spanish -->—<!-- /cosine:spanish --> |
+| Chinese | F13458 | +73.6488 | C105 | +21.4227 | 0.7765 |
+| French | F13692 | +107.4795 | C25 | +23.0798 | 0.9225 |
+| Japanese | F3953 | +90.2733 | C145 | -23.3301 | 0.5970 |
+| Spanish | F3375 | +97.2529 | C42 | +17.2218 | 0.8920 |
 
-For Spanish, C42 is the second-largest ICA contrast; the largest, C581, did not
-produce Spanish in the tested prompts. The cosine values are intentionally left
-blank until they are computed by `fill_cosine_similarities.py` from the exact
-saved SAE and ICA artifacts.
+## Generations
 
-## Raw generations
-
-The fixed prompt appears at the beginning of every response. Text wraps inside
-the table, but the generated newlines, HTML-like strings, and abrupt 50-token
-endings are preserved.
-
-<table>
-<thead>
-<tr>
-<th>Language</th>
-<th>Convention</th>
-<th>SAE steering</th>
-<th>ICA steering</th>
-</tr>
-</thead>
+<table style="width: 100%; table-layout: fixed;">
+<colgroup>
+<col style="width: 10%;">
+<col style="width: 45%;">
+<col style="width: 45%;">
+</colgroup>
+<thead><tr><th>Language</th><th>SAE</th><th>ICA</th></tr></thead>
 <tbody>
-<tr>
-<td>Chinese</td>
-<td>Current-position</td>
-<td><strong>F13458</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because it makes it possible for machines to learn and make decisions based on data. This is a big deal because it means that machines can do things that humans can do, like playing chess or recognizing faces. AI can also be used for more complex tasks,</div></td>
-<td><strong>C105</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because it makes我们的生活更简单。它可以帮助我们做很多事情，比如：
-
-1.它可以帮助我们做很多事情，比如：
-
-* &lt;strong&gt;搜索信息：&lt;/strong&gt;人工智能可以帮助我们搜索信息，比如：搜索新闻，</div></td>
-</tr>
-<tr>
-<td>Chinese</td>
-<td>All-positions</td>
-<td><strong>F13458</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because it makes it possible for machines to learn and make decisions based on data. This is a big deal because it allows for more efficient and accurate decision-making in a variety of industries. For example，AI can be used to automate tasks，如识别</div></td>
-<td><strong>C105</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because它可以提高效率，减少错误，并提高个人和企业对信息的可用性。它可以帮助我们解决许多问题，并使生活更轻松。
-
-人工智能可以帮助我们解决许多问题，例如提高效率，降低错误，并提高</div></td>
-</tr>
-<tr>
-<td>French</td>
-<td>Current-position</td>
-<td><strong>F13692</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because it makes labo&lt;strong&gt;ur&lt;/strong&gt; &lt;strong&gt;moins&lt;/strong&gt; &lt;strong&gt;ch&lt;/strong&gt;&lt;strong&gt;û&lt;/strong&gt;&lt;strong&gt;t&lt;/strong&gt; &lt;strong&gt;à&lt;/strong&gt; &lt;strong&gt;dé&lt;/strong&gt;&lt;strong&gt;f&lt;/strong&gt;&lt;strong&gt;i&lt;/strong&gt;&lt;strong&gt;n&lt;/strong&gt;&lt;strong&gt;i&lt;/strong&gt;&lt;strong&gt;r&lt;/strong&gt; &lt;strong&gt;q&lt;/strong&gt;&lt;strong&gt;u</div></td>
-<td><strong>C25</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because it makes it possible pour l ' &lt;em&gt;intelligence artificielle&lt;/em&gt; (IA) peut-elle être utilisée pour la bonne ou la mauvaise ?
-
-L'intelligence artificielle est un terme qui désigne des programmes et des algorithmes qui imitent les</div></td>
-</tr>
-<tr>
-<td>French</td>
-<td>All-positions</td>
-<td><strong>F13692</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because developpment developpment developppement developpment developpment developpment developpment developpment developpment developpment developpment developpment develo</div></td>
-<td><strong>C25</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because it makes labo&lt;strong&gt;ur&lt;/strong&gt; &lt;strong&gt;moins&lt;/strong&gt; &lt;strong&gt;chère&lt;/strong&gt;.
-
-L'intelligence artificielle est importante parce qu'elle rend les &lt;strong&gt;travailles moins chères&lt;/strong&gt;.
-
-L'intelligence artificielle est une technologie</div></td>
-</tr>
-<tr>
-<td>Japanese</td>
-<td>Current-position</td>
-<td><strong>F3953</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because it makes it possible for machines to learn from data and perform tasks that would otherwise require human intervention. AI is also important because it can help us solve some of our toughest problèmes, such as those related to犯罪や病気の治療など。
-
-AI</div></td>
-<td><strong>C145</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because it makes it possible for machines to learn from data and perform tasks that would otherwise require human input. AI is also important because it can help businesses automate their processes and make them more efficient.
-
-AI is important because it can help us solve some of</div></td>
-</tr>
-<tr>
-<td>Japanese</td>
-<td>All-positions</td>
-<td><strong>F3953</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because it makes it possible for machines to learn from data and perform tasks that would otherwise require human intervention. AI can be used in a variety of industries, including healthcare、金融、製造業、運輸業、石油業、農業など。
-
-AIの</div></td>
-<td><strong>C145</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because it makes it possible for machines to learn from data and perform tasks that人はできない。
-
-AIは、機械がデータを学習し、人はできないことをできるようになるため、重要な役割を果たしています。
-
-AIは、人の考えや行動を再現する</div></td>
-</tr>
-<tr>
-<td>Spanish</td>
-<td>Current-position</td>
-<td><strong>F3375</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because it makes nuestra vida más fácil y nos ayuda en muchas cosas. A veces, los programas de inteligencia artificial se ven como una amenaza, pero también hay muchas cosas positivas que podrían llegar a ser.
-
-Por ejemplo, las empresas pueden usar inteligencia artificial para</div></td>
-<td><strong>C42</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because it makes nuestra vida más fácil y nos ayuda en muchas cosas. A la vez, es capaz de hacer cosas que antes no se podía hacer. Por ejemplo, la inteligencia artificial puede ayudar a los científicos a entender un fenómeno que no se entiende.
-
-</div></td>
-</tr>
-<tr>
-<td>Spanish</td>
-<td>All-positions</td>
-<td><strong>F3375</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because de-centralización de las empresas y la creación de aplicaciones para el consumo masivo.
-
-&lt;h2&gt;¿Qué es el Inteligencia Artificial?&lt;/h2&gt;
-
-La Inteligencia Artificial es la imitación de la capacidad de un ser humano para realizar tareas o procesos</div></td>
-<td><strong>C42</strong><div style="white-space: pre-wrap;">Artificial intelligence is important because de-humanización de las tareas y la falta de empatía en la interacción con el usuario son problemas que la IA puede resolver.
-
-La inteligencia artificial (IA) es la imitación de la capacidad de un sistema para pensar, aprender, razon</div></td>
-</tr>
+<tr><td style="vertical-align: top;">Chinese</td><td style="vertical-align: top;"><strong>F13458</strong><br><span style="color: #777;">The difference between weather and climate is</span> that weather is the统计分析与预测过程，而气候是统计分析与预测过程。气候是天气持续的时间。天气是短期的，而气候是长期的。天气是随机的，而气候是规律性的。<br><br>天气是指</td><td style="vertical-align: top;"><strong>C105</strong><br><span style="color: #777;">Artificial intelligence is important because</span>它可以提高效率，减少错误，并提高个人和企业对信息的可用性。它可以帮助我们解决许多问题，并使生活更轻松。<br><br>人工智能可以帮助我们解决许多问题，例如提高效率，降低错误，并提高</td></tr>
+<tr><td style="vertical-align: top;">French</td><td style="vertical-align: top;"><strong>F13692</strong><br><span style="color: #777;">Leaves change color in autumn because</span> les sont pigmentes, qui sont des molécules qui absorbent les rayons du soleil. Les végétaux produisent de la chlorophylle, qui est un pigment qui permet la photosynthèse.<br><br>Les feuilles changent de couleur en automne parce</td><td style="vertical-align: top;"><strong>C25</strong><br><span style="color: #777;">Artificial intelligence is important because</span> it makes labo&lt;strong&gt;ur&lt;/strong&gt; &lt;strong&gt;moins&lt;/strong&gt; &lt;strong&gt;chère&lt;/strong&gt;.<br><br>L&#x27;intelligence artificielle est importante parce qu&#x27;elle rend les &lt;strong&gt;travailles moins chères&lt;/strong&gt;.<br><br>L&#x27;intelligence artificielle est une technologie</td></tr>
+<tr><td style="vertical-align: top;">Japanese</td><td style="vertical-align: top;"><strong>F3953</strong><br><span style="color: #777;">The difference between weather and climate is</span> that weather is the短時間（短期間）の気象状況（気候）の事。一方、気候は季節（季節性）や広域（広域性）で、その長期的な（長期的な）気象</td><td style="vertical-align: top;"><strong>C145</strong><br><span style="color: #777;">Artificial intelligence is important because</span> it makes it possible for machines to learn from data and perform tasks that人はできない。<br><br>AIは、機械がデータを学習し、人はできないことをできるようになるため、重要な役割を果たしています。<br><br>AIは、人の考えや行動を再現する</td></tr>
+<tr><td style="vertical-align: top;">Spanish</td><td style="vertical-align: top;"><strong>F3375</strong><br><span style="color: #777;">A practical way to organize a small kitchen is</span> a cocina americana, o sea, una cocina americana.<br><br>La cocina americana es un espacio que se encuentra al lado del comedor, y de ahí su nombre.<br><br>Es una zona muy popular en los países de habla hispánica, ya que es</td><td style="vertical-align: top;"><strong>C42</strong><br><span style="color: #777;">Artificial intelligence is important because</span> de-humanización de las tareas y la falta de empatía en la interacción con el usuario son problemas que la IA puede resolver.<br><br>La inteligencia artificial (IA) es la imitación de la capacidad de un sistema para pensar, aprender, razon</td></tr>
 </tbody>
 </table>
-
-## Interpretation
-
-The Layer-20 examples show that individual ICA components can causally shift
-generation toward the same target languages studied with SAE steering. The
-effect is not uniformly clean: some outputs remain code-mixed, malformed, or
-repetitive. This pilot demonstrates steering capability; it does not provide
-the original paper's full FastText language-success and LaBSE semantic-fidelity
-evaluation.
