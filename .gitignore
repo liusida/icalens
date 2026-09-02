@@ -23,7 +23,9 @@ misc/
 /experiments/steering-language-control/official/logs/
 /experiments/steering-language-control/calibration-cache/
 /experiments/steering-language-control/data/
-experiments/steering-language-control/evaluation-cache/
+/experiments/steering-language-control/evaluation-cache/
+/experiments/fitting-seed-stability/output/
+/experiments/fitting-seed-stability/results/
 /experiments/toy-example/work/
 /experiments/*/official/results/*/logs/
 /experiments/*/official/results/*/checkpoints/
