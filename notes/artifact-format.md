@@ -2,12 +2,12 @@
 
 ## Scope
 
-Version 0.2 uses one Hugging Face Model repository for each model checkpoint. A
+Format version 4 uses one Hugging Face Model repository for each model checkpoint. A
 repository contains a manifest plus fitted ICA tensors for its available
 layers. The format is identical when created with `save()`, stored in a local
 directory, or uploaded with `push_to_hub()`.
 
-The initial layout is:
+A profiled artifact typically has this layout:
 
 ```text
 README.md
@@ -17,6 +17,11 @@ artifacts/
     ├── layer_00.safetensors
     ├── layer_01.safetensors
     └── layer_06.safetensors
+component_profiles/
+└── resid_post/
+    ├── layer_00.json.gz
+    ├── layer_01.json.gz
+    └── layer_06.json.gz
 ```
 
 The activation-site directory is retained even when a release contains only
@@ -28,6 +33,7 @@ The activation-site directory is retained even when a release contains only
 `icalens.json` is the machine-readable source of truth. It must include:
 
 - The artifact format name and integer format version.
+- The minimum ICA Lens package version required to read the artifact.
 - The model repository ID, exact fitted checkpoint revision, and checkpoint type.
 - The activation site and layer-indexing convention.
 - The hidden size and input preprocessing steps.
@@ -39,6 +45,8 @@ The activation-site directory is retained even when a release contains only
   contrast's standard-Gaussian baseline.
 - Dataset/token sampling provenance supplied by the fitter.
 - The package version and post-ICA source-scaling policy.
+- Optional per-layer component-profile paths and optional model-level R-lens
+  provenance.
 
 New v0.3 fits order component IDs by descending absolute contrast deviation
 from the standard-Gaussian baseline. Thus `C0` is the most non-Gaussian
@@ -52,7 +60,9 @@ Example:
 ```json
 {
   "format": "icalens",
-  "format_version": 2,
+  "format_version": 4,
+  "minimum_package_version": "0.3.4",
+  "package_version": "0.3.6",
   "model": {
     "repo_id": "openai-community/gpt2",
     "revision": "FULL_COMMIT_HASH",
@@ -62,27 +72,38 @@ Example:
   "layer_indexing": "transformer_blocks_zero_based",
   "hidden_size": 768,
   "input_preprocessing": {
-    "row_normalization": "l2"
+    "icalens_preprocessing": "l2",
+    "row_normalization": "l2",
+    "pre_normalization_center": "none",
+    "norm_eps": 1e-12
   },
   "layers": {
     "6": {
       "file": "artifacts/resid_post/layer_06.safetensors",
       "n_components": 768,
+      "component_profile": "component_profiles/resid_post/layer_06.json.gz",
       "fitting": {
         "algorithm": "fastica",
         "implementation": "icalens.torch",
-        "random_state": 0
+        "random_state": 0,
+        "source_scaling": "none"
       }
     }
   }
 }
 ```
 
+The example omits additional fitting diagnostics and provenance for brevity.
 The precise model revision is part of compatibility validation. A model
 name alone is not sufficient to identify the checkpoint that produced the
 fitting activations. `model.type` is either `base` or `instruct`; it describes
 the checkpoint rather than the input format. Format-version 1 manifests using
 `base_model` remain readable and are interpreted as type `base`.
+
+The current reader supports format versions 1 through 4. Version 3 requires
+`minimum_package_version` `0.3.2`; version 4 requires `0.3.4`. New artifacts
+are always written as version 4. Older formats remain readable for backward
+compatibility, but this document describes the version-4 writing contract.
 
 ## Layer tensors
 
@@ -90,12 +111,13 @@ Layer files use Safetensors rather than pickle. The public artifact contract is
 defined in terms of the operations needed by ICA Lens, not the attribute names
 of the fitting library.
 
-The initial tensor names are:
+The tensor names are:
 
 ```text
-center             [hidden_size]
-reading_matrix     [n_components, hidden_size]
-writing_matrix     [hidden_size, n_components]
+center               [hidden_size]
+reading_matrix       [n_components, hidden_size]
+writing_matrix       [hidden_size, n_components]
+preprocessing_center [hidden_size]  # present for geometric-median-l2
 ```
 
 Conceptually, the operations are:
@@ -117,7 +139,7 @@ or a local directory. For a Hub repository, it loads `icalens.json` first and
 may download individual layer files lazily. It accepts a `revision` argument so
 users can pin a release tag or full commit hash.
 
-Artifact releases should receive immutable tags such as `v0.2.0`. Readers must
+Artifact releases should receive immutable tags such as `v0.3.6`. Readers must
 reject unsupported `format_version` values with a clear compatibility error.
 
 ## Fitting and publishing
