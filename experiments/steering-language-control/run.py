@@ -171,7 +171,17 @@ def main() -> None:
         )
 
     experiment_root = Path(__file__).parent
-    output = (args.output or _default_output(experiment_root, methods, languages, layers)).resolve()
+    output = (
+        args.output
+        or _default_output(
+            experiment_root,
+            methods,
+            languages,
+            layers,
+            lens.available_layers,
+            args.steering_convention,
+        )
+    ).resolve()
     units = [
         (method, language, layer)
         for layer in layers
@@ -538,11 +548,32 @@ def _default_output(
     methods: tuple[str, ...],
     languages: tuple[str, ...],
     layers: tuple[int, ...],
+    available_layers: tuple[int, ...],
+    steering_convention: str,
 ) -> Path:
     method_label = "all-methods" if len(methods) > 1 else methods[0]
     language_label = "all-languages" if len(languages) > 1 else languages[0]
-    layer_label = "all-layers" if len(layers) > 1 else f"layer{layers[0]}"
-    return experiment_root / "runs" / f"{method_label}-{language_label}-{layer_label}"
+    layer_label = _layer_label(layers, available_layers)
+    return (
+        experiment_root
+        / "runs"
+        / (f"{method_label}-{language_label}-{layer_label}-{steering_convention}")
+    )
+
+
+def _layer_label(layers: tuple[int, ...], available_layers: tuple[int, ...]) -> str:
+    if layers == available_layers:
+        return "all-layers"
+    spans: list[str] = []
+    start = previous = layers[0]
+    for layer in layers[1:]:
+        if layer == previous + 1:
+            previous = layer
+            continue
+        spans.append(str(start) if start == previous else f"{start}-{previous}")
+        start = previous = layer
+    spans.append(str(start) if start == previous else f"{start}-{previous}")
+    return "layers" + "_".join(spans)
 
 
 def _resolve_layers(

@@ -13,7 +13,9 @@ uv run experiments/steering-language-control/run.py
 
 The full default is a large, resumable run. Results are checkpointed separately under
 `experiments/steering-language-control/runs/`, so rerunning the same command skips valid
-completed conditions.
+completed conditions. Automatically generated directory names include the selected layer
+set and steering convention; for example, `--layers 19-21` and the default convention use
+the suffix `layers19-21-current-position`.
 
 Use `--layers` to restrict the search. It accepts one layer, inclusive ranges,
 comma-separated combinations, or `all`:
