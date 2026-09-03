@@ -50,3 +50,15 @@ uv run python experiments/manual-annotation-random-150/autofill_erf1_labels.py
 ```
 
 The command preserves every existing nonblank label.
+
+Plot the completed manual-confidence distribution and write its summary
+statistics with:
+
+```bash
+uv run python experiments/manual-annotation-random-150/plot_annotations.py
+```
+
+This writes `results/annotation-confidence.png`,
+`results/annotation-word-cloud.png`, and `results/annotation-summary.json`.
+Word-cloud token weights are the sums of annotation confidence scores; unknown
+labels are excluded. Existing outputs require `--force` to replace.
