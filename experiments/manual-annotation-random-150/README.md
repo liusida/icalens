@@ -58,7 +58,17 @@ statistics with:
 uv run python experiments/manual-annotation-random-150/plot_annotations.py
 ```
 
-This writes `results/annotation-confidence.png`,
-`results/annotation-word-cloud.png`, and `results/annotation-summary.json`.
+This writes `figures/annotation-confidence.png`,
+`figures/annotation-confidence.pdf`, `figures/annotation-word-cloud.png`, and
+`results/annotation-summary.json`.
 Word-cloud token weights are the sums of annotation confidence scores; unknown
 labels are excluded. Existing outputs require `--force` to replace.
+
+Generate the appendix-ready LaTeX table from the completed annotations with:
+
+```bash
+uv run python experiments/manual-annotation-random-150/make_latex_table.py
+```
+
+This writes one caption-free table fragment per model under `tables/`. Existing
+outputs require `--force` to replace.

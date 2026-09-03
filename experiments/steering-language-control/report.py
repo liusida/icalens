@@ -1,4 +1,4 @@
-"""Evaluate saved language-steering runs with OpenAI and generate RESULTS.md."""
+"""Evaluate saved language-steering runs and generate Markdown and LaTeX tables."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import html
 import importlib
 import json
 import os
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -180,6 +181,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--output", type=Path, default=ROOT / "RESULTS.md")
     parser.add_argument(
+        "--tables-output",
+        type=Path,
+        default=None,
+        help="LaTeX table directory (default: RUNS/tables).",
+    )
+    parser.add_argument(
         "--display-prompt",
         choices=("best", "artificial-intelligence"),
         default="best",
@@ -219,23 +226,37 @@ async def async_main() -> None:
                 language=language,
             )
             selections[(method, language)] = selection
+    cosines = compute_cosines(payloads, selections, layer=args.layer)
+    display_prompt = (
+        ARTIFICIAL_INTELLIGENCE_PROMPT
+        if args.display_prompt == "artificial-intelligence"
+        else None
+    )
     report = render_report(
         payloads,
         selections,
-        compute_cosines(payloads, selections, layer=args.layer),
+        cosines,
         layer=args.layer,
         model=args.model,
-        display_prompt=(
-            ARTIFICIAL_INTELLIGENCE_PROMPT
-            if args.display_prompt == "artificial-intelligence"
-            else None
-        ),
+        display_prompt=display_prompt,
     )
     if args.dry_run:
         print(report, end="")
     else:
         args.output.write_text(report, encoding="utf-8")
         print(f"Wrote {args.output}")
+        tables_output = args.tables_output or args.runs / "tables"
+        tables_output.mkdir(parents=True, exist_ok=True)
+        tables = {
+            "language-steering-summary.tex": render_latex_summary(selections, cosines),
+            "language-steering-generations.tex": render_latex_generations(
+                selections, display_prompt=display_prompt
+            ),
+        }
+        for name, contents in tables.items():
+            path = tables_output / name
+            path.write_text(contents, encoding="utf-8")
+            print(f"Wrote {path}")
 
 
 def load_payloads(runs: Path, layer: int) -> dict[tuple[str, str], dict[str, Any]]:
@@ -410,6 +431,83 @@ def render_report(
         )
     lines.extend(["</tbody>", "</table>", ""])
     return "\n".join(lines)
+
+
+def render_latex_summary(
+    selections: dict[tuple[str, str], Selection], cosines: dict[str, float]
+) -> str:
+    lines = [
+        r"\begin{tabular}{lrrr}",
+        r"  \toprule",
+        r"  Target language & SAE feature & ICA component & Signed cosine \\",
+        r"  \midrule",
+    ]
+    for language, display in LANGUAGES.items():
+        sae = selections[("sae", language)]
+        ica = selections[("ica", language)]
+        lines.append(
+            f"  {display} & F{sae.identifier} & C{ica.identifier} & "
+            f"{cosines[language]:.3f} \\\\"
+        )
+    lines.extend([r"  \bottomrule", r"\end{tabular}", ""])
+    return "\n".join(lines)
+
+
+def render_latex_generations(
+    selections: dict[tuple[str, str], Selection], *, display_prompt: str | None
+) -> str:
+    lines = [
+        r"\begin{tabular}{@{}p{0.10\textwidth}p{0.42\textwidth}p{0.42\textwidth}@{}}",
+        r"  \toprule",
+        r"  Language & SAE & ICA \\",
+        r"  \midrule",
+    ]
+    for language, display in LANGUAGES.items():
+        cells: list[str] = []
+        cjk_family = {"chinese": "gbsn", "japanese": "min"}.get(language)
+        for method, (_, _, prefix) in METHODS.items():
+            selection = selections[(method, language)]
+            sample = _display_sample(selection, display_prompt)
+            if sample is None:
+                text = "No qualifying generation."
+            else:
+                prompt = _latex_escape(sample.prompt)
+                continuation = _latex_escape(sample.text)
+                text = rf"\textcolor{{gray}}{{{prompt}}}{continuation}"
+            cell = rf"\textbf{{{prefix}{selection.identifier}}}\par " + text
+            cells.append(
+                rf"{{\CJKfamily{{{cjk_family}}} {cell}}}" if cjk_family else cell
+            )
+        lines.append(f"  {display} & {cells[0]} & {cells[1]} \\\\[3pt]")
+    lines.extend([r"  \bottomrule", r"\end{tabular}", ""])
+    return "\n".join(lines)
+
+
+def _display_sample(selection: Selection, display_prompt: str | None) -> Sample | None:
+    if display_prompt is None:
+        return selection.best_sample
+    return next(
+        (sample for sample in selection.samples if sample.prompt == display_prompt), None
+    )
+
+
+def _latex_escape(value: str) -> str:
+    value = html.unescape(re.sub(r"<[^>]+>", "", value))
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
+    return "".join(replacements.get(character, character) for character in value).replace(
+        "\n", r"\par "
+    )
 
 
 def compute_cosines(

@@ -18,8 +18,10 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parent
 ANNOTATIONS = ROOT / "annotations.json"
 RESULTS = ROOT / "results"
-FIGURE = RESULTS / "annotation-confidence.png"
-WORD_CLOUD = RESULTS / "annotation-word-cloud.png"
+FIGURES = ROOT / "figures"
+FIGURE_PNG = FIGURES / "annotation-confidence.png"
+FIGURE_PDF = FIGURES / "annotation-confidence.pdf"
+WORD_CLOUD = FIGURES / "annotation-word-cloud.png"
 SUMMARY = RESULTS / "annotation-summary.json"
 MODEL_TITLES = {
     "gpt2": "GPT-2",
@@ -167,7 +169,8 @@ def render(summary: dict[str, object]) -> None:
             handlelength=1.5,
         )
         figure.subplots_adjust(left=0.20, right=0.96, bottom=0.23, top=0.76)
-        figure.savefig(FIGURE, dpi=300)
+        figure.savefig(FIGURE_PNG, dpi=300)
+        figure.savefig(FIGURE_PDF)
         plt.close(figure)
 
 
@@ -234,17 +237,21 @@ def render_word_cloud(annotations: dict[str, list[dict[str, object]]]) -> None:
 
 def main() -> None:
     args = parse_args()
-    existing = [path for path in (FIGURE, WORD_CLOUD, SUMMARY) if path.exists()]
+    existing = [
+        path for path in (FIGURE_PNG, FIGURE_PDF, WORD_CLOUD, SUMMARY) if path.exists()
+    ]
     if existing and not args.force:
         joined = ", ".join(str(path) for path in existing)
         raise FileExistsError(f"refusing to replace existing outputs: {joined}; pass --force")
     RESULTS.mkdir(parents=True, exist_ok=True)
+    FIGURES.mkdir(parents=True, exist_ok=True)
     annotations = load_annotations()
     summary = summarize(annotations)
     SUMMARY.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     render(summary)
     render_word_cloud(annotations)
-    print(f"Wrote {FIGURE}")
+    print(f"Wrote {FIGURE_PNG}")
+    print(f"Wrote {FIGURE_PDF}")
     print(f"Wrote {WORD_CLOUD}")
     print(f"Wrote {SUMMARY}")
 

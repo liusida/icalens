@@ -812,10 +812,12 @@ def _plot_examples(axes: list[plt.Axes], values: dict[str, np.ndarray], backgrou
 
 
 def _caption(version: int) -> str:
+    background_count, related_count = (300, 5) if version == 2 else (100, 4)
     opening = (
         f"Projection and non-Gaussianity (figure design v{version}). "
-        "(A) A seeded sample of 100 centered GPT-2 Layer-0 "
-        r"token activations, together with four related-token activations, in the plane spanned "
+        f"(A) A seeded sample of {background_count} centered GPT-2 Layer-0 "
+        f"token activations, together with {related_count} related-token activations, "
+        "in the plane spanned "
         r"by a seeded random direction $\mathbf{w}$ and "
         r"the ICA direction $\mathbf{v}$, shown in an arbitrary orthonormal coordinate system "
         "$(u_1,u_2)$ after a 60-degree clockwise display rotation. "

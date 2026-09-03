@@ -26,6 +26,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--capture", type=Path, default=root / "work/selected")
     parser.add_argument("--output", type=Path, default=root / "work/render")
+    parser.add_argument("--figure-output", type=Path)
     parser.add_argument("--layer", type=int, default=0)
     parser.add_argument("--b-selection", choices=("isolated", "random", "concept"),
                         default="isolated")
@@ -40,10 +41,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     output = args.output.expanduser().resolve()
+    figure_output = (
+        args.figure_output.expanduser().resolve() if args.figure_output is not None else output
+    )
     names = ["direction-a", "direction-b", "direction-c", "direction-d", "directions-row"]
     if args.ica_lens is not None:
         names.extend(("direction-e", "directions-row-raw"))
-    paths = [output / f"{name}.png" for name in names]
+    paths = [figure_output / f"{name}.png" for name in names]
     results_path = output / "results.json"
     if (results_path.exists() or any(path.exists() for path in paths)) and not args.force:
         raise FileExistsError("outputs exist; pass --force to replace them")
@@ -173,6 +177,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "note": "Every direction is evaluated over the full token set.",
     }
     output.mkdir(parents=True, exist_ok=True)
+    figure_output.mkdir(parents=True, exist_ok=True)
     results_path.write_text(json.dumps(results, ensure_ascii=False, indent=2) + "\n")
     np.savez_compressed(
         output / "overview-data.npz",
@@ -190,11 +195,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         target_index=np.asarray(target_index),
     )
     _plot_all(projections, evaluation_masks, background, concept, target_index,
-              random_indices, statistics, output, b_selection=args.b_selection,
+              random_indices, statistics, figure_output, b_selection=args.b_selection,
               ica_component=args.ica_component if args.ica_lens is not None else None)
     if "c1" in raw_projections:
         _plot_raw_row(raw_projections, evaluation_masks, background, concept, target_index,
-                      random_indices, statistics, output, args.ica_component,
+                      random_indices, statistics, figure_output, args.ica_component,
                       args.b_selection)
     print(results_path)
     for path in paths:
@@ -363,6 +368,7 @@ def _plot_all(
 
 def _save(fig: plt.Figure, stem: Path) -> None:
     fig.savefig(stem.with_suffix(".png"), dpi=300)
+    fig.savefig(stem.with_suffix(".pdf"))
     plt.close(fig)
 
 

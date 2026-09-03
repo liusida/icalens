@@ -17,6 +17,7 @@ uv run --with scipy python "$experiment_dir/scripts/analyze.py" \
   --b-selection concept \
   --b-concept-rank 10 \
   --ica-lens "$work_dir/source/ica-fit/lens" \
+  --figure-output "$experiment_dir/figures" \
   --force
 
 uv run --with scipy python "$experiment_dir/scripts/make_overview_figure.py" \
@@ -27,6 +28,4 @@ uv run --with scipy python "$experiment_dir/scripts/make_overview_figure.py" \
   --activation-index 138 \
   --force
 
-cp "$work_dir/render/directions-row-raw.png" \
-  "$experiment_dir/figures/directions-row-raw.png"
 cp "$work_dir/render/results.json" "$experiment_dir/results/results.json"

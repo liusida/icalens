@@ -14,10 +14,11 @@ import numpy as np
 from analyze import _maximum_weight_assignment, _statistics
 from safetensors.numpy import load_file
 
-ROOT = Path("pilot-experiments/fitting-seed-stability")
+ROOT = Path(__file__).resolve().parent
 SEEDS = (0, 1, 2, 3, 4)
 ITERATIONS = (20, 50, 200, 500)
 RESULTS = ROOT / "results"
+FIGURES = ROOT / "figures"
 LAYER = 6
 COMPONENTS = 768
 ITERATION_PAIRS = ((20, 50), (50, 200), (200, 500))
@@ -46,20 +47,23 @@ def main() -> None:
     RESULTS.mkdir(parents=True, exist_ok=True)
     csv_path = RESULTS / "iteration-matched-component-similarities.csv"
     summary_path = RESULTS / "iteration-matched-summary.json"
-    figure_path = RESULTS / "iteration-matched-similarity-by-reference-rank.png"
-    aggregate_figure_path = RESULTS / "iteration-matched-mean-median.png"
+    figure_path = FIGURES / "iteration-matched-similarity-by-reference-rank.png"
+    aggregate_figure_path = FIGURES / "iteration-matched-mean-median.png"
     pairwise_csv_path = RESULTS / "iteration-seed-pairwise-mean.csv"
-    pairwise_figure_path = RESULTS / "iteration-seed-pairwise-mean-heatmap.png"
+    pairwise_figure_path = FIGURES / "iteration-seed-pairwise-mean-heatmap.png"
     pairwise_median_figure_path = (
-        RESULTS / "iteration-seed-pairwise-median-heatmap.png"
+        FIGURES / "iteration-seed-pairwise-median-heatmap.png"
+    )
+    pairwise_median_pdf_path = (
+        FIGURES / "iteration-seed-pairwise-median-heatmap.pdf"
     )
     pairwise_threshold_figure_path = (
-        RESULTS / "iteration-seed-pairwise-fraction-gt-070-heatmap.png"
+        FIGURES / "iteration-seed-pairwise-fraction-gt-070-heatmap.png"
     )
     pairwise_component_csv_path = (
         RESULTS / "iteration-seed-pairwise-component-similarities.csv"
     )
-    density_figure_path = RESULTS / "iteration-seed-pairwise-density.png"
+    density_figure_path = FIGURES / "iteration-seed-pairwise-density.png"
     existing = [
         path
         for path in (
@@ -70,6 +74,7 @@ def main() -> None:
             pairwise_csv_path,
             pairwise_figure_path,
             pairwise_median_figure_path,
+            pairwise_median_pdf_path,
             pairwise_threshold_figure_path,
             pairwise_component_csv_path,
             density_figure_path,
@@ -78,6 +83,7 @@ def main() -> None:
     ]
     if existing and not args.force:
         raise FileExistsError("results already exist; pass --force to replace them")
+    FIGURES.mkdir(parents=True, exist_ok=True)
     _write_csv(csv_path, rows)
     _write_csv(pairwise_csv_path, pairwise_rows)
     _write_csv(pairwise_component_csv_path, cross_seed_component_rows)
@@ -95,6 +101,7 @@ def main() -> None:
         pairwise_median_figure_path,
         pairwise_rows,
         statistic="median",
+        pdf_path=pairwise_median_pdf_path,
     )
     _plot_seed_heatmaps(
         pairwise_threshold_figure_path,
@@ -429,6 +436,7 @@ def _plot_seed_heatmaps(
     rows: list[dict[str, int | float]],
     *,
     statistic: str,
+    pdf_path: Path | None = None,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="icalens-mpl-") as cache_dir:
         previous_cache = os.environ.get("MPLCONFIGDIR")
@@ -522,6 +530,8 @@ def _plot_seed_heatmaps(
                     else f"{statistic.capitalize()} matched |cosine|"
                 )
                 figure.savefig(path, dpi=300)
+                if pdf_path is not None:
+                    figure.savefig(pdf_path)
                 plt.close(figure)
         finally:
             if previous_cache is None:

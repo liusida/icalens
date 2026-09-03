@@ -74,3 +74,5 @@ iterations. A parallel threshold heatmap reports the percentage of matched
 components with absolute cosine similarity strictly greater than 0.7.
 The density figure computes a fixed-bin density for each of the ten unique seed
 pairs and plots their average at each iteration count.
+Plots are written under `figures/`; the median seed-pair heatmap is emitted as
+both PNG and PDF for use in the paper.
