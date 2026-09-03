@@ -619,7 +619,7 @@
     {
       "layer": 1,
       "component": 3036,
-      "label": "",
+      "label": "Do something / nothing",
       "confidence": 5
     },
     {
@@ -631,7 +631,7 @@
     {
       "layer": 2,
       "component": 231,
-      "label": "",
+      "label": "User",
       "confidence": 5
     },
     {
@@ -643,14 +643,14 @@
     {
       "layer": 2,
       "component": 3057,
-      "label": "",
-      "confidence": 5
+      "label": "-y, -ie nickname",
+      "confidence": 1
     },
     {
       "layer": 4,
       "component": 565,
-      "label": "",
-      "confidence": 5
+      "label": "Week / month",
+      "confidence": 4
     },
     {
       "layer": 4,
@@ -661,37 +661,37 @@
     {
       "layer": 4,
       "component": 2219,
-      "label": "",
-      "confidence": 5
+      "label": "Measurement/unit-conversion math question",
+      "confidence": 4
     },
     {
       "layer": 5,
       "component": 3133,
-      "label": "diabetic",
+      "label": "Diabetes",
       "confidence": 5
     },
     {
       "layer": 6,
       "component": 269,
-      "label": "",
+      "label": "Figurative expression / metaphor",
       "confidence": 5
     },
     {
       "layer": 6,
       "component": 609,
-      "label": "data",
+      "label": "Data",
       "confidence": 5
     },
     {
       "layer": 6,
       "component": 992,
-      "label": "",
+      "label": "Notice / note as information",
       "confidence": 5
     },
     {
       "layer": 6,
       "component": 2199,
-      "label": "",
+      "label": "Counterfactual / hypothetical conditional",
       "confidence": 5
     },
     {
@@ -703,116 +703,116 @@
     {
       "layer": 7,
       "component": 3045,
-      "label": "",
+      "label": "Helicopter / rotorcraft",
       "confidence": 5
     },
     {
       "layer": 7,
       "component": 3826,
-      "label": "",
-      "confidence": 5
+      "label": "?",
+      "confidence": 0
     },
     {
       "layer": 8,
       "component": 935,
-      "label": "",
-      "confidence": 5
+      "label": "Repeated structured code / machine output",
+      "confidence": 4
     },
     {
       "layer": 9,
       "component": 2175,
-      "label": "",
-      "confidence": 5
+      "label": "Children’s / preschool educational content",
+      "confidence": 4
     },
     {
       "layer": 10,
       "component": 170,
-      "label": "",
+      "label": "Footnote / reference marker",
       "confidence": 5
     },
     {
       "layer": 10,
       "component": 4002,
-      "label": "",
-      "confidence": 5
+      "label": "?",
+      "confidence": 0
     },
     {
       "layer": 13,
       "component": 637,
-      "label": "",
-      "confidence": 5
+      "label": "Online forum / discussion thread",
+      "confidence": 4
     },
     {
       "layer": 13,
       "component": 889,
-      "label": "",
-      "confidence": 5
+      "label": "Commented-out code",
+      "confidence": 4
     },
     {
       "layer": 15,
       "component": 1201,
-      "label": "",
-      "confidence": 5
+      "label": "Enumerating numbers",
+      "confidence": 1
     },
     {
       "layer": 16,
       "component": 61,
-      "label": "",
-      "confidence": 5
+      "label": "Wikipedia category / category-page",
+      "confidence": 4
     },
     {
       "layer": 16,
       "component": 244,
-      "label": "",
-      "confidence": 5
+      "label": "Repeated previously mentioned name entity",
+      "confidence": 4
     },
     {
       "layer": 16,
       "component": 1365,
-      "label": "</",
-      "confidence": 5
+      "label": "Closing tag </",
+      "confidence": 4
     },
     {
       "layer": 16,
       "component": 3363,
-      "label": "",
-      "confidence": 5
+      "label": "?",
+      "confidence": 0
     },
     {
       "layer": 17,
       "component": 530,
-      "label": "",
-      "confidence": 5
+      "label": "Country/state/region name",
+      "confidence": 2
     },
     {
       "layer": 18,
       "component": 3329,
-      "label": "",
+      "label": "Mc- surname prefix",
       "confidence": 5
     },
     {
       "layer": 19,
       "component": 146,
-      "label": "",
-      "confidence": 5
+      "label": "Italian / Italy-related context",
+      "confidence": 4
     },
     {
       "layer": 19,
       "component": 1472,
-      "label": "",
-      "confidence": 5
+      "label": "HTML DOM access/manipulation",
+      "confidence": 4
     },
     {
       "layer": 19,
       "component": 2291,
-      "label": "",
-      "confidence": 5
+      "label": "?",
+      "confidence": 0
     },
     {
       "layer": 19,
       "component": 3174,
-      "label": "",
-      "confidence": 5
+      "label": "?",
+      "confidence": 0
     },
     {
       "layer": 20,
@@ -823,85 +823,85 @@
     {
       "layer": 20,
       "component": 1145,
-      "label": "",
-      "confidence": 5
+      "label": "Related to letter F or expecting F",
+      "confidence": 1
     },
     {
       "layer": 20,
       "component": 2259,
-      "label": "",
-      "confidence": 5
+      "label": "Document/source attribution",
+      "confidence": 4
     },
     {
       "layer": 21,
       "component": 704,
-      "label": "",
-      "confidence": 5
+      "label": "Microsoft platform technical documentation",
+      "confidence": 4
     },
     {
       "layer": 22,
       "component": 2808,
-      "label": "",
-      "confidence": 5
+      "label": "Urination / bladder function",
+      "confidence": 4
     },
     {
       "layer": 22,
       "component": 3385,
-      "label": "",
-      "confidence": 5
+      "label": "Right-wing / conservative political context",
+      "confidence": 4
     },
     {
       "layer": 23,
       "component": 1583,
-      "label": "limit",
+      "label": "Limit",
       "confidence": 5
     },
     {
       "layer": 25,
       "component": 602,
-      "label": "",
+      "label": "Lawsuit / civil litigation",
       "confidence": 5
     },
     {
       "layer": 25,
       "component": 1260,
-      "label": "",
-      "confidence": 5
+      "label": "Maryland / Baltimore",
+      "confidence": 4
     },
     {
       "layer": 25,
       "component": 2695,
-      "label": "telling",
+      "label": "Tell",
       "confidence": 5
     },
     {
       "layer": 25,
       "component": 3939,
-      "label": "",
-      "confidence": 5
+      "label": "Causal graphical-model reasoning",
+      "confidence": 3
     },
     {
       "layer": 26,
       "component": 68,
-      "label": "Sh",
+      "label": "Suffix Sh-",
       "confidence": 5
     },
     {
       "layer": 26,
       "component": 1210,
-      "label": "",
+      "label": "Deep-learning framework/model",
       "confidence": 5
     },
     {
       "layer": 28,
       "component": 3025,
-      "label": "Var",
-      "confidence": 5
+      "label": "Suffix Var-",
+      "confidence": 4
     },
     {
       "layer": 30,
       "component": 2683,
-      "label": "",
+      "label": "Expecting \"see\"",
       "confidence": 5
     }
   ]
