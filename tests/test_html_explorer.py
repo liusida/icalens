@@ -235,6 +235,7 @@ def test_analysis_result_writes_html(tmp_path) -> None:
     assert '<details class="panel" id="componentProfile" hidden>' in html
     assert "Excess kurtosis" in html
     assert "Logcosh deviation" in html
+    assert "|Logcosh contrast/objective − 0.374567|" in html
     assert "profile-score-statistics { display: flex; flex-direction: column; gap: 12px" in html
     assert ".profile-score-stat-value { color: #273244; font-size: 15px; }" in html
     assert ".profile-score-stat-rank { margin-left: 6px; color: #647084; font-size: 10px; }" in html
@@ -315,6 +316,16 @@ def test_analysis_iframe_validates_options() -> None:
     rendered = analysis_iframe(result, metric="energy", top_k=1, height=400)
     assert "height:400px" in rendered
     assert "energy" in rendered
+
+
+def test_analysis_iframe_initializes_selected_component() -> None:
+    result = analysis_result()
+    result = AnalysisResult(**{**result.__dict__, "selected_components": (1,)})
+
+    rendered = analysis_iframe(result)
+
+    assert "&quot;selected_components&quot;:[1]" in rendered
+    assert "data.selected_components?.[0] ?? null" in rendered
 
 
 def test_conversation_result_uses_message_token_groups() -> None:

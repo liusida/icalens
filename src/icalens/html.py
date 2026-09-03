@@ -235,7 +235,8 @@ def _component_profile_document(profile: Any, *, layer: int) -> str:
     logcosh_deviation = fitting_statistics.get("absolute_deviation")
     logcosh_rank = fitting_statistics.get("absolute_deviation_rank")
     logcosh_html = (
-        '<div class="profile-score-stat"><h3>Logcosh deviation</h3><div>'
+        '<div class="profile-score-stat"><h3 title="Absolute difference from the Gaussian '
+        'baseline: |Logcosh contrast/objective − 0.374567|">Logcosh deviation</h3><div>'
         f'<strong class="profile-score-stat-value">{float(logcosh_deviation):.4f}</strong>'
         + (
             f'<span class="profile-score-stat-rank">rank #{int(logcosh_rank)}</span>'
@@ -377,6 +378,7 @@ def _analysis_payload(
         messages=list(result.messages),
         tokens=tokens,
         token_groups=token_groups,
+        selected_components=list(result.selected_components),
         component_profiles=result.component_profiles or {},
         logit_effects=result.logit_effects,
     )
@@ -629,7 +631,7 @@ def _document(payload: str) -> str:
       return parts.join(" · ");
     }};
     const color = component => `hsl(${{(Number(component) * 137.508) % 360}} 66% 78%)`;
-    const state = {{ selected: null, selectedToken: null, metric: data.metric, topK: Number(data.top_k || 3) }};
+    const state = {{ selected: data.selected_components?.[0] ?? null, selectedToken: null, metric: data.metric, topK: Number(data.top_k || 3) }};
     const results = document.getElementById("results");
     const cutoff = document.getElementById("cutoff");
 
@@ -881,7 +883,7 @@ def _document(payload: str) -> str:
         ? `<div class="profile-score-stat"><h3>Excess kurtosis</h3><div><strong class="profile-score-stat-value">${{excessKurtosis.toFixed(2)}}</strong>${{Number.isInteger(excessKurtosisRank) ? `<span class="profile-score-stat-rank">rank #${{excessKurtosisRank}} / ${{data.component_count}}</span>` : ""}}</div></div>`
         : "";
       const logcoshRow = Number.isFinite(logcoshDeviation)
-        ? `<div class="profile-score-stat"><h3>Logcosh deviation</h3><div><strong class="profile-score-stat-value">${{logcoshDeviation.toFixed(4)}}</strong>${{Number.isInteger(logcoshRank) ? `<span class="profile-score-stat-rank">rank #${{logcoshRank}} / ${{data.component_count}}</span>` : ""}}</div></div>`
+        ? `<div class="profile-score-stat"><h3 title="Absolute difference from the Gaussian baseline: |Logcosh contrast/objective − 0.374567|">Logcosh deviation</h3><div><strong class="profile-score-stat-value">${{logcoshDeviation.toFixed(4)}}</strong>${{Number.isInteger(logcoshRank) ? `<span class="profile-score-stat-rank">rank #${{logcoshRank}} / ${{data.component_count}}</span>` : ""}}</div></div>`
         : "";
       const tailShapeRows = `${{kurtosisRow}}${{logcoshRow}}`;
       const scoreStatistics = profile.tail_direction && Number.isFinite(skewness)

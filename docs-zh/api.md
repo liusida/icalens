@@ -312,6 +312,67 @@ component  # 在 Jupyter 或 Colab 中显示画像面板
 | `positive_energy_fraction` | 该成分在整个画像语料上的分数平方总量中位于正侧的比例 |
 | `negative_energy_fraction` | 该成分在整个画像语料上的分数平方总量中位于负侧的比例 |
 
+### `top_occurrence(...)`
+
+无需遍历完整的成分画像字典，即可读取一个已存储的高激活样例：
+
+```python
+occurrence = lens.top_occurrence(layer=7, component=452, id=0)
+print(occurrence["context"], occurrence["text"], occurrence["score"])
+```
+
+样例 ID 是已存储排名中的零基位置。默认使用成分所选的尾部方向；也可以传入
+`sign="positive"` 或 `sign="negative"` 明确选择一侧。
+
+普通结果包含产物中保存的短上下文窗口。设置 `full=True` 后，方法会根据已记录的
+数据集仓库、revision、split、文本字段和 `source_index` 读取完整的原始数据样本：
+
+```python
+occurrence = lens.top_occurrence(layer=7, component=452, id=0, full=True)
+print(occurrence["full_text"])
+```
+
+| 参数 | 类型／默认值 | 含义 |
+| --- | --- | --- |
+| `layer` | `int`，必填 | 已建立画像的层 |
+| `component` | `int`，必填 | 成分编号 |
+| `id` | `int = 0` | 零基的已存储样例 ID |
+| `sign` | `"positive" \| "negative" \| None = None` | 指定分数方向；`None` 使用所选尾部 |
+| `full` | `bool = False` | 以 `full_text` 字段附加完整原始样本 |
+| **返回** | `dict` | 已存储样例记录的独立副本 |
+
+### `erf.suffix_sweep(...)`
+
+测量一个已存储成分样例需要多少左侧上下文，才能恢复其所选尾部方向上的绝对分数排名：
+
+```python
+result = lens.erf.suffix_sweep(
+    layer=6,
+    component=214,
+    rank_thresholds=(1, 3, 5, 10, 15),
+    occurrences=20,
+)
+```
+
+该方法使用成分画像中已存储的所选尾部样例，按需加载并复用 Lens 的语言模型与
+tokenizer。返回结果包含每个排名阈值的成分汇总，以及逐样例的后缀扫描记录。该方法
+不会写入文件。完成后可调用 `lens.unload_model()` 释放缓存的语言模型。
+
+| 参数 | 类型／默认值 | 含义 |
+| --- | --- | --- |
+| `layer` | `int`，必填 | 已建立画像的 Transformer block 层 |
+| `component` | `int`，必填 | 已存储的成分编号 |
+| `rank_thresholds` | `Sequence[int] = (1, 3, 5, 10, 15)` | 一次扫描中记录的绝对分数排名阈值 |
+| `occurrences` | `int = 20` | 最多测量的所选尾部样例数 |
+| `exact_suffix_length` | `int = 10` | 逐一测试到该长度为止的所有后缀 |
+| `max_batch_size` | `int = 64` | 最大样例批量大小 |
+| `batch_token_budget` | `int = 64` | 每个 forward 批次的大致词法 token 预算 |
+| `device` | `str \| torch.device \| None = "auto"` | 模型设备 |
+| `model` | `torch.nn.Module \| None = None` | 可选的调用方语言模型 |
+| `tokenizer` | tokenizer 或 `None` | 可选的调用方 tokenizer |
+| `verbose` | `bool = False` | 是否报告模型加载和复用信息 |
+| **返回** | `dict` | 阈值汇总和逐样例扫描记录 |
+
 ### `checkpoint_component_profile(...)`
 
 立即保存某个已经在内存中完成的逐层画像：

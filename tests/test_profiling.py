@@ -101,6 +101,25 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     assert component["logit_lens"]["method"] == "final_norm_then_unembed"
     assert component["fitting_statistics"]["contrast"] == "logcosh"
     assert component["fitting_statistics"]["absolute_deviation_rank"] in (1, 2)
+    top_occurrence = loaded.top_occurrence(layer=1, component=0)
+    assert top_occurrence == component["examples"][component["tail_direction"]]["occurrences"][0]
+    top_occurrence["text"] = "changed"
+    assert loaded.top_occurrence(layer=1, component=0)["text"] != "changed"
+    with pytest.raises(IndexError, match="occurrence id"):
+        loaded.top_occurrence(layer=1, component=0, id=20)
+    with pytest.raises(ValueError, match="non-negative integer"):
+        loaded.top_occurrence(layer=1, component=0, id=-1)
+    loaded._get_layer(1).profile["example_provenance"] = {
+        "dataset": {"repo_id": "owner/data", "split": "train", "revision": "abc"},
+        "text_field": "body",
+    }
+    monkeypatch.setattr(
+        "datasets.load_dataset",
+        lambda *args, **kwargs: [{"body": "The complete source sample."}],
+    )
+    assert loaded.top_occurrence(layer=1, component=0, full=True)["full_text"] == (
+        "The complete source sample."
+    )
     summaries = loaded._component_profile_summaries(1)
     assert summaries is not None
     summary_token = summaries[0]["logit_tokens"][0]
@@ -133,6 +152,7 @@ def test_profiles_and_round_trips_component_metadata(tmp_path, monkeypatch) -> N
     assert "Bytes:" in rendered
     assert "Excess kurtosis" in rendered
     assert "Logcosh deviation" in rendered
+    assert "|Logcosh contrast/objective − 0.374567|" in rendered
     assert "grid-template-columns:minmax(0,1fr) 150px" in rendered
     assert "profile-score-statistics {display:flex;flex-direction:column;gap:12px" in rendered
     assert "profile-score-stat-value {color:#273244;font-size:15px}" in rendered

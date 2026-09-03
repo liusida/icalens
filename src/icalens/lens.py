@@ -34,6 +34,7 @@ from .exceptions import ArtifactError, NotFittedError
 
 if TYPE_CHECKING:
     from .analysis import ComponentProfile
+    from .erf import ERFAnalysis
 
 
 class ICALens:
@@ -90,11 +91,21 @@ class ICALens:
         self._analysis_model: torch.nn.Module | None = None
         self._analysis_tokenizer: Any = None
         self._analysis_device: str | None = None
+        self._erf_analysis: ERFAnalysis | None = None
 
     @property
     def available_layers(self) -> tuple[int, ...]:
         """Sorted layer indices present in this lens."""
         return tuple(sorted(self._layers))
+
+    @property
+    def erf(self) -> ERFAnalysis:
+        """Effective-receptive-field measurements bound to this Lens."""
+        if self._erf_analysis is None:
+            from .erf import ERFAnalysis
+
+            self._erf_analysis = ERFAnalysis(self)
+        return self._erf_analysis
 
     @property
     def base_model(self) -> str:
@@ -456,6 +467,60 @@ class ICALens:
         if fitting_statistics is not None:
             value["fitting_statistics"] = fitting_statistics
         return ComponentProfile(value, layer=layer)
+
+    def top_occurrence(
+        self,
+        *,
+        layer: int,
+        component: int,
+        id: int = 0,
+        sign: Literal["positive", "negative"] | None = None,
+        full: bool = False,
+    ) -> dict[str, Any]:
+        """Return one stored occurrence, optionally with its complete source text."""
+        if isinstance(id, bool) or not isinstance(id, (int, np.integer)) or id < 0:
+            raise ValueError("id must be a non-negative integer")
+        if sign not in {None, "positive", "negative"}:
+            raise ValueError("sign must be 'positive', 'negative', or None")
+        artifact = self._get_layer(layer)
+        layer_profile = self._get_profile(artifact)
+        component_profile = self.component_profile(layer=layer, component=component)
+        selected_sign = (
+            sign
+            or component_profile.get("tail_direction")
+            or component_profile.get("dominant_sign")
+        )
+        if selected_sign not in {"positive", "negative"}:
+            raise ValueError("component profile has no selected tail direction")
+        occurrences = (
+            component_profile.get("examples", {}).get(selected_sign, {}).get("occurrences", [])
+        )
+        index = int(id)
+        if index >= len(occurrences):
+            raise IndexError(
+                f"occurrence id {index} is unavailable; {len(occurrences)} stored for the "
+                f"{selected_sign} tail"
+            )
+        occurrence = copy.deepcopy(occurrences[index])
+        if not full:
+            return occurrence
+
+        provenance = layer_profile.get("example_provenance") or layer_profile.get("provenance")
+        source = provenance.get("dataset") if isinstance(provenance, dict) else None
+        if not isinstance(source, dict) or not source.get("repo_id"):
+            raise ValueError("full source text is unavailable: profile has no dataset provenance")
+        if "source_index" not in occurrence:
+            raise ValueError("full source text is unavailable: occurrence has no source_index")
+        from datasets import load_dataset  # type: ignore[import-untyped]
+
+        dataset = load_dataset(
+            source["repo_id"],
+            split=source.get("split", "train"),
+            revision=source.get("revision"),
+        )
+        text_field = provenance.get("text_field", "text")
+        occurrence["full_text"] = str(dataset[int(occurrence["source_index"])][text_field])
+        return occurrence
 
     def checkpoint_component_profile(self, path: str | Path, *, layer: int) -> Path:
         """Write one completed profile into an existing local lens artifact."""

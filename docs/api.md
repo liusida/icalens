@@ -131,6 +131,7 @@ lens.analyze(
     inputs,
     *,
     layer,
+    selected_components=None,
     model=None,
     tokenizer=None,
     token_scope="all",
@@ -144,6 +145,7 @@ lens.analyze(
 | --- | --- | --- |
 | `inputs` | `str \| list[dict[str, str]]`, required | Raw text or a completed `{role, content}` conversation |
 | `layer` | `int`, required | Zero-based transformer-block index stored in the lens |
+| `selected_components` | `int \| list[int] \| tuple[int, ...] \| None = None` | Component to highlight automatically when the result is displayed; the current explorer accepts one component |
 | `model` | `torch.nn.Module \| None = None` | Optional caller-supplied language model |
 | `tokenizer` | tokenizer or `None` | Optional caller-supplied tokenizer |
 | `token_scope` | `"all" \| "content" \| "user" \| "assistant" = "all"` | Conversation positions to return; raw text always returns all encoded tokens |
@@ -403,6 +405,73 @@ four sign statistics are:
 | `negative_fraction` | Fraction of nonzero profiled positions with a negative score |
 | `positive_energy_fraction` | Fraction of this component's corpus-wide squared score magnitude on the positive side |
 | `negative_energy_fraction` | Fraction of this component's corpus-wide squared score magnitude on the negative side |
+
+### `top_occurrence(...)`
+
+Retrieve one stored activating occurrence without navigating the complete
+component-profile dictionary:
+
+```python
+occurrence = lens.top_occurrence(layer=7, component=452, id=0)
+print(occurrence["context"], occurrence["text"], occurrence["score"])
+```
+
+Occurrence IDs are zero-based positions in the stored ranking. By default the
+method uses the component's selected tail. Pass `sign="positive"` or
+`sign="negative"` to choose a side explicitly.
+
+The regular result contains the short context window stored in the artifact.
+Set `full=True` to retrieve the complete original dataset sample using its
+recorded repository, revision, split, text field, and `source_index`:
+
+```python
+occurrence = lens.top_occurrence(layer=7, component=452, id=0, full=True)
+print(occurrence["full_text"])
+```
+
+| Argument | Type / default | Meaning |
+| --- | --- | --- |
+| `layer` | `int`, required | Profiled layer |
+| `component` | `int`, required | Component ID |
+| `id` | `int = 0` | Zero-based stored occurrence ID |
+| `sign` | `"positive" \| "negative" \| None = None` | Requested score side; `None` uses the selected tail |
+| `full` | `bool = False` | Add the complete source sample as `full_text` |
+| **Returns** | `dict` | Independent copy of the stored occurrence record |
+
+### `erf.suffix_sweep(...)`
+
+Measure how much left context a stored component occurrence needs to recover
+its selected-tail absolute-score rank:
+
+```python
+result = lens.erf.suffix_sweep(
+    layer=6,
+    component=214,
+    rank_thresholds=(1, 3, 5, 10, 15),
+    occurrences=20,
+)
+```
+
+The method uses the component's stored selected-tail occurrences, lazily loads
+and then reuses the Lens model and tokenizer, and returns component summaries
+for every requested rank threshold together with the occurrence-level sweep
+records. It does not write files. Use `lens.unload_model()` to release the
+cached language model afterward.
+
+| Argument | Type / default | Meaning |
+| --- | --- | --- |
+| `layer` | `int`, required | Profiled transformer-block layer |
+| `component` | `int`, required | Stored component ID |
+| `rank_thresholds` | `Sequence[int] = (1, 3, 5, 10, 15)` | Absolute-score ranks recorded in one sweep |
+| `occurrences` | `int = 20` | Maximum stored selected-tail occurrences to measure |
+| `exact_suffix_length` | `int = 10` | Test every suffix length through this value |
+| `max_batch_size` | `int = 64` | Maximum occurrence batch size |
+| `batch_token_budget` | `int = 64` | Approximate lexical-token budget per forward batch |
+| `device` | `str \| torch.device \| None = "auto"` | Model device |
+| `model` | `torch.nn.Module \| None = None` | Optional caller-supplied language model |
+| `tokenizer` | tokenizer or `None` | Optional caller-supplied tokenizer |
+| `verbose` | `bool = False` | Report model loading and reuse |
+| **Returns** | `dict` | Threshold summaries and occurrence-level sweep records |
 
 ### `checkpoint_component_profile(...)`
 

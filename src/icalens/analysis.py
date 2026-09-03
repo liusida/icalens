@@ -77,6 +77,7 @@ class AnalysisResult(CaptureResult):
     input_text: str
     token_scope: str
     messages: tuple[dict[str, str], ...]
+    selected_components: tuple[int, ...] = ()
     component_profiles: dict[int, dict[str, Any]] | None = None
     logit_effects: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
@@ -256,7 +257,13 @@ def _document_framing_for_layer(lens: Any, layer: int) -> dict[str, Any]:
 
 
 def analyze(
-    lens: Any, inputs: Any, *, layer: int, verbose: bool = False, **kwargs: Any
+    lens: Any,
+    inputs: Any,
+    *,
+    layer: int,
+    selected_components: int | tuple[int, ...] | list[int] | None = None,
+    verbose: bool = False,
+    **kwargs: Any,
 ) -> AnalysisResult:
     """Capture an input and calculate signed scores and per-token energy shares."""
     started = perf_counter()
@@ -265,6 +272,7 @@ def analyze(
     transform_started = perf_counter()
     scores = lens.transform(captured.activations, layer=layer)
     energy = lens.energy(scores)
+    selected = _normalize_selected_components(selected_components, int(scores.shape[-1]))
     component_profiles = lens._component_profile_summaries(layer)
     _analysis_log(
         verbose,
@@ -293,10 +301,29 @@ def analyze(
             "all text tokens" if isinstance(inputs, str) else kwargs.get("token_scope", "all")
         ),
         messages=() if isinstance(inputs, str) else tuple(dict(message) for message in inputs),
+        selected_components=selected,
         component_profiles=component_profiles,
     )
     _analysis_log(verbose, f"Analysis complete in {perf_counter() - started:.2f}s.")
     return result
+
+
+def _normalize_selected_components(
+    values: int | tuple[int, ...] | list[int] | None,
+    component_count: int,
+) -> tuple[int, ...]:
+    if values is None:
+        return ()
+    selected = (values,) if isinstance(values, int) and not isinstance(values, bool) else values
+    if not isinstance(selected, (tuple, list)):
+        raise TypeError("selected_components must be an integer or a sequence of integers")
+    if len(selected) > 1:
+        raise ValueError("the explorer currently supports one selected component")
+    if any(not isinstance(component, int) or isinstance(component, bool) for component in selected):
+        raise TypeError("selected_components must contain only integers")
+    if any(component < 0 or component >= component_count for component in selected):
+        raise ValueError(f"selected component must be between 0 and {component_count - 1}")
+    return tuple(selected)
 
 
 def add_logit_effects(

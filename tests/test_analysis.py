@@ -125,6 +125,42 @@ def test_analyze_raw_text_returns_scores_and_energy(mixed_signals: np.ndarray) -
     torch.testing.assert_close(result.energy.sum(dim=-1), torch.ones(3))
 
 
+def test_analyze_records_initial_component_selection(mixed_signals: np.ndarray) -> None:
+    lens = ICALens(
+        model_id="example/model",
+        model_revision="abc",
+        activation_site="hidden_states",
+        layer_indexing="hidden_states",
+    ).fit(mixed_signals, layer=0)
+
+    result = lens.analyze(
+        "one two three",
+        layer=0,
+        selected_components=2,
+        model=DummyModel(),
+        tokenizer=DummyTokenizer(),
+    )
+
+    assert result.selected_components == (2,)
+
+
+def test_analyze_rejects_invalid_initial_component_selections(
+    mixed_signals: np.ndarray,
+) -> None:
+    lens = ICALens(
+        model_id="example/model",
+        model_revision="abc",
+        activation_site="hidden_states",
+        layer_indexing="hidden_states",
+    ).fit(mixed_signals, layer=0)
+    kwargs = {"layer": 0, "model": DummyModel(), "tokenizer": DummyTokenizer()}
+
+    with pytest.raises(ValueError, match="currently supports one"):
+        lens.analyze("one two three", selected_components=[0, 1], **kwargs)
+    with pytest.raises(ValueError, match="between 0 and 2"):
+        lens.analyze("one two three", selected_components=3, **kwargs)
+
+
 def test_analyze_verbose_reports_major_stages(
     mixed_signals: np.ndarray, capsys: pytest.CaptureFixture[str]
 ) -> None:
