@@ -1,0 +1,512 @@
+#!/usr/bin/env python3
+"""Fit a context-matched GPT-2 ICA lens for the OAI SAE comparison."""
+
+from __future__ import annotations
+
+import argparse
+import importlib.metadata
+import sys
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, cast
+
+import torch
+from datasets import load_dataset  # type: ignore[import-untyped]
+from gb10_load_llm import load_model_to_cuda  # type: ignore[import-untyped]
+from huggingface_hub import HfApi
+from safetensors.torch import load_file, save_file
+from tqdm.auto import tqdm
+from transformers import AutoConfig, AutoModelForCausalLM
+
+from icalens import ICALens
+from icalens._activation_dataset import (
+    ActivationDataset,
+    ActivationDatasetWriter,
+    check_disk_space,
+)
+from icalens._capture import transformer_blocks
+from icalens.cli.fit_text import peak_rss_gib, set_cuda_memory_limit
+from icalens.experiments._display import ExperimentDisplay
+from icalens.experiments._run import ResumableRun
+from icalens.experiments._source_provenance import source_provenance, warn_if_dirty
+
+MODEL_ID = "openai-community/gpt2"
+MODEL_REVISION = "607a30d783dfa663caf39e06633721c8d4cfcd7e"
+DATASET_ID = "apollo-research/Skylion007-openwebtext-tokenizer-gpt2"
+DATASET_REVISION = "f02886b54795e8acabceb637ca119f9ae8f19d3f"
+DATASET_SPLIT = "train"
+CONTEXT_LENGTH = 64
+FITTING_TOKENS = 1_000_000
+LAYERS = tuple(range(12))
+HIDDEN_SIZE = 768
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[2]
+DEFAULT_RUN_OUTPUT = HERE / "run"
+DEFAULT_LENS_OUTPUT = (
+    ROOT / "local-icalens-models" / "experimental" / "icalens-gpt2-openwebtext-context-length-64"
+)
+
+
+class _CaptureComplete(Exception):
+    """Stop a forward after the last requested transformer block."""
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--run-output", type=Path, default=DEFAULT_RUN_OUTPUT)
+    parser.add_argument("--lens-output", type=Path, default=DEFAULT_LENS_OUTPUT)
+    parser.add_argument("--capture-batch-size", type=int, default=32)
+    parser.add_argument("--capture-layers-at-once", type=int, default=len(LAYERS))
+    parser.add_argument("--fit-batch-size", type=int, default=32768)
+    parser.add_argument("--max-iter", type=int, default=50)
+    parser.add_argument("--objective-every", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--dataset-shuffle-buffer", type=int, default=10_000)
+    parser.add_argument("--max-vram-gb", type=float)
+    parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="Validate pinned Hub objects and pretokenized row shape without fitting.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv)
+    _validate_arguments(args)
+    api = HfApi()
+    _validate_pins(api)
+    first_row = next(
+        iter(
+            load_dataset(
+                DATASET_ID,
+                split=DATASET_SPLIT,
+                revision=DATASET_REVISION,
+                streaming=True,
+            )
+        )
+    )
+    _validate_dataset_row(first_row)
+    config = AutoConfig.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
+    if int(config.n_layer) != len(LAYERS) or int(config.n_embd) != HIDDEN_SIZE:
+        raise ValueError(
+            f"pinned GPT-2 shape changed: layers={config.n_layer}, hidden={config.n_embd}"
+        )
+    if args.validate_only:
+        print(
+            "Validated context-matched fit inputs: "
+            f"{MODEL_ID}@{MODEL_REVISION}, {DATASET_ID}@{DATASET_REVISION}, "
+            f"stored row length={len(first_row['input_ids'])}, fit context={CONTEXT_LENGTH}."
+        )
+        return
+    if not torch.cuda.is_available():
+        raise RuntimeError("the context-matched fit requires CUDA")
+    if args.max_vram_gb is not None:
+        set_cuda_memory_limit(args.max_vram_gb)
+
+    run_output = args.run_output.expanduser().resolve()
+    lens_output = args.lens_output.expanduser().resolve()
+    activation_output = run_output / "activations"
+    tokens_path = run_output / "prepared-input-ids.safetensors"
+    source = source_provenance()
+    warn_if_dirty(source)
+    resolved = _resolved(args, run_output=run_output, lens_output=lens_output)
+    run = ResumableRun.open(
+        output=run_output,
+        resolved=resolved,
+        source=source,
+        status="running",
+    )
+
+    completed = _completed_units(tokens_path, activation_output, lens_output)
+    total = 1 + 2 * len(LAYERS)
+    with (
+        _mark_failed(run),
+        ExperimentDisplay(
+            output=run_output,
+            title="Context-matched GPT-2 ICA fit",
+            completed=len(completed),
+            total=total,
+            source_dirty=cast(bool, source.get("dirty", False)),
+            command=sys.argv,
+            unit_label="checkpoints",
+            completed_unit_ids=completed,
+        ) as display,
+    ):
+        if "tokens" not in completed:
+            display.phase("Preparing exact 64-token inputs", dataset=DATASET_ID)
+            input_ids = _prepare_input_ids(args)
+            _save_safetensors_atomic(tokens_path, {"input_ids": input_ids})
+            display.complete_unit("tokens", refresh=True)
+        else:
+            input_ids = _load_prepared_tokens(tokens_path)
+
+        writer = _activation_writer(
+            activation_output,
+            input_ids=input_ids,
+            args=args,
+        )
+        missing = writer.missing_layers
+        if missing:
+            required, available = check_disk_space(
+                activation_output, required_bytes=writer.required_bytes
+            )
+            print(
+                f"Activation cache: {required / 1024**3:.1f} GiB recommended; "
+                f"{available / 1024**3:.1f} GiB available."
+            )
+            display.phase("Loading pinned GPT-2", revision=MODEL_REVISION[:12])
+            model = _load_model()
+            group_size = min(args.capture_layers_at_once, len(missing))
+            for start in range(0, len(missing), group_size):
+                group = missing[start : start + group_size]
+                display.phase(
+                    "Capturing resid_post activations",
+                    layers=",".join(map(str, group)),
+                )
+                _capture_group(
+                    model,
+                    input_ids=input_ids,
+                    layers=group,
+                    writer=writer,
+                    batch_size=args.capture_batch_size,
+                )
+                for layer in group:
+                    display.complete_unit(f"capture:{layer}", refresh=True)
+            del model
+            torch.cuda.empty_cache()
+        writer.finish()
+
+        dataset = ActivationDataset(activation_output)
+        lens = _load_or_create_lens(lens_output)
+        for layer in LAYERS:
+            if layer in lens.available_layers:
+                continue
+            display.phase("Fitting FastICA", layer=layer, max_iter=args.max_iter)
+            lens.fit(
+                dataset.layer(layer),
+                layer=layer,
+                n_components=HIDDEN_SIZE,
+                algorithm="parallel",
+                fun="logcosh",
+                max_iter=args.max_iter,
+                random_state=args.seed,
+                progress=True,
+                device="cuda",
+                batch_size=args.fit_batch_size,
+                objective_every=args.objective_every,
+                provenance=dataset.provenance,
+            )
+            lens.save(lens_output)
+            display.complete_unit(f"fit:{layer}", refresh=True)
+            print(f"Checkpointed fitted layer {layer} to {lens_output}")
+
+        run.update(
+            available_layers=list(lens.available_layers),
+            lens_output=str(lens_output),
+            peak_cuda_reserved_gib=torch.cuda.max_memory_reserved() / 1024**3,
+            peak_rss_gib=peak_rss_gib(),
+        )
+        run.set_status("complete", complete=True)
+        display.phase("Complete", lens=lens_output)
+
+
+@contextmanager
+def _mark_failed(run: ResumableRun) -> Iterator[None]:
+    try:
+        yield
+    except BaseException:
+        run.set_status("failed")
+        raise
+
+
+def _validate_arguments(args: argparse.Namespace) -> None:
+    positive = (
+        "capture_batch_size",
+        "capture_layers_at_once",
+        "fit_batch_size",
+        "max_iter",
+        "objective_every",
+        "dataset_shuffle_buffer",
+    )
+    for name in positive:
+        if int(getattr(args, name)) <= 0:
+            raise ValueError(f"--{name.replace('_', '-')} must be positive")
+
+
+def _validate_pins(api: HfApi) -> None:
+    model_sha = api.model_info(MODEL_ID, revision=MODEL_REVISION).sha
+    dataset_sha = api.dataset_info(DATASET_ID, revision=DATASET_REVISION).sha
+    if model_sha != MODEL_REVISION:
+        raise RuntimeError(f"model revision resolved to {model_sha}, expected {MODEL_REVISION}")
+    if dataset_sha != DATASET_REVISION:
+        raise RuntimeError(
+            f"dataset revision resolved to {dataset_sha}, expected {DATASET_REVISION}"
+        )
+
+
+def _validate_dataset_row(row: Any) -> None:
+    ids = row.get("input_ids") if isinstance(row, dict) else None
+    if not isinstance(ids, list) or not ids or not all(isinstance(value, int) for value in ids):
+        raise ValueError("dataset rows must contain a nonempty integer input_ids list")
+    if len(ids) % CONTEXT_LENGTH != 0:
+        raise ValueError(f"stored input_ids length {len(ids)} is not divisible by {CONTEXT_LENGTH}")
+
+
+def _resolved(args: argparse.Namespace, *, run_output: Path, lens_output: Path) -> dict[str, Any]:
+    return {
+        "protocol": "gpt2_oai_sae_context_matched_ica_v1",
+        "model": {"repo_id": MODEL_ID, "revision": MODEL_REVISION},
+        "dataset": {
+            "repo_id": DATASET_ID,
+            "revision": DATASET_REVISION,
+            "split": DATASET_SPLIT,
+            "field": "input_ids",
+        },
+        "selection": {
+            "context_length": CONTEXT_LENGTH,
+            "fitting_tokens": FITTING_TOKENS,
+            "row_order": "streaming_shuffle_then_contiguous_64_token_chunks",
+            "shuffle_seed": args.seed,
+            "shuffle_buffer": args.dataset_shuffle_buffer,
+            "prepend_bos": False,
+            "retokenized": False,
+        },
+        "fit": {
+            "layers": list(LAYERS),
+            "activation_site": "resid_post",
+            "preprocessing": "none",
+            "components": HIDDEN_SIZE,
+            "algorithm": "parallel",
+            "fun": "logcosh",
+            "max_iter": args.max_iter,
+            "objective_every": args.objective_every,
+            "batch_size": args.fit_batch_size,
+            "seed": args.seed,
+        },
+        "capture": {
+            "batch_size": args.capture_batch_size,
+            "layers_at_once": args.capture_layers_at_once,
+            "dtype": "bfloat16",
+        },
+        "runtime": {
+            name: importlib.metadata.version(name)
+            for name in ("datasets", "transformers", "torch", "gb10-load-llm")
+        },
+        "run_output": str(run_output),
+        "lens_output": str(lens_output),
+    }
+
+
+def _prepare_input_ids(args: argparse.Namespace) -> torch.Tensor:
+    stream = load_dataset(
+        DATASET_ID,
+        split=DATASET_SPLIT,
+        revision=DATASET_REVISION,
+        streaming=True,
+    ).shuffle(seed=args.seed, buffer_size=args.dataset_shuffle_buffer)
+    sequences: list[torch.Tensor] = []
+    needed = FITTING_TOKENS // CONTEXT_LENGTH
+    progress = tqdm(total=needed, desc="Prepare 64-token sequences", unit="seq")
+    try:
+        for row in stream:
+            _validate_dataset_row(row)
+            ids = torch.tensor(row["input_ids"], dtype=torch.long)
+            chunks = ids.reshape(-1, CONTEXT_LENGTH)
+            take = min(needed - len(sequences), int(chunks.shape[0]))
+            sequences.extend(chunks[index].clone() for index in range(take))
+            progress.update(take)
+            if len(sequences) == needed:
+                break
+    finally:
+        progress.close()
+    if len(sequences) != needed:
+        raise RuntimeError(f"dataset yielded {len(sequences)} sequences; expected {needed}")
+    result = torch.stack(sequences)
+    if result.numel() != FITTING_TOKENS:
+        raise RuntimeError(f"prepared {result.numel()} tokens; expected {FITTING_TOKENS}")
+    return result
+
+
+def _load_prepared_tokens(path: Path) -> torch.Tensor:
+    values = load_file(path).get("input_ids")
+    expected = (FITTING_TOKENS // CONTEXT_LENGTH, CONTEXT_LENGTH)
+    if values is None or values.dtype != torch.long or tuple(values.shape) != expected:
+        raise ValueError(f"invalid prepared input checkpoint: {path}")
+    return values
+
+
+def _activation_writer(
+    path: Path,
+    *,
+    input_ids: torch.Tensor,
+    args: argparse.Namespace,
+) -> ActivationDatasetWriter:
+    sequence_count = int(input_ids.shape[0])
+    samples = {
+        "document_index": torch.arange(sequence_count).repeat_interleave(CONTEXT_LENGTH),
+        "position": torch.arange(CONTEXT_LENGTH).repeat(sequence_count),
+        "token_id": input_ids.reshape(-1),
+    }
+    return ActivationDatasetWriter(
+        path,
+        model={"repo_id": MODEL_ID, "revision": MODEL_REVISION, "type": "base"},
+        activation_site="resid_post",
+        layer_indexing="transformer_blocks_zero_based",
+        layers=LAYERS,
+        sample_count=FITTING_TOKENS,
+        hidden_size=HIDDEN_SIZE,
+        dtype=torch.bfloat16,
+        provenance={
+            "dataset": {
+                "repo_id": DATASET_ID,
+                "revision": DATASET_REVISION,
+                "split": DATASET_SPLIT,
+            },
+            "input_field": "input_ids",
+            "input_tokenization": "dataset-provided",
+            "retokenized": False,
+            "context_length": CONTEXT_LENGTH,
+            "prepend_bos": False,
+            "fitting_tokens": FITTING_TOKENS,
+            "selection": {
+                "row_order": "streaming_shuffle_then_contiguous_64_token_chunks",
+                "shuffle_seed": args.seed,
+                "shuffle_buffer": args.dataset_shuffle_buffer,
+            },
+        },
+        samples=samples,
+    )
+
+
+def _load_model() -> torch.nn.Module:
+    model = cast(
+        torch.nn.Module,
+        load_model_to_cuda(
+            AutoModelForCausalLM,
+            MODEL_ID,
+            device="cuda",
+            dtype=torch.bfloat16,
+            touch="auto",
+            low_cpu_mem_usage=True,
+            revision=MODEL_REVISION,
+        ),
+    )
+    model.eval()
+    return model
+
+
+def _capture_group(
+    model: torch.nn.Module,
+    *,
+    input_ids: torch.Tensor,
+    layers: tuple[int, ...],
+    writer: ActivationDatasetWriter,
+    batch_size: int,
+) -> None:
+    with writer.group(layers) as sink:
+        progress = tqdm(total=FITTING_TOKENS, desc="Capture activations", unit="tok")
+        try:
+            for start in range(0, int(input_ids.shape[0]), batch_size):
+                batch = input_ids[start : start + batch_size].to("cuda")
+                captured = _capture_batch(model, input_ids=batch, layers=layers)
+                sink.append(captured)
+                progress.update(int(batch.numel()))
+        finally:
+            progress.close()
+
+
+def _capture_batch(
+    model: torch.nn.Module, *, input_ids: torch.Tensor, layers: tuple[int, ...]
+) -> dict[int, torch.Tensor]:
+    blocks = transformer_blocks(model)
+    captured: dict[int, torch.Tensor] = {}
+    handles: list[Any] = []
+    final_layer = max(layers)
+
+    def hook_for(layer: int) -> Any:
+        def hook(_: torch.nn.Module, __: tuple[Any, ...], output: Any) -> None:
+            hidden = output[0] if isinstance(output, tuple) else output
+            if not isinstance(hidden, torch.Tensor):
+                raise TypeError(f"transformer block {layer} did not return a tensor")
+            captured[layer] = hidden.reshape(-1, hidden.shape[-1])
+            if layer == final_layer:
+                raise _CaptureComplete
+
+        return hook
+
+    try:
+        for layer in layers:
+            handles.append(blocks[layer].register_forward_hook(hook_for(layer)))
+        with torch.inference_mode():
+            try:
+                model(input_ids=input_ids, use_cache=False)
+            except _CaptureComplete:
+                pass
+    finally:
+        for handle in handles:
+            handle.remove()
+    if set(captured) != set(layers):
+        raise RuntimeError(f"failed to capture layers {sorted(set(layers) - set(captured))}")
+    return captured
+
+
+def _load_or_create_lens(path: Path) -> ICALens:
+    manifest = path / "icalens.json"
+    if manifest.is_file():
+        lens = ICALens.from_pretrained(path)
+        expected = (MODEL_ID, MODEL_REVISION, "resid_post", "none")
+        actual = (
+            lens.model_id,
+            lens.model_revision,
+            lens.activation_site,
+            lens.icalens_preprocessing,
+        )
+        if actual != expected:
+            raise ValueError(f"incompatible existing lens at {path}: {actual} != {expected}")
+        for layer in lens.available_layers:
+            lens._get_layer(layer)
+        return lens
+    if path.exists() and any(path.iterdir()):
+        raise FileExistsError(f"lens output is nonempty but has no icalens.json: {path}")
+    return ICALens(
+        model_id=MODEL_ID,
+        model_revision=MODEL_REVISION,
+        model_type="base",
+        activation_site="resid_post",
+        layer_indexing="transformer_blocks_zero_based",
+        icalens_preprocessing="none",
+    )
+
+
+def _completed_units(tokens_path: Path, activation_output: Path, lens_output: Path) -> set[str]:
+    completed: set[str] = set()
+    if tokens_path.is_file():
+        _load_prepared_tokens(tokens_path)
+        completed.add("tokens")
+    manifest = activation_output / "activations.json"
+    if manifest.is_file():
+        import json
+
+        payload = json.loads(manifest.read_text())
+        for layer, entry in payload.get("layers", {}).items():
+            if entry.get("status") == "complete":
+                completed.add(f"capture:{int(layer)}")
+    if (lens_output / "icalens.json").is_file():
+        lens = _load_or_create_lens(lens_output)
+        completed.update(f"fit:{layer}" for layer in lens.available_layers)
+    return completed
+
+
+def _save_safetensors_atomic(path: Path, values: dict[str, torch.Tensor]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    save_file({name: value.contiguous() for name, value in values.items()}, temporary)
+    load_file(temporary)
+    temporary.replace(path)
+
+
+if __name__ == "__main__":
+    main()
