@@ -167,7 +167,8 @@ def render_sparse_probing_panels(
         if path.exists() and not force:
             raise FileExistsError(f"output already exists: {path}; pass --force to replace it")
 
-    method_order = ("ica", "sae", "pca", "random")
+    legend_order = ("ica", "sae", "pca", "random")
+    draw_order = ("random", "pca", "sae", "ica")
     styles = {
         "ica": ("ICA", "#3D5F99", "^"),
         "sae": ("SAE", "#B45F4D", "o"),
@@ -194,7 +195,7 @@ def render_sparse_probing_panels(
                 )
             else:
                 rows = payload.get("rows", [])
-                for method in method_order:
+                for zorder, method in enumerate(draw_order, start=2):
                     points = _mean_rows_by_k(
                         [row for row in rows if str(row.get("method", "ica")) == method]
                     )
@@ -209,6 +210,7 @@ def render_sparse_probing_panels(
                         linewidth=1.35,
                         markersize=3.0,
                         label=label,
+                        zorder=zorder,
                     )
                 completed = sorted({int(row["layer"]) for row in rows})
                 requested = payload.get("experiment", {}).get("layers", completed)
@@ -246,9 +248,12 @@ def render_sparse_probing_panels(
         figure.supxlabel("top-k features used by probe", y=0.04)
         handles, labels = axes[0].get_legend_handles_labels()
         if handles:
+            by_label = dict(zip(labels, handles, strict=True))
+            ordered_labels = [styles[method][0] for method in legend_order]
+            ordered_labels = [label for label in ordered_labels if label in by_label]
             figure.legend(
-                handles,
-                labels,
+                [by_label[label] for label in ordered_labels],
+                ordered_labels,
                 loc="upper center",
                 ncol=len(handles),
                 frameon=False,

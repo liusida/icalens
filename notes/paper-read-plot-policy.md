@@ -143,6 +143,13 @@ general policy for experiment figures and previews.
 - Make draw order explicit when curves overlap. Do not rely on incidental loop
   order or a common `zorder`. Matplotlib compound artists such as `errorbar`
   may internally offset their child artists' z-orders.
+- In method-comparison figures, order legends as ICA, SAE, then other
+  baselines. Draw curves in the reverse priority order: other baselines first,
+  SAE next, and ICA last, so the paper's primary method remains visible.
+- A reproduction figure may preserve the reproduced method first in its legend
+  when that ordering is part of the figure's scientific narrative; document
+  such exceptions explicitly. Figure 4 is the current SAE-reproduction
+  exception.
 - A corrective overlay should not receive global visual priority unless that
   priority is meaningful. If a hollow marker belongs between two curve layers,
   assign explicit sequential z-orders to the base curve, overlay, and later

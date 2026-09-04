@@ -79,17 +79,20 @@ def render(
         ))
         if len(payloads) == 1 and payloads[0].get("layer_payloads"):
             layer_panels, dataset_panels = _breakdown_panels(payloads[0])
+            include_context_control = (
+                payloads[0].get("experiment", {}).get("evaluation_context_length") is None
+            )
             outputs.extend(_render_grid(
                 plt, layer_panels, metric=metric, ylabel=ylabel, style=style, output=output,
                 stem=f"reconstruction-{metric}-by-layer", formats=formats, force=force,
                 caption="One subplot per layer; each curve is averaged across datasets.",
-                include_context_control=True,
+                include_context_control=include_context_control,
             ))
             outputs.extend(_render_grid(
                 plt, dataset_panels, metric=metric, ylabel=ylabel, style=style, output=output,
                 stem=f"reconstruction-{metric}-by-dataset", formats=formats, force=force,
                 caption="One subplot per dataset; each curve is averaged across layers.",
-                include_context_control=True,
+                include_context_control=include_context_control,
             ))
     return outputs
 

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="experiments/reconstruction/official"
 
 uv run icalens experiment figure reconstruction \
-  "$ROOT/results/gpt2" \
+  "$ROOT/results/gpt2-context64-all-eval64" \
   "$ROOT/results/gemma2" \
   "$ROOT/results/qwen35-9b" \
   --panel-titles "GPT-2 Small,Gemma 2 2B,Qwen 3.5 9B Base" \
@@ -13,16 +13,18 @@ uv run icalens experiment figure reconstruction \
   --force
 
 for spec in \
-  "gpt2|GPT-2 Small" \
-  "gemma2|Gemma 2 2B" \
-  "qwen35-9b|Qwen 3.5 9B Base"
+  "gpt2-context64-all-eval64|gpt2|GPT-2 Small" \
+  "gemma2|gemma2|Gemma 2 2B" \
+  "qwen35-9b|qwen35-9b|Qwen 3.5 9B Base"
 do
-  model="${spec%%|*}"
-  title="${spec#*|}"
+  source="${spec%%|*}"
+  remainder="${spec#*|}"
+  output="${remainder%%|*}"
+  title="${remainder#*|}"
   uv run icalens experiment figure reconstruction \
-    "$ROOT/results/$model" \
+    "$ROOT/results/$source" \
     --panel-titles "$title" \
-    --output "$ROOT/figures/$model-preview" \
+    --output "$ROOT/figures/$output-preview" \
     --format png \
     --force
 done
