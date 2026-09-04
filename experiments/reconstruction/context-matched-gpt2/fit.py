@@ -24,8 +24,9 @@ from icalens._activation_dataset import (
     ActivationDataset,
     ActivationDatasetWriter,
     check_disk_space,
+    sample_metadata,
 )
-from icalens._capture import transformer_blocks
+from icalens._capture import capture_resid_post
 from icalens.cli.fit_text import (
     TextDocument,
     load_pile_documents,
@@ -60,15 +61,10 @@ DEFAULT_LENS_OUTPUT = (
 )
 
 
-class _CaptureComplete(Exception):
-    """Stop a forward after the last requested transformer block."""
-
-
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-output", type=Path, default=DEFAULT_RUN_OUTPUT)
     parser.add_argument("--lens-output", type=Path, default=DEFAULT_LENS_OUTPUT)
-    parser.add_argument("--capture-batch-size", type=int, default=32)
     parser.add_argument("--capture-layers-at-once", type=int, default=len(LAYERS))
     parser.add_argument("--fit-batch-size", type=int, default=32768)
     parser.add_argument("--max-iter", type=int, default=50)
@@ -196,7 +192,6 @@ def main(argv: Sequence[str] | None = None) -> None:
                     prepared=prepared,
                     layers=group,
                     writer=writer,
-                    batch_size=args.capture_batch_size,
                 )
                 for layer in group:
                     display.complete_unit(f"capture:{layer}", refresh=True)
@@ -249,7 +244,6 @@ def _mark_failed(run: ResumableRun) -> Iterator[None]:
 
 def _validate_arguments(args: argparse.Namespace) -> None:
     positive = (
-        "capture_batch_size",
         "capture_layers_at_once",
         "fit_batch_size",
         "max_iter",
@@ -303,6 +297,11 @@ def _resolved(
             "selected_token_policy": "same_flat_candidate_indices_as_official_seeded_sampler",
             "reframing": "prepend_eos_then_up_to_63_candidate_tokens",
             "document_framing": document_framing,
+            "sample_metadata": {
+                "identity_fields": ["document_index", "position", "token_id"],
+                "context_field": "context_position",
+                "position_convention": "official_input_position_including_framing_offset",
+            },
         },
         "fit": {
             "layers": list(LAYERS),
@@ -317,7 +316,7 @@ def _resolved(
             "seed": args.seed,
         },
         "capture": {
-            "batch_size": args.capture_batch_size,
+            "strategy": "official_one_context_at_a_time",
             "layers_at_once": args.capture_layers_at_once,
             "dtype": "bfloat16",
         },
@@ -344,7 +343,14 @@ def _prepare_inputs(
         document_framing=document_framing,
     )
     selected = sample_positions(documents, token_budget=FITTING_TOKENS, seed=seed)
-    return _reframe_selected_documents(documents, selected)
+    official_samples = sample_metadata(documents, selected)
+    prepared = _reframe_selected_documents(documents, selected)
+    for name, expected in official_samples.items():
+        if not torch.equal(prepared[name], expected):
+            raise RuntimeError(
+                f"context-64 reframing changed official sample metadata field {name!r}"
+            )
+    return prepared
 
 
 def _reframe_selected_documents(
@@ -355,7 +361,8 @@ def _reframe_selected_documents(
     selection_rows: list[torch.Tensor] = []
     token_rows: list[torch.Tensor] = []
     document_rows: list[torch.Tensor] = []
-    candidate_position_rows: list[torch.Tensor] = []
+    position_rows: list[torch.Tensor] = []
+    context_position_rows: list[torch.Tensor] = []
     content_length = CONTEXT_LENGTH - 1
     progress = tqdm(total=FITTING_TOKENS, desc="Reframe selected tokens", unit="tok")
     try:
@@ -387,7 +394,10 @@ def _reframe_selected_documents(
                 document_rows.append(
                     torch.full((chosen.numel(),), document_index, dtype=torch.long)
                 )
-                candidate_position_rows.append(chosen + start)
+                # Preserve the official cache's position convention: positions
+                # include the framing token at position 0.
+                position_rows.append(chosen + start + 1)
+                context_position_rows.append(chosen + 1)
                 progress.update(int(chosen.numel()))
     finally:
         progress.close()
@@ -397,7 +407,8 @@ def _reframe_selected_documents(
         "selection_mask": torch.stack(selection_rows),
         "token_id": torch.cat(token_rows),
         "document_index": torch.cat(document_rows),
-        "candidate_position": torch.cat(candidate_position_rows),
+        "position": torch.cat(position_rows),
+        "context_position": torch.cat(context_position_rows),
     }
     if int(result["selection_mask"].sum()) != FITTING_TOKENS:
         raise RuntimeError("reframing did not preserve the exact fitting-token count")
@@ -412,7 +423,8 @@ def _load_prepared_inputs(path: Path) -> dict[str, torch.Tensor]:
         "selection_mask",
         "token_id",
         "document_index",
-        "candidate_position",
+        "position",
+        "context_position",
     }
     if set(values) != required:
         raise ValueError(f"invalid prepared input keys at {path}: {sorted(values)}")
@@ -423,6 +435,12 @@ def _load_prepared_inputs(path: Path) -> dict[str, torch.Tensor]:
         raise ValueError(f"prepared masks do not match input shape at {path}")
     if int(values["selection_mask"].sum()) != FITTING_TOKENS:
         raise ValueError(f"prepared selection does not contain {FITTING_TOKENS} tokens")
+    for name in ("token_id", "document_index", "position", "context_position"):
+        if values[name].shape != (FITTING_TOKENS,):
+            raise ValueError(f"invalid prepared {name} shape at {path}: {values[name].shape}")
+    context_positions = values["context_position"]
+    if int(context_positions.min()) < 1 or int(context_positions.max()) >= CONTEXT_LENGTH:
+        raise ValueError(f"prepared context positions are outside 1..{CONTEXT_LENGTH - 1}")
     return values
 
 
@@ -435,7 +453,8 @@ def _activation_writer(
 ) -> ActivationDatasetWriter:
     samples = {
         "document_index": prepared["document_index"],
-        "candidate_position": prepared["candidate_position"],
+        "position": prepared["position"],
+        "context_position": prepared["context_position"],
         "token_id": prepared["token_id"],
     }
     return ActivationDatasetWriter(
@@ -489,68 +508,27 @@ def _capture_group(
     prepared: dict[str, torch.Tensor],
     layers: tuple[int, ...],
     writer: ActivationDatasetWriter,
-    batch_size: int,
 ) -> None:
     with writer.group(layers) as sink:
         progress = tqdm(total=FITTING_TOKENS, desc="Capture activations", unit="tok")
         try:
             sequence_count = int(prepared["input_ids"].shape[0])
-            for start in range(0, sequence_count, batch_size):
-                stop = min(start + batch_size, sequence_count)
-                input_ids = prepared["input_ids"][start:stop].to("cuda")
-                attention_mask = prepared["attention_mask"][start:stop].to("cuda")
-                selection_mask = prepared["selection_mask"][start:stop].to("cuda")
-                captured = _capture_batch(
+            for sequence_index in range(sequence_count):
+                valid = int(prepared["attention_mask"][sequence_index].sum())
+                input_ids = prepared["input_ids"][sequence_index, :valid].unsqueeze(0).to("cuda")
+                positions = torch.nonzero(
+                    prepared["selection_mask"][sequence_index, :valid], as_tuple=False
+                ).flatten().to("cuda")
+                captured = capture_resid_post(
                     model,
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    selection_mask=selection_mask,
+                    model_inputs={"input_ids": input_ids},
                     layers=layers,
+                    positions=positions,
                 )
                 sink.append(captured)
-                progress.update(int(selection_mask.sum()))
+                progress.update(int(positions.numel()))
         finally:
             progress.close()
-
-
-def _capture_batch(
-    model: torch.nn.Module,
-    *,
-    input_ids: torch.Tensor,
-    attention_mask: torch.Tensor,
-    selection_mask: torch.Tensor,
-    layers: tuple[int, ...],
-) -> dict[int, torch.Tensor]:
-    blocks = transformer_blocks(model)
-    captured: dict[int, torch.Tensor] = {}
-    handles: list[Any] = []
-    final_layer = max(layers)
-
-    def hook_for(layer: int) -> Any:
-        def hook(_: torch.nn.Module, __: tuple[Any, ...], output: Any) -> None:
-            hidden = output[0] if isinstance(output, tuple) else output
-            if not isinstance(hidden, torch.Tensor):
-                raise TypeError(f"transformer block {layer} did not return a tensor")
-            captured[layer] = hidden[selection_mask]
-            if layer == final_layer:
-                raise _CaptureComplete
-
-        return hook
-
-    try:
-        for layer in layers:
-            handles.append(blocks[layer].register_forward_hook(hook_for(layer)))
-        with torch.inference_mode():
-            try:
-                model(input_ids=input_ids, attention_mask=attention_mask, use_cache=False)
-            except _CaptureComplete:
-                pass
-    finally:
-        for handle in handles:
-            handle.remove()
-    if set(captured) != set(layers):
-        raise RuntimeError(f"failed to capture layers {sorted(set(layers) - set(captured))}")
-    return captured
 
 
 def _load_or_create_lens(path: Path) -> ICALens:
