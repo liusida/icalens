@@ -1,25 +1,31 @@
 {
-  "completed_at": "2026-08-18T03:13:21.954239+00:00",
+  "completed_at": null,
+  "icalens_source": {
+    "commit": "bc810fcd8663fa897af512a49018e969af3d39e4",
+    "dirty": true,
+    "git_available": true
+  },
   "layer_runs": {
     "10": {
-      "completed_at": "2026-08-18T03:13:21.950808+00:00",
-      "result": "/home/liusida/research/ICA-paper/icalens_pypi/results/SAEBench-sparse-probing-official/gpt2/layers/layer_10/raw-result.json",
-      "started_at": "2026-08-18T03:02:02.576532+00:00",
-      "status": "complete"
+      "completed_at": null,
+      "started_at": "2026-09-04T09:35:45.886613+00:00",
+      "status": "running"
     },
     "6": {
-      "completed_at": "2026-08-18T02:46:06.179474+00:00",
-      "result": "/home/liusida/research/ICA-paper/icalens_pypi/results/SAEBench-sparse-probing-official/gpt2/layers/layer_06/raw-result.json",
-      "started_at": "2026-08-18T02:39:24.662632+00:00",
-      "status": "complete"
+      "completed_at": null,
+      "started_at": "2026-09-04T09:35:45.623120+00:00",
+      "status": "running"
     }
   },
   "resolved": {
     "activation_cache": {
       "estimated_bytes_per_layer": 4915200000,
+      "estimated_peak": "9.2 GiB",
+      "estimated_peak_bytes": 9830400000,
       "estimated_per_layer": "4.6 GiB",
-      "recommended_free": "5.5 GiB",
-      "recommended_free_bytes": 5898240000,
+      "recommended_free": "11.0 GiB",
+      "recommended_free_bytes": 11796480000,
+      "shared_capture_layers": 2,
       "used_when_multiple_methods_are_pending": true
     },
     "activation_site": "resid_post",
@@ -48,7 +54,7 @@
         "seed": 0
       },
       "sae": {
-        "activation": "relu",
+        "activation": "topk",
         "apply_b_dec_to_input": true,
         "checkpoint_format": "safetensors",
         "checkpoint_template": "v5_32k_layer_{layer}.pt/sae_weights.safetensors",
@@ -56,14 +62,16 @@
         "hook_name_template": "blocks.{layer}.hook_resid_post",
         "layers": "all_transformer_layers",
         "name": "GPT2-Small OAI v5 32k",
+        "normalize_activations": "layer_norm",
         "repo_id": "jbloom/GPT2-Small-OAI-v5-32k-resid-post-SAEs",
         "revision": "21df74db7b9f690cd2403a20485cf75f46330d0d",
+        "top_k": 32,
         "width": 32768
       }
     },
     "experiment": "saebench-sparse-probing",
     "experiment_schema_version": 1,
-    "icalens_version": "0.3.4.dev0",
+    "icalens_version": "0.3.6",
     "layers": [
       6,
       10
@@ -102,6 +110,6 @@
       "sae_batch_size": 125
     }
   },
-  "started_at": "2026-08-18T02:18:35.212385+00:00",
-  "status": "complete"
+  "started_at": "2026-09-04T09:35:42.327920+00:00",
+  "status": "running"
 }
