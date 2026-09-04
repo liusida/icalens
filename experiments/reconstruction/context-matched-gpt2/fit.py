@@ -17,7 +17,7 @@ from gb10_load_llm import load_model_to_cuda  # type: ignore[import-untyped]
 from huggingface_hub import HfApi
 from safetensors.torch import load_file, save_file
 from tqdm.auto import tqdm
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from icalens import ICALens
 from icalens._activation_dataset import (
@@ -26,18 +26,29 @@ from icalens._activation_dataset import (
     check_disk_space,
 )
 from icalens._capture import transformer_blocks
-from icalens.cli.fit_text import peak_rss_gib, set_cuda_memory_limit
+from icalens.cli.fit_text import (
+    TextDocument,
+    load_pile_documents,
+    peak_rss_gib,
+    resolve_document_framing,
+    sample_positions,
+    set_cuda_memory_limit,
+)
 from icalens.experiments._display import ExperimentDisplay
 from icalens.experiments._run import ResumableRun
 from icalens.experiments._source_provenance import source_provenance, warn_if_dirty
 
 MODEL_ID = "openai-community/gpt2"
 MODEL_REVISION = "607a30d783dfa663caf39e06633721c8d4cfcd7e"
-DATASET_ID = "apollo-research/Skylion007-openwebtext-tokenizer-gpt2"
-DATASET_REVISION = "f02886b54795e8acabceb637ca119f9ae8f19d3f"
+DATASET_ID = "NeelNanda/pile-10k"
+DATASET_REVISION = "127bfedcd5047750df5ccf3a12979a47bfa0bafa"
 DATASET_SPLIT = "train"
+TEXT_FIELD = "text"
+OFFICIAL_CONTEXT_LENGTH = 1024
 CONTEXT_LENGTH = 64
+CANDIDATE_TOKENS = 5_465_620
 FITTING_TOKENS = 1_000_000
+FRAMING_TOKEN_ID = 50_256
 LAYERS = tuple(range(12))
 HIDDEN_SIZE = 768
 
@@ -45,7 +56,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 DEFAULT_RUN_OUTPUT = HERE / "run"
 DEFAULT_LENS_OUTPUT = (
-    ROOT / "local-icalens-models" / "experimental" / "icalens-gpt2-openwebtext-context-length-64"
+    ROOT / "local-icalens-models" / "experimental" / "icalens-gpt2-small-pile10k-context-length-64"
 )
 
 
@@ -63,12 +74,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-iter", type=int, default=50)
     parser.add_argument("--objective-every", type=int, default=1)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--dataset-shuffle-buffer", type=int, default=10_000)
     parser.add_argument("--max-vram-gb", type=float)
     parser.add_argument(
         "--validate-only",
         action="store_true",
-        help="Validate pinned Hub objects and pretokenized row shape without fitting.",
+        help="Validate pinned Hub objects and tokenizer framing without fitting.",
     )
     return parser.parse_args(argv)
 
@@ -89,6 +99,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     )
     _validate_dataset_row(first_row)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
+    if tokenizer.eos_token_id != FRAMING_TOKEN_ID:
+        raise ValueError(
+            f"pinned GPT-2 EOS token changed: {tokenizer.eos_token_id} != {FRAMING_TOKEN_ID}"
+        )
+    framing = resolve_document_framing(tokenizer, "auto", model_id=MODEL_ID)
+    if framing["strategy"] != "prepend-eos" or framing["token_id"] != FRAMING_TOKEN_ID:
+        raise ValueError(f"unexpected GPT-2 document-framing policy: {framing}")
     config = AutoConfig.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
     if int(config.n_layer) != len(LAYERS) or int(config.n_embd) != HIDDEN_SIZE:
         raise ValueError(
@@ -98,7 +116,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(
             "Validated context-matched fit inputs: "
             f"{MODEL_ID}@{MODEL_REVISION}, {DATASET_ID}@{DATASET_REVISION}, "
-            f"stored row length={len(first_row['input_ids'])}, fit context={CONTEXT_LENGTH}."
+            f"candidate text field={TEXT_FIELD!r}, fit context={CONTEXT_LENGTH}, "
+            f"framing token={FRAMING_TOKEN_ID}."
         )
         return
     if not torch.cuda.is_available():
@@ -109,10 +128,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     run_output = args.run_output.expanduser().resolve()
     lens_output = args.lens_output.expanduser().resolve()
     activation_output = run_output / "activations"
-    tokens_path = run_output / "prepared-input-ids.safetensors"
+    tokens_path = run_output / "prepared-inputs.safetensors"
     source = source_provenance()
     warn_if_dirty(source)
-    resolved = _resolved(args, run_output=run_output, lens_output=lens_output)
+    resolved = _resolved(
+        args,
+        run_output=run_output,
+        lens_output=lens_output,
+        document_framing=framing,
+    )
     run = ResumableRun.open(
         output=run_output,
         resolved=resolved,
@@ -136,17 +160,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         ) as display,
     ):
         if "tokens" not in completed:
-            display.phase("Preparing exact 64-token inputs", dataset=DATASET_ID)
-            input_ids = _prepare_input_ids(args)
-            _save_safetensors_atomic(tokens_path, {"input_ids": input_ids})
+            display.phase("Preparing controlled 64-token inputs", dataset=DATASET_ID)
+            prepared = _prepare_inputs(tokenizer, document_framing=framing, seed=args.seed)
+            _save_safetensors_atomic(tokens_path, prepared)
             display.complete_unit("tokens", refresh=True)
         else:
-            input_ids = _load_prepared_tokens(tokens_path)
+            prepared = _load_prepared_inputs(tokens_path)
 
         writer = _activation_writer(
             activation_output,
-            input_ids=input_ids,
+            prepared=prepared,
             args=args,
+            document_framing=framing,
         )
         missing = writer.missing_layers
         if missing:
@@ -168,7 +193,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 )
                 _capture_group(
                     model,
-                    input_ids=input_ids,
+                    prepared=prepared,
                     layers=group,
                     writer=writer,
                     batch_size=args.capture_batch_size,
@@ -229,7 +254,6 @@ def _validate_arguments(args: argparse.Namespace) -> None:
         "fit_batch_size",
         "max_iter",
         "objective_every",
-        "dataset_shuffle_buffer",
     )
     for name in positive:
         if int(getattr(args, name)) <= 0:
@@ -248,31 +272,37 @@ def _validate_pins(api: HfApi) -> None:
 
 
 def _validate_dataset_row(row: Any) -> None:
-    ids = row.get("input_ids") if isinstance(row, dict) else None
-    if not isinstance(ids, list) or not ids or not all(isinstance(value, int) for value in ids):
-        raise ValueError("dataset rows must contain a nonempty integer input_ids list")
-    if len(ids) % CONTEXT_LENGTH != 0:
-        raise ValueError(f"stored input_ids length {len(ids)} is not divisible by {CONTEXT_LENGTH}")
+    text = row.get(TEXT_FIELD) if isinstance(row, dict) else None
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(f"dataset rows must contain nonempty {TEXT_FIELD!r} text")
 
 
-def _resolved(args: argparse.Namespace, *, run_output: Path, lens_output: Path) -> dict[str, Any]:
+def _resolved(
+    args: argparse.Namespace,
+    *,
+    run_output: Path,
+    lens_output: Path,
+    document_framing: dict[str, Any],
+) -> dict[str, Any]:
     return {
-        "protocol": "gpt2_oai_sae_context_matched_ica_v1",
+        "protocol": "gpt2_pile10k_context_length_control_v2",
         "model": {"repo_id": MODEL_ID, "revision": MODEL_REVISION},
         "dataset": {
             "repo_id": DATASET_ID,
             "revision": DATASET_REVISION,
             "split": DATASET_SPLIT,
-            "field": "input_ids",
+            "field": TEXT_FIELD,
         },
         "selection": {
             "context_length": CONTEXT_LENGTH,
+            "official_candidate_context_length": OFFICIAL_CONTEXT_LENGTH,
+            "candidate_tokens": CANDIDATE_TOKENS,
             "fitting_tokens": FITTING_TOKENS,
-            "row_order": "streaming_shuffle_then_contiguous_64_token_chunks",
-            "shuffle_seed": args.seed,
-            "shuffle_buffer": args.dataset_shuffle_buffer,
-            "prepend_bos": False,
-            "retokenized": False,
+            "sampling_seed": args.seed,
+            "candidate_policy": "official_1024_context_pile10k_token_stream",
+            "selected_token_policy": "same_flat_candidate_indices_as_official_seeded_sampler",
+            "reframing": "prepend_eos_then_up_to_63_candidate_tokens",
+            "document_framing": document_framing,
         },
         "fit": {
             "layers": list(LAYERS),
@@ -300,55 +330,113 @@ def _resolved(args: argparse.Namespace, *, run_output: Path, lens_output: Path) 
     }
 
 
-def _prepare_input_ids(args: argparse.Namespace) -> torch.Tensor:
-    stream = load_dataset(
-        DATASET_ID,
+def _prepare_inputs(
+    tokenizer: Any, *, document_framing: dict[str, Any], seed: int
+) -> dict[str, torch.Tensor]:
+    documents = load_pile_documents(
+        tokenizer,
+        dataset_id=DATASET_ID,
+        dataset_revision=DATASET_REVISION,
         split=DATASET_SPLIT,
-        revision=DATASET_REVISION,
-        streaming=True,
-    ).shuffle(seed=args.seed, buffer_size=args.dataset_shuffle_buffer)
-    sequences: list[torch.Tensor] = []
-    needed = FITTING_TOKENS // CONTEXT_LENGTH
-    progress = tqdm(total=needed, desc="Prepare 64-token sequences", unit="seq")
+        text_field=TEXT_FIELD,
+        candidate_token_budget=CANDIDATE_TOKENS,
+        context_length=OFFICIAL_CONTEXT_LENGTH,
+        document_framing=document_framing,
+    )
+    selected = sample_positions(documents, token_budget=FITTING_TOKENS, seed=seed)
+    return _reframe_selected_documents(documents, selected)
+
+
+def _reframe_selected_documents(
+    documents: list[TextDocument], selected: dict[int, torch.Tensor]
+) -> dict[str, torch.Tensor]:
+    input_rows: list[torch.Tensor] = []
+    attention_rows: list[torch.Tensor] = []
+    selection_rows: list[torch.Tensor] = []
+    token_rows: list[torch.Tensor] = []
+    document_rows: list[torch.Tensor] = []
+    candidate_position_rows: list[torch.Tensor] = []
+    content_length = CONTEXT_LENGTH - 1
+    progress = tqdm(total=FITTING_TOKENS, desc="Reframe selected tokens", unit="tok")
     try:
-        for row in stream:
-            _validate_dataset_row(row)
-            ids = torch.tensor(row["input_ids"], dtype=torch.long)
-            chunks = ids.reshape(-1, CONTEXT_LENGTH)
-            take = min(needed - len(sequences), int(chunks.shape[0]))
-            sequences.extend(chunks[index].clone() for index in range(take))
-            progress.update(take)
-            if len(sequences) == needed:
-                break
+        for document_index, document in enumerate(documents):
+            positions = selected.get(document_index)
+            if positions is None:
+                continue
+            content = document.input_ids[1:]
+            selected_content = torch.zeros(content.shape[0], dtype=torch.bool)
+            selected_content[positions - 1] = True
+            for start in range(0, int(content.shape[0]), content_length):
+                stop = min(start + content_length, int(content.shape[0]))
+                chunk_selection = selected_content[start:stop]
+                if not bool(chunk_selection.any()):
+                    continue
+                chunk = content[start:stop]
+                valid = int(chunk.shape[0]) + 1
+                input_row = torch.full((CONTEXT_LENGTH,), FRAMING_TOKEN_ID, dtype=torch.long)
+                input_row[1:valid] = chunk
+                attention_row = torch.zeros(CONTEXT_LENGTH, dtype=torch.long)
+                attention_row[:valid] = 1
+                selection_row = torch.zeros(CONTEXT_LENGTH, dtype=torch.bool)
+                selection_row[1:valid] = chunk_selection
+                chosen = torch.nonzero(chunk_selection, as_tuple=False).flatten()
+                input_rows.append(input_row)
+                attention_rows.append(attention_row)
+                selection_rows.append(selection_row)
+                token_rows.append(chunk[chosen])
+                document_rows.append(
+                    torch.full((chosen.numel(),), document_index, dtype=torch.long)
+                )
+                candidate_position_rows.append(chosen + start)
+                progress.update(int(chosen.numel()))
     finally:
         progress.close()
-    if len(sequences) != needed:
-        raise RuntimeError(f"dataset yielded {len(sequences)} sequences; expected {needed}")
-    result = torch.stack(sequences)
-    if result.numel() != FITTING_TOKENS:
-        raise RuntimeError(f"prepared {result.numel()} tokens; expected {FITTING_TOKENS}")
+    result = {
+        "input_ids": torch.stack(input_rows),
+        "attention_mask": torch.stack(attention_rows),
+        "selection_mask": torch.stack(selection_rows),
+        "token_id": torch.cat(token_rows),
+        "document_index": torch.cat(document_rows),
+        "candidate_position": torch.cat(candidate_position_rows),
+    }
+    if int(result["selection_mask"].sum()) != FITTING_TOKENS:
+        raise RuntimeError("reframing did not preserve the exact fitting-token count")
     return result
 
 
-def _load_prepared_tokens(path: Path) -> torch.Tensor:
-    values = load_file(path).get("input_ids")
-    expected = (FITTING_TOKENS // CONTEXT_LENGTH, CONTEXT_LENGTH)
-    if values is None or values.dtype != torch.long or tuple(values.shape) != expected:
-        raise ValueError(f"invalid prepared input checkpoint: {path}")
+def _load_prepared_inputs(path: Path) -> dict[str, torch.Tensor]:
+    values = load_file(path)
+    required = {
+        "input_ids",
+        "attention_mask",
+        "selection_mask",
+        "token_id",
+        "document_index",
+        "candidate_position",
+    }
+    if set(values) != required:
+        raise ValueError(f"invalid prepared input keys at {path}: {sorted(values)}")
+    shape = values["input_ids"].shape
+    if len(shape) != 2 or shape[1] != CONTEXT_LENGTH:
+        raise ValueError(f"invalid prepared input shape at {path}: {tuple(shape)}")
+    if values["attention_mask"].shape != shape or values["selection_mask"].shape != shape:
+        raise ValueError(f"prepared masks do not match input shape at {path}")
+    if int(values["selection_mask"].sum()) != FITTING_TOKENS:
+        raise ValueError(f"prepared selection does not contain {FITTING_TOKENS} tokens")
     return values
 
 
 def _activation_writer(
     path: Path,
     *,
-    input_ids: torch.Tensor,
+    prepared: dict[str, torch.Tensor],
     args: argparse.Namespace,
+    document_framing: dict[str, Any],
 ) -> ActivationDatasetWriter:
-    sequence_count = int(input_ids.shape[0])
     samples = {
-        "document_index": torch.arange(sequence_count).repeat_interleave(CONTEXT_LENGTH),
-        "position": torch.arange(CONTEXT_LENGTH).repeat(sequence_count),
-        "token_id": input_ids.reshape(-1),
+        "document_index": prepared["document_index"],
+        "candidate_position": prepared["candidate_position"],
+        "token_id": prepared["token_id"],
     }
     return ActivationDatasetWriter(
         path,
@@ -365,17 +453,14 @@ def _activation_writer(
                 "revision": DATASET_REVISION,
                 "split": DATASET_SPLIT,
             },
-            "input_field": "input_ids",
-            "input_tokenization": "dataset-provided",
-            "retokenized": False,
+            "text_field": TEXT_FIELD,
+            "candidate_tokens": CANDIDATE_TOKENS,
             "context_length": CONTEXT_LENGTH,
-            "prepend_bos": False,
+            "candidate_context_length": OFFICIAL_CONTEXT_LENGTH,
+            "document_framing": document_framing,
             "fitting_tokens": FITTING_TOKENS,
-            "selection": {
-                "row_order": "streaming_shuffle_then_contiguous_64_token_chunks",
-                "shuffle_seed": args.seed,
-                "shuffle_buffer": args.dataset_shuffle_buffer,
-            },
+            "sampling_seed": args.seed,
+            "token_scope": "all",
         },
         samples=samples,
     )
@@ -401,7 +486,7 @@ def _load_model() -> torch.nn.Module:
 def _capture_group(
     model: torch.nn.Module,
     *,
-    input_ids: torch.Tensor,
+    prepared: dict[str, torch.Tensor],
     layers: tuple[int, ...],
     writer: ActivationDatasetWriter,
     batch_size: int,
@@ -409,17 +494,32 @@ def _capture_group(
     with writer.group(layers) as sink:
         progress = tqdm(total=FITTING_TOKENS, desc="Capture activations", unit="tok")
         try:
-            for start in range(0, int(input_ids.shape[0]), batch_size):
-                batch = input_ids[start : start + batch_size].to("cuda")
-                captured = _capture_batch(model, input_ids=batch, layers=layers)
+            sequence_count = int(prepared["input_ids"].shape[0])
+            for start in range(0, sequence_count, batch_size):
+                stop = min(start + batch_size, sequence_count)
+                input_ids = prepared["input_ids"][start:stop].to("cuda")
+                attention_mask = prepared["attention_mask"][start:stop].to("cuda")
+                selection_mask = prepared["selection_mask"][start:stop].to("cuda")
+                captured = _capture_batch(
+                    model,
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    selection_mask=selection_mask,
+                    layers=layers,
+                )
                 sink.append(captured)
-                progress.update(int(batch.numel()))
+                progress.update(int(selection_mask.sum()))
         finally:
             progress.close()
 
 
 def _capture_batch(
-    model: torch.nn.Module, *, input_ids: torch.Tensor, layers: tuple[int, ...]
+    model: torch.nn.Module,
+    *,
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    selection_mask: torch.Tensor,
+    layers: tuple[int, ...],
 ) -> dict[int, torch.Tensor]:
     blocks = transformer_blocks(model)
     captured: dict[int, torch.Tensor] = {}
@@ -431,7 +531,7 @@ def _capture_batch(
             hidden = output[0] if isinstance(output, tuple) else output
             if not isinstance(hidden, torch.Tensor):
                 raise TypeError(f"transformer block {layer} did not return a tensor")
-            captured[layer] = hidden.reshape(-1, hidden.shape[-1])
+            captured[layer] = hidden[selection_mask]
             if layer == final_layer:
                 raise _CaptureComplete
 
@@ -442,7 +542,7 @@ def _capture_batch(
             handles.append(blocks[layer].register_forward_hook(hook_for(layer)))
         with torch.inference_mode():
             try:
-                model(input_ids=input_ids, use_cache=False)
+                model(input_ids=input_ids, attention_mask=attention_mask, use_cache=False)
             except _CaptureComplete:
                 pass
     finally:
@@ -484,7 +584,7 @@ def _load_or_create_lens(path: Path) -> ICALens:
 def _completed_units(tokens_path: Path, activation_output: Path, lens_output: Path) -> set[str]:
     completed: set[str] = set()
     if tokens_path.is_file():
-        _load_prepared_tokens(tokens_path)
+        _load_prepared_inputs(tokens_path)
         completed.add("tokens")
     manifest = activation_output / "activations.json"
     if manifest.is_file():

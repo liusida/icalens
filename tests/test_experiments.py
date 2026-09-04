@@ -226,9 +226,11 @@ def test_reconstruction_split_cli_paths_and_k_values() -> None:
     assert capture.output == Path("~/Expansion/reconstruction/gpt2")
     measure = parse_measure_args([
         "--lens", "owner/lens", "--activations", "~/Expansion/reconstruction/gpt2",
-        "--k-values", "300,30,1,30", "--output", "results/gpt2",
+        "--k-values", "300,30,1,30", "--evaluation-context-length", "64",
+        "--output", "results/gpt2",
     ])
     assert measure.k_values == [1, 30, 300]
+    assert measure.evaluation_context_length == 64
 
 
 def test_reconstruction_capture_identity_ignores_only_runtime_state() -> None:

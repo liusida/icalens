@@ -117,6 +117,12 @@ def parse_measure_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--layers", default="all")
     parser.add_argument("--baselines", default="all")
     parser.add_argument("--k-values", type=_parse_k_values, default=[1, 3, 10, 30, 100, 300])
+    parser.add_argument(
+        "--evaluation-context-length",
+        type=int,
+        default=None,
+        help="Evaluate only token positions below this context length.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dry-run", action="store_true")
@@ -432,6 +438,8 @@ def _capture_pending_datasets(
 
 def measure_main(argv: Sequence[str] | None = None) -> None:
     args = parse_measure_args(argv)
+    if args.evaluation_context_length is not None and args.evaluation_context_length < 1:
+        raise ValueError("--evaluation-context-length must be positive")
     source = source_provenance()
     lens = ICALens.from_pretrained(args.lens)
     capture_root = args.activations.expanduser().resolve()
@@ -464,6 +472,7 @@ def measure_main(argv: Sequence[str] | None = None) -> None:
             "format_version": suite["format_version"],
             "manifest_sha256": hashlib.sha256(suite_path.read_bytes()).hexdigest(),
         },
+        "evaluation_context_length": args.evaluation_context_length,
     }
     if args.dry_run:
         print(json.dumps(resolved, indent=2, sort_keys=True))
@@ -505,6 +514,17 @@ def measure_main(argv: Sequence[str] | None = None) -> None:
             )
             for dataset_index, activation_dataset in enumerate(captured):
                 samples = activation_dataset.samples()
+                positions = samples["position"]
+                evaluation_mask = (
+                    None
+                    if args.evaluation_context_length is None
+                    else positions < args.evaluation_context_length
+                )
+                if evaluation_mask is not None and not bool(evaluation_mask.any()):
+                    raise ValueError(
+                        f"dataset {dataset_index} has no positions below "
+                        f"{args.evaluation_context_length}"
+                    )
                 for layer in layers:
                     result_path = _dataset_result_path(output, layer, dataset_index)
                     labels = [f"L{layer}/{method}" for method in method_names]
@@ -526,6 +546,14 @@ def measure_main(argv: Sequence[str] | None = None) -> None:
                     if result_path.is_file():
                         continue
                     activations = activation_dataset.layer(layer)
+                    evaluated_activations = (
+                        activations
+                        if evaluation_mask is None
+                        else activations[evaluation_mask]
+                    )
+                    evaluated_positions = (
+                        positions if evaluation_mask is None else positions[evaluation_mask]
+                    )
                     pending_methods = [
                         (label, method)
                         for label, method in zip(labels, method_names, strict=True)
@@ -536,8 +564,8 @@ def measure_main(argv: Sequence[str] | None = None) -> None:
                         result = _evaluate_layer(
                             lens=lens,
                             layer=layer,
-                            activations=activations,
-                            positions=samples["position"],
+                            activations=evaluated_activations,
+                            positions=evaluated_positions,
                             k_values=k_values,
                             baselines=baselines,
                             device=args.device,
