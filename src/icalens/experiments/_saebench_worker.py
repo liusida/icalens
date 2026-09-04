@@ -31,6 +31,11 @@ from rich.text import Text
 from safetensors.torch import load_file
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+try:
+    from icalens.experiments._display import ExperimentDisplay
+except ModuleNotFoundError:  # Direct execution inside the isolated environment.
+    from _display import ExperimentDisplay  # type: ignore[import-not-found,no-redef]
+
 
 class _StopForward(Exception):
     pass
@@ -295,6 +300,82 @@ def _format_duration(seconds: float) -> str:
     if hours:
         return f"{hours:d}:{minutes:02d}:{seconds:02d}"
     return f"{minutes:02d}:{seconds:02d}"
+
+
+class _PolicyBenchmarkDisplay(ExperimentDisplay):
+    """Expose the legacy worker callbacks through the shared policy display."""
+
+    def __init__(
+        self,
+        *,
+        output: Path,
+        completed: int,
+        total: int,
+        run_initial: int,
+        run_started_at: float,
+        title: str = "ICA Lens · SAEBench sparse probing",
+        item_label: str = "Method",
+        items_label: str = "Methods",
+        recent_label: str = "Recent SAEBench output",
+        detail_filename: str = "saebench-detail.log",
+        source_dirty: bool = False,
+    ) -> None:
+        del run_initial, item_label, items_label
+        self.dataset = "preparing"
+        self.dataset_index = 0
+        self.dataset_total = 0
+        super().__init__(
+            output=output,
+            title=title,
+            completed=completed,
+            total=total,
+            source_dirty=source_dirty,
+            detail_filename=detail_filename,
+            recent_label=recent_label,
+            unit_label="dataset-layer-method evaluations",
+            started_at=run_started_at,
+        )
+
+    def set_dataset(
+        self,
+        dataset: str,
+        *,
+        index: int,
+        total: int,
+        methods: list[str],
+        completed_methods: set[str],
+    ) -> None:
+        del methods, completed_methods
+        self.dataset = dataset
+        self.dataset_index = index
+        self.dataset_total = total
+        self.phase("Evaluating", dataset=f"{dataset} ({index}/{total})", method="—")
+
+    def track_methods(self, iterable: Any, **_: Any) -> Any:
+        for item in iterable:
+            method = str(item[0])
+            self.phase(
+                "Evaluating",
+                dataset=f"{self.dataset} ({self.dataset_index}/{self.dataset_total})",
+                method=method,
+            )
+            completed = False
+            try:
+                yield item
+                completed = True
+            finally:
+                if completed:
+                    self.advance(refresh=True)
+
+    def set_phase(self, phase: str) -> None:
+        self.phase(
+            phase,
+            dataset=f"{self.dataset} ({self.dataset_index}/{self.dataset_total})",
+        )
+
+
+# Keep the worker API stable while using the shared long-run implementation.
+_BenchmarkDisplay = _PolicyBenchmarkDisplay
 
 
 def _blocks(model: torch.nn.Module) -> Any:

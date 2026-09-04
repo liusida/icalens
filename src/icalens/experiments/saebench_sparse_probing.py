@@ -32,6 +32,7 @@ from ._saebench_environment import (
     resolve_backend,
 )
 from ._source_provenance import source_provenance, warn_if_dirty
+from ._run import ResumableRun
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -113,7 +114,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     output = args.output.expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
     run_path = output / "run.json"
-    run = _load_or_initialize_run(run_path, resolved)
+    run = _load_or_initialize_run(run_path, resolved, source=source)
     run["icalens_source"] = source
     _write_json(run_path, run)
 
@@ -223,13 +224,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--progress-started-at",
         str(run_started_at),
     ]
+    if source.get("dirty"):
+        command.append("--source-dirty")
+    detail_log = output / "logs" / "experiment-detail.log"
     try:
         log(
             "Running dataset-first sparse probing with shared activation capture for layers "
             + ",".join(str(job["layer"]) for job in jobs)
             + "..."
         )
-        _run_logged(command, output / "logs" / "multilayer.log")
+        _run_logged(command, detail_log)
         for job in jobs:
             layer = int(job["layer"])
             raw_path = Path(job["output"]) / "raw-result.json"
@@ -245,6 +249,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 )
         _write_json(run_path, run)
         raise
+    finally:
+        log(f"Full output: {detail_log}")
     _write_json(run_path, run)
 
     _finish_run(output, run_path, run, resolved, layers)
@@ -316,17 +322,35 @@ def _completed_methods(output: Path, layer: int) -> set[str]:
     completed: set[str] = set()
     raw_path = output / "layers" / f"layer_{layer:02d}" / "raw-result.json"
     if raw_path.is_file():
-        payload = json.loads(raw_path.read_text(encoding="utf-8"))
-        methods = payload.get("methods")
+        try:
+            payload = json.loads(raw_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        methods = payload.get("methods") if isinstance(payload, dict) else None
         if isinstance(methods, dict):
-            completed.update(str(name) for name in methods)
-        elif payload.get("eval_result_metrics") is not None:
+            completed.update(
+                str(name) for name, result in methods.items() if _valid_result_payload(result)
+            )
+        elif _valid_result_payload(payload):
             completed.add("ica")
     saebench_dir = raw_path.parent / "saebench"
     for name in ("ica", "sae", "pca", "random"):
-        if (saebench_dir / f"{name}_custom_sae_eval_results.json").is_file():
+        if _valid_result_file(saebench_dir / f"{name}_custom_sae_eval_results.json"):
             completed.add(name)
     return completed
+
+
+def _valid_result_file(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        return _valid_result_payload(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
+def _valid_result_payload(payload: Any) -> bool:
+    return isinstance(payload, dict) and isinstance(payload.get("eval_result_metrics"), dict)
 
 
 def _completed_evaluations_at_start(
@@ -353,7 +377,7 @@ def _completed_evaluations_at_start(
                     / f"{index:02d}_{safe_name}"
                     / f"{method}_custom_sae_eval_results.json"
                 )
-                completed += int(path.is_file())
+                completed += int(_valid_result_file(path))
     return completed
 
 
@@ -585,26 +609,34 @@ def _prepare_layer_baselines(
     return prepared
 
 
-def _load_or_initialize_run(path: Path, resolved: dict[str, Any]) -> dict[str, Any]:
-    if path.is_file():
-        run = cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
-        previous = run.get("resolved", {})
-        mismatches = _configuration_mismatches(previous, resolved)
-        if mismatches:
-            raise ValueError(
-                f"{path} belongs to a different experiment configuration "
-                f"({'; '.join(mismatches)}); choose another output"
-            )
-        run["status"] = "running"
-        run["resolved"] = resolved
-        return run
-    return {
-        "status": "running",
-        "started_at": _timestamp(),
-        "completed_at": None,
-        "resolved": resolved,
-        "layer_runs": {},
-    }
+def _load_or_initialize_run(
+    path: Path,
+    resolved: dict[str, Any],
+    *,
+    source: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    def normalize(previous: dict[str, Any], current: dict[str, Any]) -> None:
+        for value in (previous.get("backend"), current.get("backend")):
+            if isinstance(value, dict):
+                value.pop("cached", None)
+                value.pop("cache_path", None)
+        previous_baselines = previous.get("baselines")
+        current_baselines = current.get("baselines")
+        if isinstance(previous_baselines, dict) and isinstance(current_baselines, dict):
+            for name, config in current_baselines.items():
+                previous_baselines.setdefault(name, config)
+
+    run = ResumableRun.open(
+        output=path.parent,
+        resolved=resolved,
+        source=source or {},
+        status="running",
+        filename=path.name,
+        normalize_previous=normalize,
+    )
+    run.state.setdefault("layer_runs", {})
+    run.save()
+    return run.state
 
 
 def _configuration_mismatches(previous: dict[str, Any], current: dict[str, Any]) -> list[str]:
@@ -723,10 +755,13 @@ def _run_logged_in_terminal(command: list[str], path: Path, environment: dict[st
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as handle:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    with temporary.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=["method", "layer", "k", "mean_probe_accuracy"])
         writer.writeheader()
         writer.writerows(rows)
+    os.replace(temporary, path)
 
 
 def _write_json(path: Path, value: Any) -> None:

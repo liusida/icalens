@@ -176,7 +176,7 @@ are preserved.
 | `profile refresh-statistics` | Validates statistics provenance and resumes from compatible refreshed layers | Keep aligned with the shared progress view |
 | `profile` from a streamed dataset | Checkpoints each completed layer but recomputes it on rerun | Validate profile provenance before replay and skip compatible completed profiles |
 | reconstruction | Durable capture resumes per dataset/layer; measurement validates `run.json` and resumes per dataset/layer/method with shared progress and logs | Validate the final UI with long resumed runs |
-| sparse probing | Validates `run.json` and resumes missing work | Keep aligned with this policy |
+| sparse probing | Uses the reusable run/display framework, validates durable result schemas, resumes missing dataset--layer--method work, and atomically replaces summaries | Validate the final UI with a manually interrupted and resumed run |
 | autointerpretability prepare/evaluate | Uses the reusable experiment run/display framework; checkpoints and validates fragments, prepared layers, explanations, and simulations; resumes with durable progress and complete logs | Validate the final UI on a manually interrupted and resumed pilot |
 | experiment figures | Refuse replacement unless `--force` is supplied | Already aligned for derived outputs |
 
@@ -186,8 +186,8 @@ caller-defined unit label, arbitrary phase context (for example layer, dataset,
 and method), an inherited worker start time, and optional hashable durable-unit
 identities so a checkpoint is counted only once. Its run-state helper keeps result
 configuration separate from lifecycle metadata and supports independently validated
-configuration sections. Existing capture, fit, profile, reconstruction, and sparse-
-probing runners remain unchanged until a dedicated migration is reviewed.
+configuration sections. Existing capture, fit, profile, and reconstruction runners
+remain unchanged until a dedicated migration is reviewed.
 
 Until the follow-up items are implemented, scripts must not assume that
 `fit text/chat` or `profile` skips prior work merely because it checkpoints

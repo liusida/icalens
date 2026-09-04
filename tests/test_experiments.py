@@ -100,7 +100,9 @@ def test_dirty_source_warning_is_non_blocking(capsys: pytest.CaptureFixture[str]
 def test_resume_eta_initial_count_includes_dataset_checkpoints(tmp_path: Path) -> None:
     partial = tmp_path / "layers" / "layer_10" / "saebench-datasets" / "00_owner__dataset-a"
     partial.mkdir(parents=True)
-    (partial / "ica_custom_sae_eval_results.json").write_text("{}", encoding="utf-8")
+    (partial / "ica_custom_sae_eval_results.json").write_text(
+        json.dumps({"eval_result_metrics": {}}), encoding="utf-8"
+    )
 
     completed = _completed_evaluations_at_start(
         tmp_path,
@@ -596,10 +598,24 @@ def test_completed_methods_combines_raw_and_durable_method_files(tmp_path: Path)
     saebench_dir = layer_dir / "saebench"
     saebench_dir.mkdir(parents=True)
     (layer_dir / "raw-result.json").write_text(
-        json.dumps({"methods": {"ica": {}}}), encoding="utf-8"
+        json.dumps({"methods": {"ica": {"eval_result_metrics": {}}}}), encoding="utf-8"
     )
-    (saebench_dir / "pca_custom_sae_eval_results.json").write_text("{}", encoding="utf-8")
+    (saebench_dir / "pca_custom_sae_eval_results.json").write_text(
+        json.dumps({"eval_result_metrics": {}}), encoding="utf-8"
+    )
     assert _completed_methods(tmp_path, 6) == {"ica", "pca"}
+
+
+def test_completed_methods_ignores_corrupt_and_incomplete_results(tmp_path: Path) -> None:
+    layer_dir = tmp_path / "layers" / "layer_06"
+    saebench_dir = layer_dir / "saebench"
+    saebench_dir.mkdir(parents=True)
+    (layer_dir / "raw-result.json").write_text("{not-json", encoding="utf-8")
+    (saebench_dir / "ica_custom_sae_eval_results.json").write_text(
+        json.dumps({"eval_result_unstructured": {}}), encoding="utf-8"
+    )
+
+    assert _completed_methods(tmp_path, 6) == set()
 
 
 def test_random_encoder_is_orthogonal_and_reproducible(tmp_path: Path) -> None:
@@ -647,7 +663,7 @@ def test_resume_reports_result_defining_mismatch(tmp_path: Path) -> None:
     current = json.loads(json.dumps(previous))
     current["layers"] = [11]
 
-    with pytest.raises(ValueError, match=r"layers: \[6\] != \[11\]"):
+    with pytest.raises(ValueError, match=r"resolved.layers: \[6\] -> \[11\]"):
         _load_or_initialize_run(path, current)
 
 

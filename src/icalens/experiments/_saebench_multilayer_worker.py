@@ -68,6 +68,16 @@ class _StopAfterLastLayer(Exception):
     pass
 
 
+def _valid_result_file(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(payload, dict) and isinstance(payload.get("eval_result_metrics"), dict)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--saebench-root", type=Path, required=True)
@@ -78,6 +88,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--progress-total", type=int, default=1)
     parser.add_argument("--progress-run-initial", type=int, default=0)
     parser.add_argument("--progress-started-at", type=float, default=None)
+    parser.add_argument("--source-dirty", action="store_true")
     return parser.parse_args()
 
 
@@ -178,9 +189,11 @@ def main() -> None:
 
     datasets = list(settings["datasets"])
     existing = sum(
-        _dataset_result_path(
-            Path(job["output"]) / "saebench-datasets", index, dataset, method
-        ).is_file()
+        _valid_result_file(
+            _dataset_result_path(
+                Path(job["output"]) / "saebench-datasets", index, dataset, method
+            )
+        )
         for job in jobs
         for index, dataset in enumerate(datasets)
         for method in job["methods"]
@@ -191,6 +204,7 @@ def main() -> None:
         total=args.progress_total,
         run_initial=args.progress_run_initial,
         run_started_at=args.progress_started_at or time.time(),
+        source_dirty=bool(args.source_dirty),
     )
     original_tqdm = sparse_main.tqdm
     sparse_main.tqdm = display.track_methods
@@ -205,7 +219,9 @@ def main() -> None:
                     missing_by_layer[layer] = [
                         method
                         for method in job["methods"]
-                        if not _dataset_result_path(root, index, dataset, method).is_file()
+                        if not _valid_result_file(
+                            _dataset_result_path(root, index, dataset, method)
+                        )
                     ]
                 pending_layers = [layer for layer, missing in missing_by_layer.items() if missing]
                 dataset_artifacts = args.artifacts / f"dataset_{index:02d}"
@@ -310,10 +326,9 @@ def main() -> None:
                 )
                 for index, dataset in enumerate(datasets)
             ]
-            (final / f"{method}_custom_sae_eval_results.json").write_text(
-                json.dumps(_merge_dataset_results(payloads, datasets), indent=2, default=str)
-                + "\n",
-                encoding="utf-8",
+            _atomic_json(
+                final / f"{method}_custom_sae_eval_results.json",
+                _merge_dataset_results(payloads, datasets),
             )
         methods = {
             name: json.loads(
@@ -322,27 +337,31 @@ def main() -> None:
             for name in ["ica", *snapshots[layer].get("baselines", {})]
             if (final / f"{name}_custom_sae_eval_results.json").is_file()
         }
-        (output / "raw-result.json").write_text(
-            json.dumps({"methods": methods}, indent=2, sort_keys=True, default=str) + "\n",
-            encoding="utf-8",
-        )
-        (output / "worker.json").write_text(
-            json.dumps(
-                {
-                    "feature_configs": {
-                        **_existing_feature_configs(output / "worker.json"),
-                        **feature_configs[layer],
-                    },
-                    "preset": settings,
-                    "baselines": snapshots[layer].get("baselines", {}),
-                    "execution_order": "dataset_then_shared_multi_layer_capture",
+        _atomic_json(output / "raw-result.json", {"methods": methods})
+        _atomic_json(
+            output / "worker.json",
+            {
+                "feature_configs": {
+                    **_existing_feature_configs(output / "worker.json"),
+                    **feature_configs[layer],
                 },
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
+                "preset": settings,
+                "baselines": snapshots[layer].get("baselines", {}),
+                "execution_order": "dataset_then_shared_multi_layer_capture",
+            },
         )
+
+
+def _atomic_json(path: Path, value: Any) -> None:
+    """Validate JSON before replacing the last durable result."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(
+        json.dumps(value, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
+    json.loads(temporary.read_text(encoding="utf-8"))
+    os.replace(temporary, path)
 
 
 def _prepare_shared_dataset_cache(
