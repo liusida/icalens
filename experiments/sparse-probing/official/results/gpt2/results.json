@@ -1,0 +1,438 @@
+{
+  "experiment": {
+    "activation_cache": {
+      "estimated_bytes_per_layer": 4915200000,
+      "estimated_peak": "9.2 GiB",
+      "estimated_peak_bytes": 9830400000,
+      "estimated_per_layer": "4.6 GiB",
+      "recommended_free": "11.0 GiB",
+      "recommended_free_bytes": 11796480000,
+      "shared_capture_layers": 2,
+      "used_when_multiple_methods_are_pending": true
+    },
+    "activation_site": "resid_post",
+    "backend": {
+      "cache_path": "/home/liusida/.cache/icalens/experiments/saebench/paper-standard/2a7480bf67f9f82f79e742be55fc1f5ec404bfa9",
+      "cached": true,
+      "commit": "2a7480bf67f9f82f79e742be55fc1f5ec404bfa9",
+      "name": "paper-standard",
+      "repository": "https://github.com/adamkarvonen/SAEBench.git",
+      "saebench_model_name": "gpt2-small",
+      "status": "verified"
+    },
+    "baselines": {
+      "pca": {
+        "components": "model_hidden_size",
+        "feature_sides": "positive_and_negative",
+        "fit_source": "derived_from_full_rank_ica_whitening",
+        "name": "PCA",
+        "preprocessing": "match_ica_lens"
+      },
+      "random": {
+        "components": "model_hidden_size",
+        "feature_sides": "positive_and_negative",
+        "name": "Random orthogonal basis",
+        "preprocessing": "match_ica_lens",
+        "seed": 0
+      },
+      "sae": {
+        "activation": "topk",
+        "apply_b_dec_to_input": true,
+        "checkpoint_format": "safetensors",
+        "checkpoint_template": "v5_32k_layer_{layer}.pt/sae_weights.safetensors",
+        "feature_source": "encoder",
+        "hook_name_template": "blocks.{layer}.hook_resid_post",
+        "layers": "all_transformer_layers",
+        "name": "GPT2-Small OAI v5 32k",
+        "normalize_activations": "layer_norm",
+        "repo_id": "jbloom/GPT2-Small-OAI-v5-32k-resid-post-SAEs",
+        "revision": "21df74db7b9f690cd2403a20485cf75f46330d0d",
+        "top_k": 32,
+        "width": 32768
+      }
+    },
+    "experiment": "saebench-sparse-probing",
+    "experiment_schema_version": 1,
+    "icalens_version": "0.3.6",
+    "layers": [
+      6,
+      10
+    ],
+    "lens": "sida/icalens-gpt2-small-pile10k",
+    "model_id": "openai-community/gpt2",
+    "model_revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e",
+    "output": "/home/liusida/research/ICA-paper/icalens_pypi/experiments/sparse-probing/official/results/gpt2",
+    "preset": {
+      "context_length": 128,
+      "datasets": [
+        "LabHC/bias_in_bios_class_set1",
+        "LabHC/bias_in_bios_class_set2",
+        "LabHC/bias_in_bios_class_set3",
+        "canrager/amazon_reviews_mcauley_1and5",
+        "canrager/amazon_reviews_mcauley_1and5_sentiment",
+        "codeparrot/github-code",
+        "fancyzhx/ag_news",
+        "Helsinki-NLP/europarl"
+      ],
+      "k_values": [
+        1,
+        2,
+        5,
+        10,
+        20,
+        50,
+        100
+      ],
+      "llm_batch_size": 1,
+      "llm_dtype": "float32",
+      "name": "paper",
+      "probe_test_size": 1000,
+      "probe_train_size": 4000,
+      "random_seed": 42,
+      "sae_batch_size": 125
+    }
+  },
+  "icalens_source": {
+    "commit": "286afe4a2ecd792be342bd7c55d545438ca31a78",
+    "dirty": false,
+    "git_available": true
+  },
+  "rows": [
+    {
+      "k": 1,
+      "layer": 6,
+      "mean_probe_accuracy": 0.6924062500000001,
+      "method": "ica"
+    },
+    {
+      "k": 2,
+      "layer": 6,
+      "mean_probe_accuracy": 0.7698812499999999,
+      "method": "ica"
+    },
+    {
+      "k": 5,
+      "layer": 6,
+      "mean_probe_accuracy": 0.8329125000000001,
+      "method": "ica"
+    },
+    {
+      "k": 10,
+      "layer": 6,
+      "mean_probe_accuracy": 0.85999375,
+      "method": "ica"
+    },
+    {
+      "k": 20,
+      "layer": 6,
+      "mean_probe_accuracy": 0.883075,
+      "method": "ica"
+    },
+    {
+      "k": 50,
+      "layer": 6,
+      "mean_probe_accuracy": 0.9033,
+      "method": "ica"
+    },
+    {
+      "k": 100,
+      "layer": 6,
+      "mean_probe_accuracy": 0.9108624999999999,
+      "method": "ica"
+    },
+    {
+      "k": 1,
+      "layer": 6,
+      "mean_probe_accuracy": 0.599425,
+      "method": "pca"
+    },
+    {
+      "k": 2,
+      "layer": 6,
+      "mean_probe_accuracy": 0.6429375,
+      "method": "pca"
+    },
+    {
+      "k": 5,
+      "layer": 6,
+      "mean_probe_accuracy": 0.7213999999999999,
+      "method": "pca"
+    },
+    {
+      "k": 10,
+      "layer": 6,
+      "mean_probe_accuracy": 0.77936875,
+      "method": "pca"
+    },
+    {
+      "k": 20,
+      "layer": 6,
+      "mean_probe_accuracy": 0.82293125,
+      "method": "pca"
+    },
+    {
+      "k": 50,
+      "layer": 6,
+      "mean_probe_accuracy": 0.8768875,
+      "method": "pca"
+    },
+    {
+      "k": 100,
+      "layer": 6,
+      "mean_probe_accuracy": 0.8996000000000001,
+      "method": "pca"
+    },
+    {
+      "k": 1,
+      "layer": 6,
+      "mean_probe_accuracy": 0.6535562500000001,
+      "method": "random"
+    },
+    {
+      "k": 2,
+      "layer": 6,
+      "mean_probe_accuracy": 0.7032,
+      "method": "random"
+    },
+    {
+      "k": 5,
+      "layer": 6,
+      "mean_probe_accuracy": 0.7612,
+      "method": "random"
+    },
+    {
+      "k": 10,
+      "layer": 6,
+      "mean_probe_accuracy": 0.80705625,
+      "method": "random"
+    },
+    {
+      "k": 20,
+      "layer": 6,
+      "mean_probe_accuracy": 0.8418125,
+      "method": "random"
+    },
+    {
+      "k": 50,
+      "layer": 6,
+      "mean_probe_accuracy": 0.8824625,
+      "method": "random"
+    },
+    {
+      "k": 100,
+      "layer": 6,
+      "mean_probe_accuracy": 0.9021562500000001,
+      "method": "random"
+    },
+    {
+      "k": 1,
+      "layer": 6,
+      "mean_probe_accuracy": 0.705225,
+      "method": "sae"
+    },
+    {
+      "k": 2,
+      "layer": 6,
+      "mean_probe_accuracy": 0.77719375,
+      "method": "sae"
+    },
+    {
+      "k": 5,
+      "layer": 6,
+      "mean_probe_accuracy": 0.8257,
+      "method": "sae"
+    },
+    {
+      "k": 10,
+      "layer": 6,
+      "mean_probe_accuracy": 0.855425,
+      "method": "sae"
+    },
+    {
+      "k": 20,
+      "layer": 6,
+      "mean_probe_accuracy": 0.8784624999999999,
+      "method": "sae"
+    },
+    {
+      "k": 50,
+      "layer": 6,
+      "mean_probe_accuracy": 0.903775,
+      "method": "sae"
+    },
+    {
+      "k": 100,
+      "layer": 6,
+      "mean_probe_accuracy": 0.9153875,
+      "method": "sae"
+    },
+    {
+      "k": 1,
+      "layer": 10,
+      "mean_probe_accuracy": 0.7673875000000001,
+      "method": "ica"
+    },
+    {
+      "k": 2,
+      "layer": 10,
+      "mean_probe_accuracy": 0.8179000000000001,
+      "method": "ica"
+    },
+    {
+      "k": 5,
+      "layer": 10,
+      "mean_probe_accuracy": 0.86430625,
+      "method": "ica"
+    },
+    {
+      "k": 10,
+      "layer": 10,
+      "mean_probe_accuracy": 0.87898125,
+      "method": "ica"
+    },
+    {
+      "k": 20,
+      "layer": 10,
+      "mean_probe_accuracy": 0.89740625,
+      "method": "ica"
+    },
+    {
+      "k": 50,
+      "layer": 10,
+      "mean_probe_accuracy": 0.9167437500000001,
+      "method": "ica"
+    },
+    {
+      "k": 100,
+      "layer": 10,
+      "mean_probe_accuracy": 0.9249499999999999,
+      "method": "ica"
+    },
+    {
+      "k": 1,
+      "layer": 10,
+      "mean_probe_accuracy": 0.6886375,
+      "method": "pca"
+    },
+    {
+      "k": 2,
+      "layer": 10,
+      "mean_probe_accuracy": 0.7340249999999999,
+      "method": "pca"
+    },
+    {
+      "k": 5,
+      "layer": 10,
+      "mean_probe_accuracy": 0.80300625,
+      "method": "pca"
+    },
+    {
+      "k": 10,
+      "layer": 10,
+      "mean_probe_accuracy": 0.8437625,
+      "method": "pca"
+    },
+    {
+      "k": 20,
+      "layer": 10,
+      "mean_probe_accuracy": 0.87414375,
+      "method": "pca"
+    },
+    {
+      "k": 50,
+      "layer": 10,
+      "mean_probe_accuracy": 0.9029875,
+      "method": "pca"
+    },
+    {
+      "k": 100,
+      "layer": 10,
+      "mean_probe_accuracy": 0.91405625,
+      "method": "pca"
+    },
+    {
+      "k": 1,
+      "layer": 10,
+      "mean_probe_accuracy": 0.7331750000000001,
+      "method": "random"
+    },
+    {
+      "k": 2,
+      "layer": 10,
+      "mean_probe_accuracy": 0.7775687499999999,
+      "method": "random"
+    },
+    {
+      "k": 5,
+      "layer": 10,
+      "mean_probe_accuracy": 0.82354375,
+      "method": "random"
+    },
+    {
+      "k": 10,
+      "layer": 10,
+      "mean_probe_accuracy": 0.8485625000000001,
+      "method": "random"
+    },
+    {
+      "k": 20,
+      "layer": 10,
+      "mean_probe_accuracy": 0.8762124999999998,
+      "method": "random"
+    },
+    {
+      "k": 50,
+      "layer": 10,
+      "mean_probe_accuracy": 0.90393125,
+      "method": "random"
+    },
+    {
+      "k": 100,
+      "layer": 10,
+      "mean_probe_accuracy": 0.9129812500000001,
+      "method": "random"
+    },
+    {
+      "k": 1,
+      "layer": 10,
+      "mean_probe_accuracy": 0.74071875,
+      "method": "sae"
+    },
+    {
+      "k": 2,
+      "layer": 10,
+      "mean_probe_accuracy": 0.7986312499999999,
+      "method": "sae"
+    },
+    {
+      "k": 5,
+      "layer": 10,
+      "mean_probe_accuracy": 0.8478374999999999,
+      "method": "sae"
+    },
+    {
+      "k": 10,
+      "layer": 10,
+      "mean_probe_accuracy": 0.8745812500000001,
+      "method": "sae"
+    },
+    {
+      "k": 20,
+      "layer": 10,
+      "mean_probe_accuracy": 0.8951374999999999,
+      "method": "sae"
+    },
+    {
+      "k": 50,
+      "layer": 10,
+      "mean_probe_accuracy": 0.91521875,
+      "method": "sae"
+    },
+    {
+      "k": 100,
+      "layer": 10,
+      "mean_probe_accuracy": 0.92349375,
+      "method": "sae"
+    }
+  ]
+}
