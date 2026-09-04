@@ -125,6 +125,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     lens_output = args.lens_output.expanduser().resolve()
     activation_output = run_output / "activations"
     tokens_path = run_output / "prepared-inputs.safetensors"
+    _validate_existing_lens_output(lens_output, activation_output)
     source = source_provenance()
     warn_if_dirty(source)
     resolved = _resolved(
@@ -200,7 +201,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         writer.finish()
 
         dataset = ActivationDataset(activation_output)
-        lens = _load_or_create_lens(lens_output)
+        lens = _load_or_create_lens(lens_output, expected_provenance=dataset.provenance)
         for layer in LAYERS:
             if layer in lens.available_layers:
                 continue
@@ -531,7 +532,9 @@ def _capture_group(
             progress.close()
 
 
-def _load_or_create_lens(path: Path) -> ICALens:
+def _load_or_create_lens(
+    path: Path, *, expected_provenance: dict[str, Any] | None = None
+) -> ICALens:
     manifest = path / "icalens.json"
     if manifest.is_file():
         lens = ICALens.from_pretrained(path)
@@ -545,7 +548,14 @@ def _load_or_create_lens(path: Path) -> ICALens:
         if actual != expected:
             raise ValueError(f"incompatible existing lens at {path}: {actual} != {expected}")
         for layer in lens.available_layers:
-            lens._get_layer(layer)
+            artifact = lens._get_layer(layer)
+            if expected_provenance is not None:
+                actual_provenance = artifact.fitting.get("provenance")
+                if actual_provenance != expected_provenance:
+                    raise ValueError(
+                        f"existing lens layer {layer} was fitted from a different "
+                        f"activation dataset: {path}"
+                    )
         return lens
     if path.exists() and any(path.iterdir()):
         raise FileExistsError(f"lens output is nonempty but has no icalens.json: {path}")
@@ -557,6 +567,27 @@ def _load_or_create_lens(path: Path) -> ICALens:
         layer_indexing="transformer_blocks_zero_based",
         icalens_preprocessing="none",
     )
+
+
+def _validate_existing_lens_output(lens_output: Path, activation_output: Path) -> None:
+    if not (lens_output / "icalens.json").is_file():
+        return
+    activation_manifest = activation_output / "activations.json"
+    if not activation_manifest.is_file():
+        raise ValueError(
+            f"existing lens output cannot be matched to a missing activation cache: "
+            f"{lens_output}"
+        )
+    import json
+
+    payload = json.loads(activation_manifest.read_text())
+    if payload.get("status") != "complete":
+        raise ValueError(
+            f"existing lens output cannot be reused while the activation cache is incomplete: "
+            f"{lens_output}"
+        )
+    dataset = ActivationDataset(activation_output)
+    _load_or_create_lens(lens_output, expected_provenance=dataset.provenance)
 
 
 def _completed_units(tokens_path: Path, activation_output: Path, lens_output: Path) -> set[str]:
