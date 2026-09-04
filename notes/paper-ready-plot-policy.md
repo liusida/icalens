@@ -99,6 +99,11 @@ general policy for experiment figures and previews.
 
 - Use concise, bold, left-aligned panel titles. Align titles in the same row to
   the same physical baseline, even when their axes have different heights.
+- Treat the baseline font sizes as defaults, not global mandates. Reduce tick
+  label size locally when the labels have a large visual footprint—for example,
+  when an axis contains several multi-digit values or values above 99. Keep
+  neighboring figures at the baseline size when their shorter labels are
+  already clear; do not turn a local crowding fix into a paper-wide font change.
 - Prefer compact mathematical axis labels such as $u_1$ and $u_2$ when the
   coordinate system is already explained in the caption. Place paired labels
   consistently and keep them close to their axes.
