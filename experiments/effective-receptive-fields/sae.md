@@ -19,12 +19,14 @@ For a layer-level validation run, in a separate output:
 uv run python experiments/effective-receptive-fields/sae.py --models gemma2 --layers 12 --output experiments/effective-receptive-fields/runs/sae-validation
 ```
 
-Defaults: 100 uniformly sampled feature IDs per layer, seed 0, up to 20 strongest
-positive examples per feature, thresholds `1,3,5,10,15`. `--rank-thresholds 5`
+Defaults: 100 features sampled uniformly from the features active on the cached
+token pool, up to 20 strongest positive examples per feature, seed 0, and
+thresholds `1,3,5,10,15`. `--rank-thresholds 5`
 selects the alternative top-5-only protocol and requires a different output.
-All layer indices are zero-based. The same seed is used independently per layer;
-for equal dictionary widths this deliberately yields the same numeric feature
-IDs, not semantically matched features.
+All layer indices are zero-based. As in the ICA experiment, a stable hash of the
+model label, layer, and seed gives each layer an independent deterministic
+sample. Taking the first 100 active features in that random permutation is
+uniform sampling without replacement from the eligible population.
 
 ## Definition and controls
 
@@ -42,9 +44,9 @@ IDs, not semantically matched features.
   geometric schedule; exact or geometric-bracket first recovery estimates;
   available full-context length for unrecovered occurrences. Record recovery
   flags separately. A long assigned ERF is not proof of long-context dependence.
-- Uniform selection includes inactive features. Never resample them. Save their
-  status and report the denominator. Active features use however many positive
-  examples exist, up to 20.
+- As in ICA, the ERF population contains only features with at least one stored
+  selected-tail occurrence. Dead-feature prevalence is a separate measurement
+  and is not mixed into the ERF distribution.
 - Checkpoint encoded features and full-context ranks are used as stored
   endpoints. Audit the first example of up to 10 pending features against a live
   full-prefix forward before sweeping. Fail on score disagreement exceeding
@@ -57,37 +59,43 @@ The pilot's adaptive batch membership caused two top-5 rank-boundary differences
 among 2,000 examples when additional thresholds were requested. The official
 SAE mode fixes batch membership at each suffix length, including resolved
 examples as padding work for unresolved members. Entire resolved batches are
-skipped. Resume retains the original full feature ordering and batch membership.
+skipped. The prepared layer bundle retains the original feature ordering and
+batch membership.
 This removes threshold-dependent regrouping; it does not promise bitwise
 invariance across hardware or batch-size changes. Batch size is fingerprinted.
 The old ICA runner retains its existing default batching behavior.
 
 ## Resume and artifacts
 
-Each model/layer has its own `run.json`, full logs, cumulative profiling-shard
-checkpoints, prepared feature records, per-feature sweep traces and summaries.
-Repeating the same command validates identities and resumes automatically;
-completed layers skip model loading. A partially completed fixed batch may
-re-evaluate resolved members as padding, but never rewrites completed results.
-Configuration/dependency changes fail; choose a new output, never delete or
-silently reuse the pilot. The launcher runs one layer per child process to
-release GPU memory reliably between layers.
+The launcher owns one persistent progress box over all 70 layers. It starts one
+worker per model, matching the ICA experiment's lifetime: each language model
+loads once and is reused across its layers. One prepared bundle and one result
+bundle are written per layer. The durable result boundary and displayed unit are
+therefore both one layer; interruption repeats at most the current layer's
+measurement. Prepared inputs survive an interrupted measurement, so their
+activation scan remains reusable.
+
+Repeating the same command validates identities and completed result bundles,
+skips finished layers, and avoids loading a model whose layers are all complete.
+Configuration changes require a distinct output. The default is
+`runs/sae-suffix-sweep-v2`, which cannot mix with the fine-grained `v1` output.
+Per-model summaries use the same row-oriented JSON and CSV organization as ICA.
 
 Use feature fractions, not dictionary-size-extrapolated counts, for ICA–SAE
-comparisons. Report threshold, recovery coverage, inactive features, context
-protocol, and dictionary width alongside ERF distributions. This implementation
-does not alter paper figures or launch the full experiment automatically.
+comparisons. Report threshold, recovery coverage, context protocol, and
+dictionary width alongside ERF distributions. This experiment conditions on
+active features; it does not measure dictionary-wide inactive-feature prevalence.
+This implementation does not alter paper figures or launch the full experiment
+automatically.
 
 ## Implementation validation (2026-09-05)
 
-- 17 targeted CPU tests passed, including the existing ERF API/formula tests,
-  inactive-feature handling, checkpoint identity rejection, fixed batch
-  membership, threshold agreement, and partial-result resume.
-- GPU smoke runs passed: Gemma layer 12 (4 features × 2 examples), GPT-2 layer 6
-  (2 × 2), and Qwen layer 16 (2 × 2). Each profiled the full 1M cached tokens
-  and passed its selected full-prefix checks. These are implementation tests,
-  not representative scientific results.
-- Completed-run replay skipped model loading in the Gemma and GPT-2 checks.
+- 12 targeted CPU tests pass, including the existing ERF API/formula tests and
+  fixed batch membership across threshold sets.
+- The original pilot passed GPU smoke runs for all three SAE formats. The
+  revised ICA-style runner additionally passed a GPT-2 layer smoke run and a
+  two-layer run: it wrote only prepared/result layer bundles, loaded GPT-2 once
+  across both layers, and skipped model loading on replay.
 - On the original Gemma pilot's 100 × 20 examples, fixed-batch top-5 and
   multi-threshold sweeps agreed on all 2,000 top-5 occurrence results. The old
   adaptive-batch comparison differed on two rank-5/rank-6 boundary cases.

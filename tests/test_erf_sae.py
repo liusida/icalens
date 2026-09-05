@@ -6,8 +6,7 @@ import pytest
 import torch
 
 from icalens.experiments import erf_suffix_sweep as sweep
-from icalens.experiments._run import atomic_write_json
-from icalens.experiments.erf_sae import load_checkpoint, validate_result
+from icalens.experiments.erf_sae import _identity_sha256, _load_layer, validate_result
 
 
 def test_zero_activation_and_competition_rank():
@@ -21,13 +20,18 @@ def test_zero_activation_and_competition_rank():
     assert rank.item() == 5 and recovered.item()
 
 
-def test_checkpoint_identity(tmp_path):
-    p = tmp_path / "checkpoint.json"
-    assert load_checkpoint(p, {"k": 5}) is None
-    atomic_write_json(p, {"identity": {"k": 5}, "value": 1})
-    assert load_checkpoint(p, {"k": 5})["value"] == 1
+def test_layer_bundle_identity(tmp_path):
+    identity = {"k": 5}
+    p = tmp_path / "layer.json"
+    assert _load_layer(p, identity, "result") is None
+    p.write_text(
+        '{"identity_sha256":"'
+        + _identity_sha256(identity)
+        + '","kind":"result"}'
+    )
+    assert _load_layer(p, identity, "result")["kind"] == "result"
     with pytest.raises(ValueError, match="incompatible"):
-        load_checkpoint(p, {"k": 1})
+        _load_layer(p, {"k": 1}, "result")
 
 
 def test_inactive_and_missing_threshold_validation():

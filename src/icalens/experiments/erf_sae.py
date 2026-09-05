@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
-import inspect
 import json
 import math
 from pathlib import Path
@@ -13,6 +13,7 @@ import numpy as np
 import torch
 from transformers import AutoTokenizer
 
+from icalens import __version__
 from icalens._activation_dataset import ActivationDataset
 from icalens._capture import transformer_blocks
 from icalens.cli._status import log
@@ -21,12 +22,9 @@ from icalens.experiments._display import ExperimentDisplay
 from icalens.experiments._run import ResumableRun, atomic_write_json
 from icalens.experiments._saebench_worker import SAEFeatureEncoder
 from icalens.experiments._source_provenance import source_provenance, warn_if_dirty
+from icalens.experiments.erf_gradient import _stable_seed
 from icalens.experiments.saebench_sparse_probing import _prepare_layer_baselines, _resolve_baselines
 
-ROOT = Path.cwd()
-DEFAULT_CACHE = Path(
-    "/home/liusida/Expansion/research/ICA-data/icalens-activations/gemma-2-2b-pile10k-1m"
-)
 CHUNK = 32768
 
 
@@ -54,57 +52,28 @@ class SAEReadout:
         return self.encoder.encode(hidden)
 
 
-def load_checkpoint(path, identity):
-    if not path.exists():
-        return None
-    value = json.loads(path.read_text())
-    if value.get("identity") != identity:
-        raise ValueError(f"incompatible checkpoint: {path}")
-    return value
-
-
-def profile(cache, encoder, ids, output, identity, display):
-    """Checkpoint cumulative top occurrences at fixed activation-shard boundaries."""
-    path = output / "profile-progress.json"
-    state = load_checkpoint(path, identity)
-    count = identity["occurrences"]
-    end = 0 if state is None else state["end"]
-    if not 0 <= end <= cache.sample_count or (end != cache.sample_count and end % CHUNK):
-        raise ValueError("invalid profile checkpoint offset")
+def profile(cache, encoder, ids, count, display, layer):
+    """Keep top positive occurrences for a deterministic candidate feature set."""
     values = torch.zeros((len(ids), count), device="cuda")
     indices = torch.full((len(ids), count), -1, dtype=torch.long, device="cuda")
-    if state is not None:
-        values = torch.tensor(state["values"], device="cuda")
-        indices = torch.tensor(state["indices"], device="cuda")
-        if values.shape != (len(ids), count) or indices.shape != values.shape:
-            raise ValueError("invalid profile checkpoint shape")
-    hidden = cache.layer(identity["layer"])
+    hidden = cache.layer(layer)
     ids_tensor = torch.tensor(ids, device="cuda")
-    for start in range(end, cache.sample_count, CHUNK):
+    for start in range(0, cache.sample_count, CHUNK):
         stop = min(start + CHUNK, cache.sample_count)
-        display.phase("Profiling SAE features", layer=identity["layer"], dataset="Pile-10k")
+        display.phase("Profiling SAE candidates", layer=layer, dataset="Pile-10k")
         for batch in range(start, stop, 512):
             batch_end = min(batch + 512, stop)
             codes = encoder.encode(hidden[batch:batch_end].to("cuda", dtype=torch.float32))
             selected = codes[:, ids_tensor].T
             if not torch.isfinite(selected).all() or (selected < 0).any():
                 raise ValueError("SAE scores must be finite and nonnegative")
-            new_values, local_indices = selected.topk(min(count, batch_end - batch), dim=1)
-            combined = torch.cat((values, new_values), dim=1)
-            combined_indices = torch.cat((indices, local_indices + batch), dim=1)
-            values, order = combined.topk(count, dim=1)
-            indices = combined_indices.gather(1, order)
-        atomic_write_json(
-            path,
-            {
-                "identity": identity,
-                "end": stop,
-                "values": values.tolist(),
-                "indices": indices.tolist(),
-            },
-        )
-        display.complete_unit(f"profile-{start // CHUNK}")
-        log(f"Profiled {stop}/{cache.sample_count} candidate activations")
+            new_values, local = selected.topk(min(count, batch_end - batch), dim=1)
+            candidates = torch.cat((values, new_values), dim=1)
+            candidate_indices = torch.cat((indices, local + batch), dim=1)
+            values, order = candidates.topk(count, dim=1)
+            indices = candidate_indices.gather(1, order)
+        if stop == cache.sample_count or stop % (CHUNK * 8) == 0:
+            log(f"Layer {layer}: profiled {stop}/{cache.sample_count} activations")
     return values.cpu(), indices.cpu()
 
 
@@ -120,7 +89,9 @@ def prepare_feature(feature, values, indices, cache, encoder, tokenizer, layer):
         token = int(samples["token_id"][index])
         position = int(samples["position"][index])
         if not 1 <= position < 1024:
-            raise ValueError("expected content positions after BOS within context 1024")
+            raise ValueError(
+                "expected content positions after the framing token within context 1024"
+            )
         occurrences.append(
             {
                 "source_index": int(samples["document_index"][index]),
@@ -165,258 +136,368 @@ def validate_result(value, expected_count, thresholds=(1, 3, 5, 10, 15)):
             raise ValueError("invalid recovery count")
 
 
+FORMAT = "icalens.erf_suffix_sweep.sae"
+SCHEMA_VERSION = 2
+
+
+def _prepared_path(output, layer):
+    return output / "prepared" / f"layer_{layer:02d}.json"
+
+
+def _result_path(output, layer):
+    return output / "results" / f"layer_{layer:02d}.json"
+
+
+def _parse_layers(value, available):
+    if value == "all":
+        return list(available)
+    layers = sorted({int(item) for item in value.split(",") if item.strip()})
+    if not layers or set(layers).difference(available):
+        raise ValueError(f"invalid layers {layers}; available: {list(available)}")
+    return layers
+
+
+def _identity_sha256(identity):
+    return hashlib.sha256(
+        json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _load_layer(path, identity, kind):
+    if not path.exists():
+        return None
+    value = json.loads(path.read_text())
+    if value.get("identity_sha256") != _identity_sha256(identity) or value.get("kind") != kind:
+        raise ValueError(f"incompatible {kind} artifact: {path}")
+    return value
+
+
+def _validate_result_bundle(bundle, identity, layer):
+    results = bundle.get("results")
+    features = bundle.get("features")
+    if (
+        not isinstance(results, dict)
+        or not isinstance(features, list)
+        or set(results) != set(features)
+    ):
+        raise ValueError(f"incomplete result bundle for layer {layer}")
+    if len(features) != identity["features_per_layer"]:
+        raise ValueError(f"incorrect feature count for layer {layer}")
+    for feature_text, result in results.items():
+        count = result.get("n_occurrences")
+        if not isinstance(count, int) or not 1 <= count <= identity["occurrences_per_feature"]:
+            raise ValueError(f"invalid occurrence count for layer {layer}, F{feature_text}")
+        validate_result(result, count, tuple(identity["rank_thresholds"]))
+        if result["component"] != int(feature_text) or result["layer"] != layer:
+            raise ValueError(f"incorrect result identity for layer {layer}, F{feature_text}")
+
+
+def _write_summaries(output, layers, identity):
+    rows = []
+    for layer in layers:
+        bundle = _load_layer(_result_path(output, layer), identity, "result")
+        if bundle is None:
+            raise ValueError(f"missing result bundle for layer {layer}")
+        _validate_result_bundle(bundle, identity, layer)
+        for feature_text, result in bundle["results"].items():
+            for threshold_text, summary in result["threshold_results"].items():
+                rows.append(
+                    {
+                        "model": identity["label"],
+                        "layer": layer,
+                        "component": int(feature_text),
+                        "top_k": int(threshold_text),
+                        **summary,
+                    }
+                )
+    atomic_write_json(output / "summary.json", {"format": FORMAT, "rows": rows})
+    path = output / "summary.csv"
+    temporary = path.with_suffix(".csv.tmp")
+    with temporary.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    temporary.replace(path)
+
+
 @torch.no_grad()
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--layer", type=int, required=True)
+    parser.add_argument("--label", required=True)
+    parser.add_argument("--cache", type=Path, required=True)
+    parser.add_argument("--layers", default="all")
+    parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--features", type=int, default=100)
     parser.add_argument("--occurrences", type=int, default=20)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE)
-    parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--rank-thresholds", type=erf_suffix_sweep._parse_rank_thresholds, default=(1, 3, 5, 10, 15)
     )
-    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--exact-suffix-length", type=int, default=10)
+    parser.add_argument("--max-batch-size", type=int, default=64)
+    parser.add_argument("--batch-token-budget", type=int, default=64)
     parser.add_argument("--audit-features", type=int, default=10)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
-    if args.batch_size < 1 or args.audit_features < 1:
-        parser.error("batch-size and audit-features must be positive")
+    if (
+        min(
+            args.features,
+            args.occurrences,
+            args.exact_suffix_length,
+            args.max_batch_size,
+            args.batch_token_budget,
+            args.audit_features,
+        )
+        < 1
+    ):
+        parser.error("feature, occurrence, suffix, batch, and audit values must be positive")
     cache = ActivationDataset(args.cache)
+    layers = _parse_layers(args.layers, cache.available_layers)
+    provenance = cache.provenance
     if (
         cache.manifest["activation_site"] != "resid_post"
-        or args.layer not in cache.available_layers
+        or cache.sample_count != 1_000_000
+        or provenance["context_length"] != 1024
+        or provenance["dataset"]["repo_id"] != "NeelNanda/pile-10k"
+        or provenance["document_framing"]["strategy"] not in {"prepend-bos", "prepend-eos"}
     ):
-        raise ValueError("requires a cached resid_post layer")
-    if (
-        cache.provenance["context_length"] != 1024
-        or cache.provenance["document_framing"]["strategy"] not in {"prepend-bos", "prepend-eos"}
-    ):
-        raise ValueError("requires the recorded 1024-token document-framing protocol")
-    baseline = _prepare_layer_baselines(
-        _resolve_baselines(cache.model["repo_id"], "sae"), layer=args.layer
-    )
-    width = int(baseline["sae"]["width"])
-    if not 1 <= args.features <= width or not 1 <= args.occurrences <= 512:
-        raise ValueError("invalid feature/example count")
-    ids = sorted(
-        np.random.default_rng(args.seed).choice(width, args.features, replace=False).tolist()
-    )
-    dependencies = [
-        Path(__file__),
-        Path(inspect.getfile(erf_suffix_sweep)),
-        Path(inspect.getfile(erf_gradient)),
-        Path(inspect.getfile(SAEFeatureEncoder)),
-        cache.path / "activations.json",
-        cache.path / cache.manifest["samples_file"],
-        cache.path / cache.manifest["layers"][str(args.layer)]["file"],
-        Path(baseline["sae"]["weights_file"]),
-    ]
+        raise ValueError("requires the official 1M-token, 1024-context Pile-10k resid_post cache")
+    registry = _resolve_baselines(cache.model["repo_id"], "sae")
+    baselines = {layer: _prepare_layer_baselines(registry, layer=layer) for layer in layers}
     identity = {
-        "protocol": "sae-suffix-multirank-stable-batches-v1",
+        "format": FORMAT,
+        "schema_version": SCHEMA_VERSION,
+        "icalens_version": __version__,
+        "method": erf_suffix_sweep.METHOD,
+        "label": args.label,
         "model": cache.model,
-        "layer": args.layer,
-        "features": ids,
-        "occurrences": args.occurrences,
-        "seed": args.seed,
-        "candidate_tokens": cache.sample_count,
-        "baseline": baseline,
-        "provenance": cache.provenance,
+        "activation_site": "resid_post",
+        "layers": layers,
+        "activation_manifest_sha256": digest(cache.path / "activations.json"),
+        "provenance": provenance,
+        "sae": {str(k): v["sae"] for k, v in baselines.items()},
+        "features_per_layer": args.features,
+        "occurrences_per_feature": args.occurrences,
         "rank_thresholds": list(args.rank_thresholds),
-        "exact_suffix_length": 10,
-        "max_batch_size": args.batch_size,
-        "batch_token_budget": 4096,
+        "seed": args.seed,
+        "selection": "first active features in a model/layer-seeded random permutation",
+        "tail_direction": "positive",
+        "score": "encoder activation times decoder-row norm",
+        "recovery": "positive score and full-dictionary competition rank <= threshold",
+        "exact_suffix_length": args.exact_suffix_length,
+        "max_batch_size": args.max_batch_size,
+        "batch_token_budget": args.batch_token_budget,
         "stable_batches": True,
         "audit_features": args.audit_features,
-        "score_convention": "checkpoint encoder activation multiplied by decoder norm",
-        "selection": "uniform feature IDs without replacement; no resampling inactive features",
-        "dependencies": {str(p.resolve()): digest(p) for p in dependencies},
     }
     if args.dry_run:
         print(json.dumps(identity, indent=2))
         return
-    output = args.output.resolve()
+    output = args.output.expanduser().resolve()
     source = source_provenance()
-    run = ResumableRun.open(output=output, resolved=identity, source=source, status="running")
-    progress = load_checkpoint(output / "profile-progress.json", identity)
+    run = ResumableRun.open(output=output, resolved=identity, source=source, status="measuring")
     completed = set()
-    if progress:
-        completed.update(f"profile-{i}" for i in range(math.ceil(progress["end"] / CHUNK)))
-    prepared = {}
-    for feature in ids:
-        p = load_checkpoint(output / f"prepared/F{feature:05d}.json", identity)
-        if p:
-            prepared[feature] = p["feature"]
-            completed.add(f"prepare-{feature}")
-        result = load_checkpoint(output / f"results/F{feature:05d}.json", identity)
-        if result:
-            if not p:
-                raise ValueError("result has no prepared feature")
-            validate_result(result, len(p["feature"]["occurrences"]), args.rank_thresholds)
-            completed.add(f"measure-{feature}")
-    total = math.ceil(cache.sample_count / CHUNK) + 2 * len(ids)
+    for layer in layers:
+        bundle = _load_layer(_result_path(output, layer), identity, "result")
+        if bundle is not None:
+            _validate_result_bundle(bundle, identity, layer)
+            completed.add(layer)
     try:
         with ExperimentDisplay(
             output=output / "logs",
-            title=f"SAE suffix ERF · {cache.model['repo_id']} · layer {args.layer}",
-            total=total,
+            title=f"SAE suffix ERF · {args.label}",
+            total=len(layers),
             completed=len(completed),
             completed_unit_ids=completed,
             source_dirty=source.get("dirty"),
-            unit_label="checkpoints",
+            unit_label="layers",
+            recent_label="Recent ERF output",
         ) as display:
             warn_if_dirty(source)
-            if len(completed) == total:
-                log("All validated checkpoints complete; skipping model and encoder loading")
+            if len(completed) == len(layers):
+                log(f"{args.label}: all layers complete; skipping model load")
             else:
-                display.phase("Loading SAE", layer=args.layer)
-                encoder = SAEFeatureEncoder(
-                    {
-                        "hidden_size": cache.hidden_size,
-                        "layer": args.layer,
-                        "saebench_model_name": cache.model["repo_id"],
-                        "baselines": baseline,
-                    },
-                    device="cuda",
-                    dtype=torch.float32,
-                ).eval()
-                values, indices = profile(cache, encoder, ids, output, identity, display)
+                model_identity = type(
+                    "ModelIdentity",
+                    (),
+                    {"model_id": cache.model["repo_id"], "model_revision": cache.model["revision"]},
+                )()
+                display.phase("Loading model", model=args.label)
+                model = erf_gradient._load_model(model_identity, device="cuda")
                 tokenizer = AutoTokenizer.from_pretrained(
-                    cache.model["repo_id"], revision=cache.model["revision"]
+                    cache.model["repo_id"],
+                    revision=cache.model["revision"],
+                    use_fast=True,
+                    trust_remote_code=True,
                 )
-                for i, feature in enumerate(ids):
-                    if feature not in prepared:
-                        display.phase("Preparing positive examples", component=f"F{feature}")
-                        prepared[feature] = prepare_feature(
-                            feature, values[i], indices[i], cache, encoder, tokenizer, args.layer
-                        )
-                        atomic_write_json(
-                            output / f"prepared/F{feature:05d}.json",
-                            {"identity": identity, "feature": prepared[feature]},
-                        )
-                        display.complete_unit(f"prepare-{feature}")
-                pending = {f: prepared[f] for f in ids if f"measure-{f}" not in completed}
-
-                def checkpoint(feature, result):
-                    result["identity"] = identity
-                    validate_result(
-                        result, len(prepared[feature]["occurrences"]), args.rank_thresholds
-                    )
-                    atomic_write_json(output / f"results/F{feature:05d}.json", result)
-                    display.complete_unit(f"measure-{feature}")
-                    log(
-                        f"Completed F{feature}: "
-                        f"{result.get('threshold_results', result.get('status'))}"
-                    )
-
-                for feature in list(pending):
-                    if not pending[feature]["occurrences"]:
-                        checkpoint(
-                            feature,
+                datasets, token_cache = {}, {}
+                try:
+                    for layer in layers:
+                        if layer in completed:
+                            continue
+                        display.phase("Loading SAE", model=args.label, layer=layer)
+                        encoder = SAEFeatureEncoder(
                             {
-                                "component": feature,
-                                "n_occurrences": 0,
-                                "status": "no_positive_examples",
+                                "hidden_size": cache.hidden_size,
+                                "layer": layer,
+                                "saebench_model_name": cache.model["repo_id"],
+                                "baselines": baselines[layer],
                             },
-                        )
-                        del pending[feature]
-                if pending:
-                    adapter = SAEReadout(cache, encoder, args.layer)
-                    display.phase("Loading language model", layer=args.layer)
-                    model = erf_gradient._load_model(adapter, device="cuda")
-                    datasets, token_cache = {}, {}
-                    # Multi-feature smoke audit, not a claim of bitwise cache equality.
-                    audits = []
-                    for feature in list(pending)[: args.audit_features]:
-                        example = pending[feature]["occurrences"][0]
-                        item = erf_gradient._prepare_occurrence(
-                            example,
-                            occurrence_rank=1,
-                            provenance=cache.provenance,
-                            tokenizer=tokenizer,
-                            datasets=datasets,
-                            token_cache=token_cache,
-                        )
-                        sequence = [int(cache.provenance["document_framing"]["token_id"])] + item[
-                            "content_ids"
-                        ]
-                        live = erf_suffix_sweep._suffix_scores(
-                            lens=adapter,
-                            model=model,
-                            block=transformer_blocks(model)[args.layer],
-                            tokenizer=tokenizer,
-                            layer=args.layer,
-                            sequences=[sequence],
                             device="cuda",
-                        )[0]
-                        live_rank = int((live > live[feature]).sum()) + 1
-                        audit = {
-                            "feature": feature,
-                            "stored_score": example["score"],
-                            "live_score": float(live[feature]),
-                            "stored_rank": example["absolute_score_rank"],
-                            "live_rank": live_rank,
-                            "threshold_disagreements": [
-                                t
-                                for t in args.rank_thresholds
-                                if (live_rank <= t and float(live[feature]) > 0)
-                                != (example["absolute_score_rank"] <= t)
-                            ],
-                        }
-                        audits.append(audit)
-                    atomic_write_json(output / "full-prefix-audit.json", audits)
-                    failures = [
-                        a
-                        for a in audits
-                        if not math.isclose(
-                            a["stored_score"], a["live_score"], rel_tol=0.05, abs_tol=0.01
-                        )
-                        or a["threshold_disagreements"]
-                    ]
-                    if failures:
-                        raise ValueError(
-                            "Full-prefix cache audit failed; "
-                            f"inspect full-prefix-audit.json: {failures}"
-                        )
-                    log(f"Full-prefix audit passed for {len(audits)} features")
-                    display.phase(
-                        f"Measuring suffix recovery {args.rank_thresholds}", layer=args.layer
-                    )
-                    erf_suffix_sweep._measure_layer(
-                        lens=adapter,
-                        model=model,
-                        tokenizer=tokenizer,
-                        datasets=datasets,
-                        token_cache=token_cache,
-                        layer=args.layer,
-                        prepared_components={f: p for f, p in prepared.items() if p["occurrences"]},
-                        exact_suffix_length=10,
-                        rank_thresholds=args.rank_thresholds,
-                        max_batch_size=args.batch_size,
-                        batch_token_budget=4096,
-                        device="cuda",
-                        checkpoint=checkpoint,
-                        stable_batches=True,
-                        completed_components={f for f in prepared if f not in pending},
-                    )
-            results = [load_checkpoint(output / f"results/F{f:05d}.json", identity) for f in ids]
-            active = [r for r in results if r["n_occurrences"]]
-            atomic_write_json(
-                output / "summary.json",
-                {
-                    "identity": identity,
-                    "sampled_features": len(ids),
-                    "features_with_examples": len(active),
-                    "features_without_examples": len(ids) - len(active),
-                    "features": [
-                        {"feature": r["component"], "threshold_results": r["threshold_results"]}
-                        for r in active
-                    ],
-                },
-            )
+                            dtype=torch.float32,
+                        ).eval()
+                        try:
+                            prepared_bundle = _load_layer(
+                                _prepared_path(output, layer), identity, "prepared"
+                            )
+                            if prepared_bundle is None:
+                                width = int(baselines[layer]["sae"]["width"])
+                                permutation = np.random.default_rng(
+                                    _stable_seed(args.seed, args.label, layer)
+                                ).permutation(width)
+                                candidate_count = min(width, max(args.features * 2, args.features))
+                                while True:
+                                    candidates = permutation[:candidate_count].tolist()
+                                    values, indices = profile(
+                                        cache, encoder, candidates, args.occurrences, display, layer
+                                    )
+                                    active_rows = [
+                                        i for i in range(candidate_count) if float(values[i, 0]) > 0
+                                    ]
+                                    if len(active_rows) >= args.features:
+                                        chosen_rows = active_rows[: args.features]
+                                        break
+                                    if candidate_count == width:
+                                        raise ValueError(
+                                            f"layer {layer} has fewer than "
+                                            f"{args.features} active SAE features"
+                                        )
+                                    candidate_count = min(width, candidate_count * 2)
+                                chosen = sorted((candidates[row], row) for row in chosen_rows)
+                                prepared = {
+                                    str(feature): prepare_feature(
+                                        feature,
+                                        values[row],
+                                        indices[row],
+                                        cache,
+                                        encoder,
+                                        tokenizer,
+                                        layer,
+                                    )
+                                    for feature, row in chosen
+                                }
+                                prepared_bundle = {
+                                    "kind": "prepared",
+                                    "identity_sha256": _identity_sha256(identity),
+                                    "layer": layer,
+                                    "candidate_features_profiled": candidate_count,
+                                    "features": prepared,
+                                }
+                                atomic_write_json(_prepared_path(output, layer), prepared_bundle)
+                            prepared = prepared_bundle["features"]
+                            adapter = SAEReadout(cache, encoder, layer)
+                            audit_features = list(prepared.values())[: args.audit_features]
+                            audit_items = [
+                                erf_gradient._prepare_occurrence(
+                                    feature["occurrences"][0],
+                                    occurrence_rank=1,
+                                    provenance=provenance,
+                                    tokenizer=tokenizer,
+                                    datasets=datasets,
+                                    token_cache=token_cache,
+                                )
+                                for feature in audit_features
+                            ]
+                            prefix = int(provenance["document_framing"]["token_id"])
+                            live = erf_suffix_sweep._suffix_scores(
+                                lens=adapter,
+                                model=model,
+                                block=transformer_blocks(model)[layer],
+                                tokenizer=tokenizer,
+                                layer=layer,
+                                sequences=[[prefix] + item["content_ids"] for item in audit_items],
+                                device="cuda",
+                            )
+                            audits = []
+                            for feature_data, scores in zip(audit_features, live, strict=True):
+                                feature = feature_data["component"]
+                                stored = feature_data["occurrences"][0]
+                                rank = int((scores > scores[feature]).sum()) + 1
+                                disagreements = [
+                                    t
+                                    for t in args.rank_thresholds
+                                    if (rank <= t and float(scores[feature]) > 0)
+                                    != (stored["absolute_score_rank"] <= t)
+                                ]
+                                audit = {
+                                    "feature": feature,
+                                    "stored_score": stored["score"],
+                                    "live_score": float(scores[feature]),
+                                    "stored_rank": stored["absolute_score_rank"],
+                                    "live_rank": rank,
+                                    "threshold_disagreements": disagreements,
+                                }
+                                if (
+                                    not math.isclose(
+                                        audit["stored_score"],
+                                        audit["live_score"],
+                                        rel_tol=0.05,
+                                        abs_tol=0.01,
+                                    )
+                                    or disagreements
+                                ):
+                                    raise ValueError(f"full-prefix audit failed: {audit}")
+                                audits.append(audit)
+                            results = {}
+
+                            def checkpoint(feature, result, *, _results=results):
+                                _results[str(feature)] = result
+
+                            display.phase("Sweeping suffixes", model=args.label, layer=layer)
+                            erf_suffix_sweep._measure_layer(
+                                lens=adapter,
+                                model=model,
+                                tokenizer=tokenizer,
+                                datasets=datasets,
+                                token_cache=token_cache,
+                                layer=layer,
+                                prepared_components={int(k): v for k, v in prepared.items()},
+                                exact_suffix_length=args.exact_suffix_length,
+                                rank_thresholds=args.rank_thresholds,
+                                max_batch_size=args.max_batch_size,
+                                batch_token_budget=args.batch_token_budget,
+                                device="cuda",
+                                checkpoint=checkpoint,
+                                stable_batches=True,
+                            )
+                            if set(results) != set(prepared):
+                                raise ValueError(f"layer {layer} produced incomplete results")
+                            bundle = {
+                                "kind": "result",
+                                "identity_sha256": _identity_sha256(identity),
+                                "layer": layer,
+                                "features": list(prepared),
+                                "full_prefix_audit": audits,
+                                "results": results,
+                            }
+                            _validate_result_bundle(bundle, identity, layer)
+                            atomic_write_json(_result_path(output, layer), bundle)
+                            display.complete_unit(layer, refresh=True)
+                            print(
+                                f"ERF_LAYER_COMPLETE {args.label} {layer} ({len(results)} features)"
+                            )
+                        finally:
+                            del encoder
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                finally:
+                    del model
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+            display.phase("Summarizing", model=args.label)
+            _write_summaries(output, layers, identity)
             run.set_status("complete", complete=True)
-            log(f"Complete: {len(active)}/{len(ids)} sampled features had positive examples")
+            log(f"Complete: {args.label}, {len(layers)}/{len(layers)} layers")
     except BaseException:
         run.set_status("interrupted")
         raise

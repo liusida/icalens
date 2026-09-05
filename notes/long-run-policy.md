@@ -31,7 +31,15 @@ If an output belongs to a different configuration, the command must stop with
 a readable difference and ask for another output path. It must never mix two
 configurations or silently replace the existing run.
 
-### 3. Checkpoint at the smallest useful durable boundary
+### 3. Checkpoint at a reasonable durable boundary
+
+A durable unit should balance restart cost against checkpoint overhead and
+progress readability. Do not automatically choose the finest technically
+possible unit. Prefer a boundary that saves a meaningful amount of expensive
+work if interrupted, without producing excessive files, repeated
+serialization, or a progress bar dominated by trivial operations. Internal
+checkpoint granularity and the user-facing progress unit may differ; the
+user-facing unit should still communicate meaningful overall progress.
 
 Each command defines an independently reusable work unit:
 
@@ -44,6 +52,7 @@ Each command defines an independently reusable work unit:
 | sparse-probing experiment | one dataset × layer × method result | evaluate that unit again |
 | autointerpretability preparation | one accepted fragment or one prepared layer | sample the current document again or prepare that layer again |
 | autointerpretability evaluation | one explanation or one simulated fragment | request that explanation or simulation again |
+| effective-receptive-field experiment | one completed layer | repeat the interrupted layer |
 
 FastICA iteration state is not currently checkpointed. “Resume fitting” means
 preserving completed layers and restarting only the interrupted layer.
