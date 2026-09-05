@@ -285,19 +285,11 @@ def _measure_layer(
     batch_token_budget: int,
     device: str,
     checkpoint: Any,
-    stable_batches: bool = False,
-    completed_components: set[int] | None = None,
 ) -> None:
     """Sweep one layer, sharing each suffix forward across components and thresholds."""
     provenance = lens.metadata["layers"][str(layer)]["fitting"]["provenance"]
-    completed_components = set(completed_components or ()).intersection(prepared_components)
     states: dict[int, dict[str, Any]] = {}
-    component_items = (
-        sorted(prepared_components.items())
-        if stable_batches
-        else list(prepared_components.items())
-    )
-    for component, value in component_items:
+    for component, value in prepared_components.items():
         prepared = [
             _prepare_occurrence(
                 occurrence,
@@ -316,9 +308,7 @@ def _measure_layer(
             occurrence_states[int(item["occurrence_rank"])] = {
                 "item": item,
                 "full_context_rank": full_rank,
-                "unresolved": set()
-                if component in (completed_components or set())
-                else set(rank_thresholds),
+                "unresolved": set(rank_thresholds),
                 "last_failure": {threshold: 0 for threshold in rank_thresholds},
                 "recoveries": {},
                 "observations": [],
@@ -333,16 +323,16 @@ def _measure_layer(
         for state in states.values()
         for value in state["occurrences"].values()
     )
-    completed: set[int] = set(completed_components or ())
+    completed: set[int] = set()
     for suffix_length in _suffix_schedule(
         exact_suffix_length=exact_suffix_length, maximum_context=maximum_context
     ):
         active = [
             (component, state["direction"], occurrence_state["item"])
             for component, state in states.items()
-            if stable_batches or component not in completed
+            if component not in completed
             for occurrence_state in state["occurrences"].values()
-            if (stable_batches or occurrence_state["unresolved"])
+            if occurrence_state["unresolved"]
             and len(occurrence_state["item"]["content_ids"]) >= suffix_length
         ]
         batch_size = _adaptive_batch_size(
@@ -352,11 +342,6 @@ def _measure_layer(
         )
         for start in range(0, len(active), batch_size):
             batch = active[start : start + batch_size]
-            if stable_batches and not any(
-                states[component]["occurrences"][int(item["occurrence_rank"])]["unresolved"]
-                for component, _direction, item in batch
-            ):
-                continue
             measured = _measure_mixed_batch(
                 lens=lens,
                 model=model,

@@ -48,22 +48,7 @@ uniform sampling without replacement from the eligible population.
   selected-tail occurrence. Dead-feature prevalence is a separate measurement
   and is not mixed into the ERF distribution.
 - Checkpoint encoded features and full-context ranks are used as stored
-  endpoints. Audit the first example of up to 10 pending features against a live
-  full-prefix forward before sweeping. Fail on score disagreement exceeding
-  5% relative / 0.01 absolute or a threshold-classification disagreement.
-  This is a smoke audit, not a proof of numerical equivalence for all examples.
-
-## Numerical batching
-
-The pilot's adaptive batch membership caused two top-5 rank-boundary differences
-among 2,000 examples when additional thresholds were requested. The official
-SAE mode fixes batch membership at each suffix length, including resolved
-examples as padding work for unresolved members. Entire resolved batches are
-skipped. The prepared layer bundle retains the original feature ordering and
-batch membership.
-This removes threshold-dependent regrouping; it does not promise bitwise
-invariance across hardware or batch-size changes. Batch size is fingerprinted.
-The old ICA runner retains its existing default batching behavior.
+  endpoints, as in the ICA suffix-sweep experiment.
 
 ## Resume and artifacts
 
@@ -90,15 +75,8 @@ automatically.
 
 ## Implementation validation (2026-09-05)
 
-- 12 targeted CPU tests pass, including the existing ERF API/formula tests and
-  fixed batch membership across threshold sets.
+- 11 targeted CPU tests pass, including the existing ERF API and formula tests.
 - The original pilot passed GPU smoke runs for all three SAE formats. The
   revised ICA-style runner additionally passed a GPT-2 layer smoke run and a
   two-layer run: it wrote only prepared/result layer bundles, loaded GPT-2 once
   across both layers, and skipped model loading on replay.
-- On the original Gemma pilot's 100 × 20 examples, fixed-batch top-5 and
-  multi-threshold sweeps agreed on all 2,000 top-5 occurrence results. The old
-  adaptive-batch comparison differed on two rank-5/rank-6 boundary cases.
-- Fixed batching adds padding work; the original 1.74× adaptive-batch timing
-  ratio is not an official fixed-batch runtime estimate. The subsequent
-  consistency check was not an isolated timing benchmark.

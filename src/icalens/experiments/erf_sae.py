@@ -15,7 +15,6 @@ from transformers import AutoTokenizer
 
 from icalens import __version__
 from icalens._activation_dataset import ActivationDataset
-from icalens._capture import transformer_blocks
 from icalens.cli._status import log
 from icalens.experiments import erf_gradient, erf_suffix_sweep
 from icalens.experiments._display import ExperimentDisplay
@@ -236,7 +235,6 @@ def main(argv=None):
     parser.add_argument("--exact-suffix-length", type=int, default=10)
     parser.add_argument("--max-batch-size", type=int, default=64)
     parser.add_argument("--batch-token-budget", type=int, default=64)
-    parser.add_argument("--audit-features", type=int, default=10)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if (
@@ -246,11 +244,10 @@ def main(argv=None):
             args.exact_suffix_length,
             args.max_batch_size,
             args.batch_token_budget,
-            args.audit_features,
         )
         < 1
     ):
-        parser.error("feature, occurrence, suffix, batch, and audit values must be positive")
+        parser.error("feature, occurrence, suffix, and batch values must be positive")
     cache = ActivationDataset(args.cache)
     layers = _parse_layers(args.layers, cache.available_layers)
     provenance = cache.provenance
@@ -287,8 +284,6 @@ def main(argv=None):
         "exact_suffix_length": args.exact_suffix_length,
         "max_batch_size": args.max_batch_size,
         "batch_token_budget": args.batch_token_budget,
-        "stable_batches": True,
-        "audit_features": args.audit_features,
     }
     if args.dry_run:
         print(json.dumps(identity, indent=2))
@@ -396,58 +391,6 @@ def main(argv=None):
                                 atomic_write_json(_prepared_path(output, layer), prepared_bundle)
                             prepared = prepared_bundle["features"]
                             adapter = SAEReadout(cache, encoder, layer)
-                            audit_features = list(prepared.values())[: args.audit_features]
-                            audit_items = [
-                                erf_gradient._prepare_occurrence(
-                                    feature["occurrences"][0],
-                                    occurrence_rank=1,
-                                    provenance=provenance,
-                                    tokenizer=tokenizer,
-                                    datasets=datasets,
-                                    token_cache=token_cache,
-                                )
-                                for feature in audit_features
-                            ]
-                            prefix = int(provenance["document_framing"]["token_id"])
-                            live = erf_suffix_sweep._suffix_scores(
-                                lens=adapter,
-                                model=model,
-                                block=transformer_blocks(model)[layer],
-                                tokenizer=tokenizer,
-                                layer=layer,
-                                sequences=[[prefix] + item["content_ids"] for item in audit_items],
-                                device="cuda",
-                            )
-                            audits = []
-                            for feature_data, scores in zip(audit_features, live, strict=True):
-                                feature = feature_data["component"]
-                                stored = feature_data["occurrences"][0]
-                                rank = int((scores > scores[feature]).sum()) + 1
-                                disagreements = [
-                                    t
-                                    for t in args.rank_thresholds
-                                    if (rank <= t and float(scores[feature]) > 0)
-                                    != (stored["absolute_score_rank"] <= t)
-                                ]
-                                audit = {
-                                    "feature": feature,
-                                    "stored_score": stored["score"],
-                                    "live_score": float(scores[feature]),
-                                    "stored_rank": stored["absolute_score_rank"],
-                                    "live_rank": rank,
-                                    "threshold_disagreements": disagreements,
-                                }
-                                if (
-                                    not math.isclose(
-                                        audit["stored_score"],
-                                        audit["live_score"],
-                                        rel_tol=0.05,
-                                        abs_tol=0.01,
-                                    )
-                                    or disagreements
-                                ):
-                                    raise ValueError(f"full-prefix audit failed: {audit}")
-                                audits.append(audit)
                             results = {}
 
                             def checkpoint(feature, result, *, _results=results):
@@ -468,7 +411,6 @@ def main(argv=None):
                                 batch_token_budget=args.batch_token_budget,
                                 device="cuda",
                                 checkpoint=checkpoint,
-                                stable_batches=True,
                             )
                             if set(results) != set(prepared):
                                 raise ValueError(f"layer {layer} produced incomplete results")
@@ -477,7 +419,6 @@ def main(argv=None):
                                 "identity_sha256": _identity_sha256(identity),
                                 "layer": layer,
                                 "features": list(prepared),
-                                "full_prefix_audit": audits,
                                 "results": results,
                             }
                             _validate_result_bundle(bundle, identity, layer)
