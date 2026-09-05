@@ -285,11 +285,19 @@ def _measure_layer(
     batch_token_budget: int,
     device: str,
     checkpoint: Any,
+    stable_batches: bool = False,
+    completed_components: set[int] | None = None,
 ) -> None:
     """Sweep one layer, sharing each suffix forward across components and thresholds."""
     provenance = lens.metadata["layers"][str(layer)]["fitting"]["provenance"]
+    completed_components = set(completed_components or ()).intersection(prepared_components)
     states: dict[int, dict[str, Any]] = {}
-    for component, value in prepared_components.items():
+    component_items = (
+        sorted(prepared_components.items())
+        if stable_batches
+        else list(prepared_components.items())
+    )
+    for component, value in component_items:
         prepared = [
             _prepare_occurrence(
                 occurrence,
@@ -308,7 +316,9 @@ def _measure_layer(
             occurrence_states[int(item["occurrence_rank"])] = {
                 "item": item,
                 "full_context_rank": full_rank,
-                "unresolved": set(rank_thresholds),
+                "unresolved": set()
+                if component in (completed_components or set())
+                else set(rank_thresholds),
                 "last_failure": {threshold: 0 for threshold in rank_thresholds},
                 "recoveries": {},
                 "observations": [],
@@ -323,16 +333,16 @@ def _measure_layer(
         for state in states.values()
         for value in state["occurrences"].values()
     )
-    completed: set[int] = set()
+    completed: set[int] = set(completed_components or ())
     for suffix_length in _suffix_schedule(
         exact_suffix_length=exact_suffix_length, maximum_context=maximum_context
     ):
         active = [
             (component, state["direction"], occurrence_state["item"])
             for component, state in states.items()
-            if component not in completed
+            if stable_batches or component not in completed
             for occurrence_state in state["occurrences"].values()
-            if occurrence_state["unresolved"]
+            if (stable_batches or occurrence_state["unresolved"])
             and len(occurrence_state["item"]["content_ids"]) >= suffix_length
         ]
         batch_size = _adaptive_batch_size(
@@ -342,6 +352,11 @@ def _measure_layer(
         )
         for start in range(0, len(active), batch_size):
             batch = active[start : start + batch_size]
+            if stable_batches and not any(
+                states[component]["occurrences"][int(item["occurrence_rank"])]["unresolved"]
+                for component, _direction, item in batch
+            ):
+                continue
             measured = _measure_mixed_batch(
                 lens=lens,
                 model=model,
@@ -354,9 +369,9 @@ def _measure_layer(
                 device=device,
             )
             for component, value in measured:
-                occurrence_state = states[component]["occurrences"][
-                    int(value["occurrence_rank"])
-                ]
+                occurrence_state = states[component]["occurrences"][int(value["occurrence_rank"])]
+                if not occurrence_state["unresolved"]:
+                    continue
                 occurrence_state["observations"].append(value)
                 if not value["sign_matches_selected_tail"]:
                     for threshold in occurrence_state["unresolved"]:
@@ -408,9 +423,7 @@ def _measure_layer(
             for threshold in tuple(occurrence_state["unresolved"]):
                 if occurrence_state["full_context_rank"] <= threshold:
                     result = _recovery_estimate(
-                        lower=min(
-                            occurrence_state["last_failure"][threshold], full_length - 1
-                        ),
+                        lower=min(occurrence_state["last_failure"][threshold], full_length - 1),
                         upper=full_length,
                         exact_suffix_length=exact_suffix_length,
                         source="stored_full_context_rank",
