@@ -31,6 +31,17 @@ general policy for experiment figures and previews.
 - `scripts/prepare_data.py` may read source results directly from the project
   by relative path. It should reorganize them into the exact representation
   consumed by the paper plot; it must not rerun an experiment.
+- Before preparing a data twin, understand and state the figure's intended
+  meaning: what question it answers, which comparison supports that answer,
+  and what each plotted quantity represents. Trace the source computation far
+  enough to verify that its logic actually measures the intended quantity.
+- Audit the source data during preparation whenever practical. Check run
+  completion, expected coverage, uniqueness, missing or non-finite values,
+  aggregation denominators, normalization, and relevant invariants. Also check
+  semantic alignment: the source logic, frozen representation, visual encoding,
+  caption, and intended claim must describe the same population and operation.
+  A structurally complete dataset is not sufficient if it answers a different
+  question from the figure.
 - Store one compact data twin beside each paper figure, using the same stem:
   for example, `figures/overview.npz` and `figures/overview.pdf`. The data twin
   is plot-specific and should be sufficient to reproduce the corresponding
