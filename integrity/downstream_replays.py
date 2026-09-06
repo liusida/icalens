@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -11,9 +12,15 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import torch
 
+from icalens import ICALens
 from icalens.experiments.reconstruction import _aggregate_layer
-from icalens.experiments.saebench_sparse_probing import collect_result_rows
+from icalens.experiments.saebench_sparse_probing import (
+    _prepare_layer_baselines,
+    _resolve_baselines,
+    collect_result_rows,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -249,30 +256,54 @@ def c26_seed_stability(output: Path) -> dict[str, Any]:
 
 def c27_directional_overlap(output: Path) -> dict[str, Any]:
     root = ROOT / "experiments/ica-sae-directional-overlap/results"
-    rows = _json(root / "summary.json")["rows"]
-    checks = {}
-    for row in rows:
-        if row["model"] != "gpt2" or int(row["layer"]) != 6:
-            continue
-        with np.load(row["checkpoint"], allow_pickle=False) as archive:
-            values = archive["nearest_absolute_cosine"]
-            random = archive["random_nearest_absolute_cosine"]
-        checks = {
-            "mean": np.isclose(values.mean(), row["mean"]),
-            "median": np.isclose(np.median(values), row["median"]),
-            "quartiles": np.allclose(np.percentile(values, [25, 75]), [row["q25"], row["q75"]]),
-            "random_median": np.isclose(np.median(random), row["random_median"]),
-            "median_excess": np.isclose(
-                np.median(values) - np.median(random), row["median_excess_over_random"]
-            ),
-        }
+    if not torch.cuda.is_available():
+        raise RuntimeError("C27 directional-overlap replay requires CUDA")
+    script = ROOT / "experiments/ica-sae-directional-overlap/run.py"
+    spec = importlib.util.spec_from_file_location("integrity_directional_overlap", script)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {script}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    lens = ICALens.from_pretrained(
+        ROOT / "local-icalens-models/official/icalens-gpt2-small-pile10k"
+    )
+    baseline = _prepare_layer_baselines(_resolve_baselines(lens.model_id, "sae"), layer=6)["sae"]
+    actual_values, actual_nearest, actual_random, actual_random_nearest = module.measure_layer(
+        lens, "gpt2", 6, baseline, "cuda", 128, 0
+    )
+    reference = root / "gpt2/layer_06.npz"
+    with np.load(reference, allow_pickle=False) as archive:
+        expected_values = archive["nearest_absolute_cosine"]
+        expected_nearest = archive["nearest_sae_feature"]
+        expected_random = archive["random_nearest_absolute_cosine"]
+        expected_random_nearest = archive["random_nearest_sae_feature"]
+    checks = {
+        "nearest_cosines_close": np.allclose(actual_values, expected_values, rtol=1e-5, atol=1e-6),
+        "nearest_feature_ids_exact": np.array_equal(actual_nearest, expected_nearest),
+        "random_cosines_close": np.allclose(actual_random, expected_random, rtol=1e-5, atol=1e-6),
+        "random_feature_ids_exact": np.array_equal(actual_random_nearest, expected_random_nearest),
+    }
+    output.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        output / "fragment.npz",
+        expected_values=expected_values,
+        actual_values=actual_values,
+        expected_nearest=expected_nearest,
+        actual_nearest=actual_nearest,
+        expected_random=expected_random,
+        actual_random=actual_random,
+        expected_random_nearest=expected_random_nearest,
+        actual_random_nearest=actual_random_nearest,
+    )
     return _report(
-        "C27-directional-overlap-aggregation-gpt2-layer6",
+        "C27-directional-overlap-gpt2-layer6",
         ["D11", "D04"],
         "C27",
         "D26",
         checks,
-        reference=str(root / "summary.json"),
+        reference=str(reference),
+        note="Recomputes full nearest-SAE and matched-random arrays for one layer.",
     )
 
 

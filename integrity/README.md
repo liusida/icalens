@@ -81,12 +81,24 @@ all three representative models:
 uv run python -m integrity.run --model all --check sae
 ```
 
+This covers the three checkpoint/activation families actually used by the
+project: GPT-2 TopK-32, Gemma JumpReLU, and Qwen TopK-50. In addition to matching
+the accepted token-level outputs, the verifier loads checkpoint tensors through
+an independent path and checks decoder normalization, coefficient rescaling,
+and reconstruction numerically. These checks are intended to guard a relocation
+or refactor of `SAEFeatureEncoder` without merely repeating its implementation.
+
 Replay deterministic downstream aggregations, representative twin-data
 preparation, and representative figure rendering:
 
 ```bash
 uv run python -m integrity.run --check downstream
 ```
+
+The downstream suite also directly recomputes the complete GPT-2 layer-6
+ICA-to-SAE directional-overlap arrays, including nearest feature identities and
+the matched-random null. This protects a second consumer of the shared SAE
+checkpoint/orientation helpers rather than checking only a stored summary.
 
 The downstream command writes a temporary skipped-check note for C14 and C30.
 C14 still needs an independent reconstruction-dataset recapture implementation;

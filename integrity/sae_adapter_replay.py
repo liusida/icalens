@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 import torch
+from safetensors.torch import load_file
 
 from icalens import ICALens
 from icalens.analysis import _resolve_model_and_tokenizer, capture
@@ -19,6 +20,29 @@ from icalens.experiments.saebench_sparse_probing import (
 
 ROOT = Path(__file__).resolve().parents[1]
 RESULT_LABELS = {"gpt2": "gpt2", "gemma": "gemma2", "qwen": "qwen9b"}
+
+
+def _checkpoint_tensors(path: Path, checkpoint_format: str) -> dict[str, torch.Tensor]:
+    """Load checkpoint tensors without using the production SAE adapter helpers."""
+    if checkpoint_format == "safetensors":
+        return load_file(path, device="cpu")
+    if checkpoint_format == "npz":
+        with np.load(path, allow_pickle=False) as archive:
+            return {name: torch.from_numpy(archive[name].copy()) for name in archive.files}
+    if checkpoint_format == "torch":
+        value = torch.load(path, map_location="cpu", weights_only=True)
+        if not isinstance(value, dict):
+            raise ValueError(f"expected tensor dictionary in {path}")
+        return value
+    raise ValueError(f"unsupported checkpoint format {checkpoint_format!r}")
+
+
+def _decoder_rows(tensor: torch.Tensor, hidden_size: int, width: int) -> torch.Tensor:
+    if tuple(tensor.shape) == (width, hidden_size):
+        return tensor.float()
+    if tuple(tensor.shape) == (hidden_size, width):
+        return tensor.T.contiguous().float()
+    raise ValueError(f"unexpected decoder shape {tuple(tensor.shape)}")
 
 
 def run(
@@ -71,9 +95,41 @@ def run(
             dtype=torch.float32,
         )
         scaled = encoder.encode(captured.activations.float())
+        captured_activations = captured.activations.detach().cpu().float()
         activations = (
             (scaled / encoder.decoder_norms.clamp_min(1e-12)).detach().cpu().float().numpy()
         )
+
+        # Independent checkpoint oracle for the normalization and decoder contract.
+        sae_config = prepared["sae"]
+        tensors = _checkpoint_tensors(
+            Path(sae_config["weights_file"]), str(sae_config["checkpoint_format"])
+        )
+        hidden_size = int(captured_activations.shape[-1])
+        width = int(sae_config["width"])
+        raw_decoder = _decoder_rows(tensors["W_dec"], hidden_size, width)
+        oracle_norms = torch.linalg.vector_norm(raw_decoder, dim=-1).clamp_min(1e-12)
+        probe_ids = torch.linspace(0, width - 1, steps=min(64, width)).long().unique()
+        oracle_decoder = raw_decoder[probe_ids] / oracle_norms[probe_ids, None]
+        actual_decoder = encoder.W_dec.detach().cpu().float()[probe_ids]
+        actual_norms = encoder.decoder_norms.detach().cpu().float()[probe_ids]
+
+        generator = torch.Generator(device="cpu").manual_seed(0)
+        probe_values = torch.rand((2, len(probe_ids)), generator=generator)
+        probe_codes = torch.zeros((2, width), dtype=torch.float32)
+        probe_codes[:, probe_ids] = probe_values
+        decoded = (
+            encoder.decode(probe_codes.to("cuda"), reference=captured.activations[:2].float())
+            .detach()
+            .cpu()
+            .float()
+        )
+        oracle_reconstruction = probe_values @ oracle_decoder + tensors["b_dec"].float()
+        if str(sae_config.get("normalize_activations", "none")) == "layer_norm":
+            reference = captured_activations[:2]
+            mean = reference.mean(dim=-1, keepdim=True)
+            std = (reference - mean).std(dim=-1, keepdim=True)
+            oracle_reconstruction = oracle_reconstruction * std + mean
     finally:
         lens.unload_model()
 
@@ -96,6 +152,21 @@ def run(
         "ica_selected_scores_close": np.allclose(
             actual_ica_selected, expected["ica_scores"], rtol=rtol, atol=atol
         ),
+        "decoder_norms_match_checkpoint": torch.allclose(
+            actual_norms, oracle_norms[probe_ids], rtol=rtol, atol=atol
+        ),
+        "unit_decoder_rows_match_checkpoint": torch.allclose(
+            actual_decoder, oracle_decoder, rtol=rtol, atol=atol
+        ),
+        "scaled_coefficients_match_contract": np.allclose(
+            scaled.detach().cpu().float().numpy()[:, feature_ids],
+            activations[:, feature_ids] * oracle_norms[feature_ids].numpy(),
+            rtol=rtol,
+            atol=atol,
+        ),
+        "decode_matches_checkpoint_contract": torch.allclose(
+            decoded, oracle_reconstruction, rtol=rtol, atol=atol
+        ),
     }
     failed = sorted(name for name, passed in checks.items() if not passed)
     maximum_error = float(np.max(np.abs(actual_selected - expected["sae_activations"])))
@@ -116,6 +187,11 @@ def run(
         actual_ica_scores=actual_ica_selected,
         expected_ica_top_feature=expected["ica_top_feature"],
         actual_ica_top_feature=actual_ica_top,
+        decoder_probe_ids=probe_ids.numpy(),
+        expected_decoder_norms=oracle_norms[probe_ids].numpy(),
+        actual_decoder_norms=actual_norms.numpy(),
+        expected_decoded=oracle_reconstruction.numpy(),
+        actual_decoded=decoded.numpy(),
     )
     fragment = output / "fragment.npz"
     temporary.replace(fragment)

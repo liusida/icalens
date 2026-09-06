@@ -150,7 +150,7 @@ shared artifacts + public SAE checkpoints
 | ICA fitting | `D10 --C11--> D11` | `C11-fit-{model}-layer{layer}` | Numerical replay: full layer using all fitting rows/components, deterministic comparison fragment |
 | R-lens fitting | `D01 + D02 + D03 --C15--> D15` | Reference preflight | **Assumed valid:** profile-recorded D15 hashes must match; fitting environment/revision was not retained |
 | ICA profiling | `D10 + D11 + D15 --C12--> D12` | Three `C12-profile-*` checks | Numerical replay: statistics, orientation, logit/R-lens readouts, context recovery, occurrence search, and ranks |
-| Shared SAE adapter | `D01 + D02 + D04 --C13--> D13` | `C13-sae-adapter-{model}-layer{layer}` | Numerical replay on accepted middle-layer activation-pattern sentence for all models |
+| Shared SAE adapter | `D01 + D02 + D04 --C13--> D13` | `C13-sae-adapter-{model}-layer{layer}` | Numerical replay for GPT-2 TopK-32, Gemma JumpReLU, and Qwen TopK-50 SAEs: accepted native activations and feature identities, plus independently computed decoder normalization, coefficient scaling, and decoding |
 | Toy example | `D01 + D02 --C20--> D20` | `C20-toy-example` | Full numerical analysis replay from retained vocabulary activations |
 | Reconstruction capture | `D01 + D02 + D03 --C14--> D14` | None | **Skipped:** independent recapture for six heterogeneous dataset loaders is not implemented |
 | Reconstruction | `D14 + D11 + D04 --C13+C21--> D21` | `C21-reconstruction-aggregation-gpt2-context64` | Aggregation replay of every layer from retained per-dataset metrics; C13 covered separately |
@@ -159,7 +159,7 @@ shared artifacts + public SAE checkpoints
 | ICA ERF | `D01 + D02 + D03 + D11 + D12 --C24--> D24` | `C24-ica-erf-aggregation-gpt2-layer6` | Component/threshold aggregation replay for GPT-2 layer 6 |
 | SAE ERF | `D01 + D02 + D10 + D04 --C13+C25--> D24` | `C25-sae-erf-aggregation-gpt2-layer6` | Component/threshold validation for GPT-2 layer 6; C13 covered separately |
 | Fitting stability | `D10 + D11 --C11+C26--> D25` | `C26-fitting-seed-stability-aggregation` | Successive-budget aggregation replay; fitting covered by C11 |
-| Directional overlap | `D11 + D04 --C27--> D26` | `C27-directional-overlap-aggregation-gpt2-layer6` | Empirical/random-null summary replay from retained nearest-neighbor arrays |
+| Directional overlap | `D11 + D04 --C27--> D26` | `C27-directional-overlap-gpt2-layer6` | Direct numerical replay of every ICA-to-SAE nearest cosine and feature ID, plus the matched-random null, for GPT-2 layer 6 |
 | Activation patterns | `D01 + D02 + D11 + D04 --C13+C28--> D27` | `C13-sae-adapter-{model}-layer{layer}` | Numerical replay of token IDs, selected ICA/SAE responses, and top-feature identities for all models |
 | Manual annotation | `D12 + D05 --C29--> D28` | None | Not covered |
 | Steering | `D01 + D02 + D11 --C30--> D29` | None | **Skipped:** stochastic generation and external judgments lack an independent numerical oracle |
