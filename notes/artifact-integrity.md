@@ -124,7 +124,7 @@ shared artifacts + public SAE checkpoints
 | `C10` | Tokenization, framing, sampling, and residual capture |
 | `C11` | ICA fitting and component ordering |
 | `C12` | Profiling, orientation, statistics, readouts, and occurrences |
-| `C13` | Public SAE loading, preprocessing, encoding, and decoding |
+| `C13` | Public SAE loading, preprocessing, encoding, and decoding in the shared `icalens.experiments._sae` module |
 | `C14` | Held-out reconstruction tokenization, selection, and capture |
 | `C15` | RelP R-lens fitting in `integrations/r_lens/` |
 | `C20` | Toy-example construction and measurement |

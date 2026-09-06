@@ -12,7 +12,7 @@ from safetensors.torch import load_file
 
 from icalens import ICALens
 from icalens.analysis import _resolve_model_and_tokenizer, capture
-from icalens.experiments._saebench_worker import SAEFeatureEncoder
+from icalens.experiments._sae import SAEFeatureEncoder
 from icalens.experiments.saebench_sparse_probing import (
     _prepare_layer_baselines,
     _resolve_baselines,

@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import torch
 
+from icalens.experiments._sae import SAEFeatureEncoder, _load_sae_tensors
 from icalens.experiments._saebench_environment import resolve_backend
 from icalens.experiments._saebench_multilayer_worker import (
     _capture_layers,
@@ -15,8 +16,6 @@ from icalens.experiments._saebench_multilayer_worker import (
 )
 from icalens.experiments._saebench_worker import (
     RandomFeatureEncoder,
-    SAEFeatureEncoder,
-    _load_sae_tensors,
     _merge_dataset_results,
     _remove_dataset_artifacts,
 )

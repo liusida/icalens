@@ -18,7 +18,7 @@ from icalens import ICALens
 from icalens.cli._status import log
 from icalens.experiments._display import ExperimentDisplay
 from icalens.experiments._run import ResumableRun, atomic_write_json
-from icalens.experiments._saebench_worker import _load_sae_tensors, _orient_decoder
+from icalens.experiments._sae import _load_sae_tensors, _orient_decoder
 from icalens.experiments._source_provenance import source_provenance, warn_if_dirty
 from icalens.experiments.saebench_sparse_probing import _prepare_layer_baselines, _resolve_baselines
 

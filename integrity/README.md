@@ -86,7 +86,8 @@ project: GPT-2 TopK-32, Gemma JumpReLU, and Qwen TopK-50. In addition to matchin
 the accepted token-level outputs, the verifier loads checkpoint tensors through
 an independent path and checks decoder normalization, coefficient rescaling,
 and reconstruction numerically. These checks are intended to guard a relocation
-or refactor of `SAEFeatureEncoder` without merely repeating its implementation.
+or refactor of `SAEFeatureEncoder` in `icalens.experiments._sae` without merely
+repeating its implementation.
 
 Replay deterministic downstream aggregations, representative twin-data
 preparation, and representative figure rendering:

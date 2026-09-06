@@ -19,11 +19,11 @@ from huggingface_hub.constants import HF_HUB_CACHE
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 try:
+    from icalens.experiments._sae import SAEFeatureEncoder
     from icalens.experiments._saebench_worker import (
         ICAFeatureEncoder,
         PCAFeatureEncoder,
         RandomFeatureEncoder,
-        SAEFeatureEncoder,
         _BenchmarkDisplay,
         _blocks,
         _dataset_output,
@@ -33,11 +33,11 @@ try:
         _unwrap_runtime_types,
     )
 except ModuleNotFoundError:  # Direct execution inside the isolated SAEBench environment.
+    from _sae import SAEFeatureEncoder  # type: ignore[import-not-found,no-redef]
     from _saebench_worker import (  # type: ignore[import-not-found,no-redef]
         ICAFeatureEncoder,
         PCAFeatureEncoder,
         RandomFeatureEncoder,
-        SAEFeatureEncoder,
         _BenchmarkDisplay,
         _blocks,
         _dataset_output,
@@ -190,9 +190,7 @@ def main() -> None:
     datasets = list(settings["datasets"])
     existing = sum(
         _valid_result_file(
-            _dataset_result_path(
-                Path(job["output"]) / "saebench-datasets", index, dataset, method
-            )
+            _dataset_result_path(Path(job["output"]) / "saebench-datasets", index, dataset, method)
         )
         for job in jobs
         for index, dataset in enumerate(datasets)

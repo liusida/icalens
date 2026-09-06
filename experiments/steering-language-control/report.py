@@ -20,7 +20,7 @@ from huggingface_hub import hf_hub_download
 from pydantic import BaseModel, Field
 
 from icalens import ICALens
-from icalens.experiments._saebench_worker import SAEFeatureEncoder
+from icalens.experiments._sae import SAEFeatureEncoder
 
 ROOT = Path(__file__).parent
 MODEL = "gpt-4.1-mini-2025-04-14"

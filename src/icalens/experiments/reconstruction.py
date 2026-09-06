@@ -29,7 +29,8 @@ from icalens._capture import transformer_blocks
 from icalens.analysis import _document_framing_for_layer
 from icalens.cli._status import log
 
-from ._saebench_worker import SAEFeatureEncoder, _BenchmarkDisplay
+from ._sae import SAEFeatureEncoder
+from ._saebench_worker import _BenchmarkDisplay
 from ._source_provenance import source_provenance, warn_if_dirty
 from .saebench_sparse_probing import _prepare_layer_baselines, _resolve_baselines
 

@@ -32,7 +32,7 @@ from icalens.cli._status import log
 
 from ._display import ExperimentDisplay
 from ._run import ResumableRun, atomic_write_json
-from ._saebench_worker import SAEFeatureEncoder
+from ._sae import SAEFeatureEncoder
 from ._source_provenance import source_provenance, warn_if_dirty
 from .autointerpretability_protocol import (
     EXAMPLES_PER_SPLIT,
