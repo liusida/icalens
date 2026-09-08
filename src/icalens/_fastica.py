@@ -106,6 +106,10 @@ def fit_fastica(
     preprocessing_center: torch.Tensor | None = None,
     norm_eps: float = 1e-12,
     objective_every: int = 1,
+    checkpoint_callback: Callable[[int, torch.Tensor, torch.Tensor, torch.Tensor], None]
+    | None = None,
+    initial_unmixing: torch.Tensor | None = None,
+    start_iteration: int = 0,
 ) -> FastICAResult:
     """Fit unit-variance-whitened FastICA without moving all samples to CUDA."""
     if values.ndim != 2:
@@ -121,6 +125,14 @@ def fit_fastica(
         raise ValueError("batch_size must be positive")
     if objective_every <= 0:
         raise ValueError("objective_every must be positive")
+    if start_iteration < 0 or start_iteration >= max_iter:
+        raise ValueError("start_iteration must be non-negative and smaller than max_iter")
+    if start_iteration > 0 and initial_unmixing is None:
+        raise ValueError("initial_unmixing is required when start_iteration is positive")
+    if checkpoint_callback is not None and algorithm != "parallel":
+        raise ValueError("checkpoint_callback is supported only by parallel FastICA")
+    if initial_unmixing is not None and algorithm != "parallel":
+        raise ValueError("initial_unmixing is supported only by parallel FastICA")
 
     fit_device = values.device if device is None else torch.device(device)
     fit_dtype = torch.float64 if values.dtype == torch.float64 else torch.float32
@@ -179,6 +191,10 @@ def fit_fastica(
         "norm_eps": norm_eps,
     }
     if algorithm == "parallel":
+        def emit_checkpoint(iteration: int, unmixing: torch.Tensor) -> None:
+            if checkpoint_callback is not None:
+                checkpoint_callback(iteration, unmixing, whitening, center)
+
         unmixing, n_iter, objective_iterations, objective_history = _fit_parallel(
             values,
             initial,
@@ -188,6 +204,9 @@ def fit_fastica(
             objective_every=objective_every,
             progress=progress,
             batch_kwargs=batch_kwargs,
+            checkpoint_callback=emit_checkpoint if checkpoint_callback is not None else None,
+            initial_unmixing=initial_unmixing,
+            start_iteration=start_iteration,
         )
     else:
         unmixing, n_iter = _fit_deflation(
@@ -373,11 +392,26 @@ def _fit_parallel(
     objective_every: int,
     progress: bool,
     batch_kwargs: dict[str, object],
+    checkpoint_callback: Callable[[int, torch.Tensor], None] | None = None,
+    initial_unmixing: torch.Tensor | None = None,
+    start_iteration: int = 0,
 ) -> tuple[torch.Tensor, int, list[int], list[list[float]]]:
-    weights = _symmetric_decorrelation(initial)
+    if initial_unmixing is None:
+        weights = _symmetric_decorrelation(initial)
+        if checkpoint_callback is not None:
+            checkpoint_callback(0, weights)
+    else:
+        if initial_unmixing.shape != initial.shape:
+            raise ValueError(
+                f"initial_unmixing has shape {tuple(initial_unmixing.shape)}, "
+                f"expected {tuple(initial.shape)}"
+            )
+        weights = initial_unmixing.to(device=initial.device, dtype=initial.dtype)
+        if not bool(torch.isfinite(weights).all()):
+            raise ValueError("initial_unmixing contains non-finite values")
     n_samples = int(source.shape[0])
     iterations = tqdm(
-        range(max_iter),
+        range(start_iteration, max_iter),
         desc="FastICA parallel",
         unit="iter",
         dynamic_ncols=True,
@@ -424,6 +458,8 @@ def _fit_parallel(
             postfix["obj"] = f"{float(component_objectives.mean()):.2f}"
         iterations.set_postfix(postfix)
         weights = updated
+        if checkpoint_callback is not None:
+            checkpoint_callback(iteration, weights)
     return weights, max_iter, objective_iterations, objective_history
 
 
