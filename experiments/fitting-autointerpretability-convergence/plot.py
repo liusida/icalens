@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import os
@@ -192,19 +193,20 @@ def plot_aggregate(plt: Any, rows: list[dict[str, Any]], stem: Path) -> dict[int
             n = np.sum(np.isfinite(matrix), axis=0)
             counts[layer] = n.tolist()
             mean = np.full(matrix.shape[1], np.nan)
-            sem = np.full(matrix.shape[1], np.nan)
+            low = np.full(matrix.shape[1], np.nan)
+            high = np.full(matrix.shape[1], np.nan)
             for index in range(matrix.shape[1]):
                 values = matrix[:, index]
                 values = values[np.isfinite(values)]
                 if len(values):
-                    mean[index] = values.mean()
-                if len(values) > 1:
-                    sem[index] = values.std(ddof=1) / np.sqrt(len(values))
+                    mean[index], low[index], high[index] = _bootstrap_mean(
+                        values, _bootstrap_seed(layer, EVALUATED_CHECKPOINTS[index])
+                    )
             color = ICA_BLUE
             axis.fill_between(
                 EVALUATED_CHECKPOINTS,
-                mean - sem,
-                mean + sem,
+                low,
+                high,
                 color=color,
                 alpha=0.16,
                 linewidth=0,
@@ -235,6 +237,22 @@ def plot_aggregate(plt: Any, rows: list[dict[str, Any]], stem: Path) -> dict[int
         save_figure(figure, stem)
         plt.close(figure)
     return counts
+
+
+def _bootstrap_mean(scores: np.ndarray, seed: int) -> tuple[float, float, float]:
+    """Match the main autointerpretability figure's 95% bootstrap mean CI."""
+    mean = float(scores.mean())
+    if len(scores) == 1:
+        return mean, mean, mean
+    rng = np.random.default_rng(seed)
+    samples = rng.choice(scores, size=(10_000, len(scores)), replace=True).mean(axis=1)
+    low, high = np.quantile(samples, [0.025, 0.975])
+    return mean, float(low), float(high)
+
+
+def _bootstrap_seed(layer: int, iteration: int) -> int:
+    digest = hashlib.sha256(f"17:{layer}:{iteration}:ica".encode()).digest()
+    return int.from_bytes(digest[:8], "little")
 
 
 def main() -> None:
@@ -297,7 +315,7 @@ def main() -> None:
     )
     aggregate.with_suffix(".txt").write_text(
         "Mean combined autointerpretability score across available matched FastICA rows. "
-        "Bands show mean ± one standard error when at least two rows are available; "
+        "Bands show deterministic 95% bootstrap confidence intervals for the mean; "
         "hollow points have fewer than the nominal 50 rows. The iteration axis uses "
         "symmetric-log spacing. Counts by iteration: "
         f"{count_text}.\n",
