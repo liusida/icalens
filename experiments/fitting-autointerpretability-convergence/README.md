@@ -61,8 +61,20 @@ uv run python experiments/fitting-autointerpretability-convergence/evaluate.py
 Each condition uses the same 50 persistent row IDs. For each row, the existing
 protocol explains five top-activating fragments and scores predictions on five
 held-out top plus five held-out random fragments. The reported combined score is
-Pearson correlation over the resulting 640 token-level activation pairs. The
+Pearson correlation over the resulting 640 token-level activation pairs. Tinker
+explanation, simulation, and teacher-forced scoring requests use sampling seed 0
+so an identical request is reproducible. The
 runner is component-major: it evaluates one matched cohort position across all
 11 fitting checkpoints before advancing to the next position. Consequently, a
 partial run already provides matched convergence curves for every fully
 completed cohort position.
+
+Plot the currently available individual trajectories and aggregate means
+without rerunning evaluation:
+
+```bash
+uv run python experiments/fitting-autointerpretability-convergence/plot.py
+```
+
+Use `--force` to refresh the figures as more component trajectories finish.
+Missing evaluations remain missing rather than being interpolated.

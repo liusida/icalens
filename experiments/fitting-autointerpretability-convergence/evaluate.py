@@ -70,6 +70,7 @@ def main() -> None:
         "model": model,
         "explainer_model": explainer,
         "simulator_model": simulator,
+        "sampling_seed": 0,
         "methods": ["ica"],
         "n_features_per_layer": 50,
     }
@@ -186,6 +187,7 @@ def _command(args, source, output, iteration, position, model, explainer, simula
         "--output", str(output / f"iter-{iteration:03d}"),
         "--methods", "ica", "--provider", args.provider,
         "--feature-position", str(position),
+        "--sampling-seed", "0",
         "--env-file", str(args.env_file),
     ]
     if model:
@@ -217,7 +219,11 @@ def _position_complete(
             result = json.loads(
                 (directory / f"layer_{layer:02d}/ica/results/feature_{feature}.json").read_text()
             )
-            if result.get("status") != "complete" or result.get("provider") != provider:
+            if (
+                result.get("status") != "complete"
+                or result.get("provider") != provider
+                or (provider == "tinker" and result.get("sampling_seed") != 0)
+            ):
                 return False
             if model is not None and (
                 result.get("explainer_model") != model

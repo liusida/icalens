@@ -590,6 +590,7 @@ def _evaluate_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", default=None)
     parser.add_argument("--explainer-model", default=None)
     parser.add_argument("--simulator-model", default=None)
+    parser.add_argument("--sampling-seed", type=int, default=None)
     parser.add_argument(
         "--output",
         type=Path,
@@ -1049,6 +1050,7 @@ def _tinker_sample_text(
     messages: list[dict[str, str]],
     max_tokens: int,
     temperature: float = 0.0,
+    seed: int | None = None,
 ) -> tuple[list[int], Any, str]:
     if renderer.__class__.__name__ == "TmlV0Renderer":
         prompt = renderer.build_generation_prompt(messages, effort=0.0)
@@ -1060,6 +1062,7 @@ def _tinker_sample_text(
         num_samples=1,
         sampling_params=types.SamplingParams(
             max_tokens=max_tokens,
+            seed=seed,
             temperature=temperature,
             stop=renderer.get_stop_sequences(),
         ),
@@ -1142,7 +1145,13 @@ def _tinker_label_spans(raw: str) -> list[tuple[int, int]]:
 
 
 def _tinker_expected_activations(
-    *, sampler: Any, tokenizer: Any, types: Any, prompt_tokens: list[int], sequence: Any
+    *,
+    sampler: Any,
+    tokenizer: Any,
+    types: Any,
+    prompt_tokens: list[int],
+    sequence: Any,
+    seed: int | None = None,
 ) -> tuple[str, np.ndarray]:
     completion_tokens = list(sequence.tokens)
     raw = tokenizer.decode(completion_tokens, skip_special_tokens=True)
@@ -1166,7 +1175,11 @@ def _tinker_expected_activations(
     scored = sampler.sample(
         prompt=types.ModelInput.from_ints(prompt_tokens + completion_tokens),
         num_samples=1,
-        sampling_params=types.SamplingParams(max_tokens=1, temperature=0.0),
+        sampling_params=types.SamplingParams(
+            max_tokens=1,
+            seed=seed,
+            temperature=0.0,
+        ),
         include_prompt_logprobs=True,
         topk_prompt_logprobs=20,
     ).result()
@@ -1245,18 +1258,22 @@ def _evaluate_tinker_main(args: argparse.Namespace) -> None:
         "n_features": args.n_features,
     }
     run = ResumableRun.open(output=output, resolved=resolved, source=source, status="evaluating")
+    prompt_identity = {
+        "version": (
+            "cunningham-tinker-v1"
+            if args.sampling_seed is None
+            else "cunningham-tinker-seeded-v1"
+        ),
+        "explanation": explanation_messages(
+            [["x"] * FRAGMENT_LENGTH] * EXAMPLES_PER_SPLIT,
+            np.zeros((EXAMPLES_PER_SPLIT, FRAGMENT_LENGTH)),
+        ),
+        "simulator": simulator_messages("example", ["x"] * FRAGMENT_LENGTH),
+    }
+    if args.sampling_seed is not None:
+        prompt_identity["sampling_seed"] = args.sampling_seed
     prompt_hash = hashlib.sha256(
-        json.dumps(
-            {
-                "version": "cunningham-tinker-v1",
-                "explanation": explanation_messages(
-                    [["x"] * FRAGMENT_LENGTH] * EXAMPLES_PER_SPLIT,
-                    np.zeros((EXAMPLES_PER_SPLIT, FRAGMENT_LENGTH)),
-                ),
-                "simulator": simulator_messages("example", ["x"] * FRAGMENT_LENGTH),
-            },
-            sort_keys=True,
-        ).encode()
+        json.dumps(prompt_identity, sort_keys=True).encode()
     ).hexdigest()
     evaluation = {
         "provider": "tinker",
@@ -1267,6 +1284,8 @@ def _evaluate_tinker_main(args: argparse.Namespace) -> None:
         "prediction": "teacher-forced-top-logprob-expected-label",
         "ground_truth": "continuous-feature-activation",
     }
+    if args.sampling_seed is not None:
+        evaluation["sampling_seed"] = args.sampling_seed
     run.validate_section("evaluation", evaluation)
     completed = _modern_completed_units(output, tasks, evaluation)
     display = ExperimentDisplay(
@@ -1331,6 +1350,7 @@ def _evaluate_tinker_main(args: argparse.Namespace) -> None:
                     types=types,
                     retries=args.retries,
                     prompt_hash=prompt_hash,
+                    sampling_seed=args.sampling_seed,
                     display=display,
                     max_concurrent=args.max_concurrent,
                 )
@@ -1372,6 +1392,7 @@ def _evaluate_tinker_feature(
     types: Any,
     retries: int,
     prompt_hash: str,
+    sampling_seed: int | None = None,
     display: ExperimentDisplay,
     max_concurrent: int,
 ) -> None:
@@ -1400,6 +1421,7 @@ def _evaluate_tinker_feature(
                 ),
                 max_tokens=512,
                 temperature=0.0 if attempt == 0 else 0.2,
+                seed=sampling_seed,
             )[2],
             retries=retries,
         )
@@ -1443,6 +1465,7 @@ def _evaluate_tinker_feature(
                 messages=messages,
                 max_tokens=768,
                 temperature=0.0 if attempt == 0 else 0.2,
+                seed=sampling_seed,
             )
             decoded_raw, predicted = _tinker_expected_activations(
                 sampler=simulator_sampler,
@@ -1450,6 +1473,7 @@ def _evaluate_tinker_feature(
                 types=types,
                 prompt_tokens=prompt_tokens,
                 sequence=sequence,
+                seed=sampling_seed,
             )
             return parsed_raw or decoded_raw, predicted
 
@@ -1477,6 +1501,7 @@ def _evaluate_tinker_feature(
             "provider": "tinker",
             "explainer_model": explainer_model,
             "simulator_model": simulator_model,
+            "sampling_seed": sampling_seed,
             "protocol": "cunningham-modern",
             "prompt_hash": prompt_hash,
             "feature": feature,
