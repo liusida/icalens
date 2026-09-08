@@ -167,18 +167,28 @@ def main() -> None:
                 ) as executor:
                     futures = {
                         executor.submit(
-                            subprocess.run,
+                            _run_checkpoint,
                             _command(
                                 args, source, output, iteration, position,
                                 model, explainer, simulator,
                             ),
-                            check=True,
+                            output / "logs" / (
+                                f"component-{position + 1:02d}-iter-{iteration:03d}.log"
+                            ),
                         ): iteration
                         for iteration in pending
                     }
                     for future in as_completed(futures):
                         iteration = futures[future]
-                        future.result()
+                        child_log = output / "logs" / (
+                            f"component-{position + 1:02d}-iter-{iteration:03d}.log"
+                        )
+                        try:
+                            future.result()
+                        except subprocess.CalledProcessError as error:
+                            raise RuntimeError(
+                                f"checkpoint iteration {iteration} failed; see {child_log}"
+                            ) from error
                         preparation = source / f"iter-{iteration:03d}"
                         destination = output / f"iter-{iteration:03d}"
                         if not _position_complete(
@@ -222,6 +232,19 @@ def _command(args, source, output, iteration, position, model, explainer, simula
     if args.dry_run:
         command.append("--dry-run")
     return command
+
+
+def _run_checkpoint(command: list[str], log_path: Path) -> None:
+    """Run one child evaluator without letting its live display corrupt the parent."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("w") as stream:
+        subprocess.run(
+            command,
+            stdout=stream,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=True,
+        )
 
 
 def _position_complete(

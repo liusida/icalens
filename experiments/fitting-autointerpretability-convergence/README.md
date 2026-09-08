@@ -71,7 +71,10 @@ to 10 concurrent simulator requests. These limits can be changed with
 `--max-concurrent-checkpoints` and `--max-concurrent-simulations`; the defaults
 permit up to 110 simultaneous simulator requests during the simulation phase.
 Consequently, a partial run already provides matched convergence curves for
-every fully completed cohort position.
+every fully completed cohort position. The parent process owns the sole live
+terminal display; complete output from each concurrent child is kept in
+`runs/evaluated/logs/component-XX-iter-YYY.log` so their displays cannot
+overwrite one another.
 
 Plot the currently available individual trajectories and aggregate means
 without rerunning evaluation:
