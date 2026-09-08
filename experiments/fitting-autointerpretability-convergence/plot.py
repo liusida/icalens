@@ -148,13 +148,15 @@ def style_axis(axis: Any) -> None:
     axis.set_ylim(-0.15, 1.0)
 
 
-def trajectory_matrix(rows: list[dict[str, Any]], layer: int) -> np.ndarray:
+def trajectory_matrix(
+    rows: list[dict[str, Any]], layer: int, score_name: str = "top_score"
+) -> np.ndarray:
     matrix = np.full((N_FEATURES, len(EVALUATED_CHECKPOINTS)), np.nan)
     iteration_index = {value: index for index, value in enumerate(EVALUATED_CHECKPOINTS)}
     for row in rows:
         if row["layer"] == layer:
             matrix[row["cohort_position"], iteration_index[row["iteration"]]] = row[
-                "combined_score"
+                score_name
             ]
     return matrix
 
@@ -164,10 +166,24 @@ def save_figure(figure: Any, stem: Path) -> None:
     figure.savefig(stem.with_suffix(".pdf"), bbox_inches="tight")
 
 
+def subplot_grid(plt: Any) -> tuple[Any, np.ndarray]:
+    ncols = min(2, len(LAYERS))
+    nrows = math.ceil(len(LAYERS) / ncols)
+    figure, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(6.9, 2.45 * nrows),
+        sharex=True,
+        sharey=True,
+        squeeze=False,
+    )
+    return figure, axes.ravel()
+
+
 def plot_detailed(plt: Any, rows: list[dict[str, Any]], stem: Path) -> None:
     with plt.rc_context(rc_params()):
-        figure, axes = plt.subplots(1, 2, figsize=(6.9, 2.65), sharex=True, sharey=True)
-        for panel, (axis, layer) in enumerate(zip(axes, LAYERS, strict=True)):
+        figure, axes = subplot_grid(plt)
+        for panel, (axis, layer) in enumerate(zip(axes, LAYERS)):
             matrix = trajectory_matrix(rows, layer)
             for values in matrix:
                 axis.plot(
@@ -178,10 +194,18 @@ def plot_detailed(plt: Any, rows: list[dict[str, Any]], stem: Path) -> None:
                     alpha=0.28,
                 )
             style_axis(axis)
-            axis.set_title(f"{'AB'[panel]} · Qwen 3.5 9B Base · L{layer}", loc="left")
+            axis.set_title(
+                f"{chr(ord('A') + panel)} · Qwen 3.5 9B Base · L{layer}",
+                loc="left",
+            )
             axis.set_xlabel("FastICA iteration")
-        axes[0].set_ylabel("Autointerpretability score")
-        figure.subplots_adjust(left=0.09, right=0.99, bottom=0.19, top=0.91, wspace=0.10)
+        for axis in axes[len(LAYERS):]:
+            axis.set_visible(False)
+        for axis in axes[::2]:
+            axis.set_ylabel("Autointerpretability score")
+        figure.subplots_adjust(
+            left=0.09, right=0.99, bottom=0.11, top=0.95, wspace=0.13, hspace=0.38
+        )
         save_figure(figure, stem)
         plt.close(figure)
 
@@ -189,8 +213,8 @@ def plot_detailed(plt: Any, rows: list[dict[str, Any]], stem: Path) -> None:
 def plot_aggregate(plt: Any, rows: list[dict[str, Any]], stem: Path) -> dict[int, list[int]]:
     counts: dict[int, list[int]] = {}
     with plt.rc_context(rc_params()):
-        figure, axes = plt.subplots(1, 2, figsize=(6.9, 2.65), sharex=True, sharey=True)
-        for panel, (axis, layer) in enumerate(zip(axes, LAYERS, strict=True)):
+        figure, axes = subplot_grid(plt)
+        for panel, (axis, layer) in enumerate(zip(axes, LAYERS)):
             matrix = trajectory_matrix(rows, layer)
             n = np.sum(np.isfinite(matrix), axis=0)
             counts[layer] = n.tolist()
@@ -227,10 +251,18 @@ def plot_aggregate(plt: Any, rows: list[dict[str, Any]], stem: Path) -> dict[int
                 zorder=4,
             )
             style_axis(axis)
-            axis.set_title(f"{'AB'[panel]} · Qwen 3.5 9B Base · L{layer}", loc="left")
+            axis.set_title(
+                f"{chr(ord('A') + panel)} · Qwen 3.5 9B Base · L{layer}",
+                loc="left",
+            )
             axis.set_xlabel("FastICA iteration")
-        axes[0].set_ylabel("Mean autointerpretability score")
-        figure.subplots_adjust(left=0.09, right=0.99, bottom=0.19, top=0.91, wspace=0.10)
+        for axis in axes[len(LAYERS):]:
+            axis.set_visible(False)
+        for axis in axes[::2]:
+            axis.set_ylabel("Mean autointerpretability score")
+        figure.subplots_adjust(
+            left=0.09, right=0.99, bottom=0.11, top=0.95, wspace=0.13, hspace=0.38
+        )
         save_figure(figure, stem)
         plt.close(figure)
     return counts
@@ -297,8 +329,9 @@ def main() -> None:
         for position in range(N_FEATURES)
     )
     detailed.with_suffix(".txt").write_text(
-        "Individual combined autointerpretability scores for the same 50 persistent "
-        "FastICA rows at Qwen layers 15 and 31. Thin lines identify cohort positions; "
+        "Individual top-fragment autointerpretability scores for the same 50 persistent "
+        f"FastICA rows at Qwen layers {', '.join(map(str, LAYERS))}. Thin lines identify "
+        "cohort positions; "
         "the iteration axis uses symmetric-log spacing to expose the densely sampled "
         "early trajectory, and missing evaluations remain gaps. Current complete "
         "matched trajectories: "
@@ -313,7 +346,7 @@ def main() -> None:
         for layer in LAYERS
     )
     aggregate.with_suffix(".txt").write_text(
-        "Mean combined autointerpretability score across available matched FastICA rows. "
+        "Mean top-fragment autointerpretability score across available matched FastICA rows. "
         "Capped error bars show deterministic 95% bootstrap confidence intervals "
         "for the mean; "
         "hollow points have fewer than the nominal 50 rows. The iteration axis uses "
