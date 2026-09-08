@@ -102,6 +102,15 @@ numerical autointerpretability scores are also useful.
 Use `--input runs/evaluated-tinker-no-seed` (with the full experiment-relative
 path) to inspect an archived evaluator condition.
 
+For a longitudinal condition in which every checkpoint uses the same five
+explanation and five held-out top fragments, see
+[`fixed-panel-protocol.md`](fixed-panel-protocol.md). The fixed panel is sampled
+deterministically from the union of every checkpoint's top-20 fragments and is
+derived from the prepared activations without another model pass. Its default
+layout combines layers 7, 15, 23, and 31 into one evaluator input.
+Use `prepare_fixed_panel_run.py` to import the two immutable trajectory caches
+and produce the complete four-layer condition under `runs/fixed-panel/`.
+
 ##### Run layout and additive layers 7 and 23
 >
 > `runs/qwen-layers-15-31/` is a zero-copy condition view of the original
