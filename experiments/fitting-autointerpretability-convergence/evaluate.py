@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from icalens.cli._status import log
@@ -31,6 +32,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--explainer-model")
     parser.add_argument("--simulator-model")
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
+    parser.add_argument(
+        "--max-concurrent-checkpoints",
+        type=int,
+        default=11,
+        help="Checkpoint evaluations to run concurrently within one component (default: 11).",
+    )
+    parser.add_argument(
+        "--max-concurrent-simulations",
+        type=int,
+        default=10,
+        help="Concurrent simulator requests within each checkpoint (default: 10).",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -41,6 +54,10 @@ def main() -> None:
         raise ValueError("Tinker uses --explainer-model and --simulator-model, not --model")
     if args.provider == "openai" and (args.explainer_model or args.simulator_model):
         raise ValueError("OpenAI uses --model, not Tinker model-role options")
+    if args.max_concurrent_checkpoints < 1:
+        raise ValueError("--max-concurrent-checkpoints must be positive")
+    if args.max_concurrent_simulations < 1:
+        raise ValueError("--max-concurrent-simulations must be positive")
     source = args.input.expanduser().resolve()
     output = args.output.expanduser().resolve()
     model = args.model or DEFAULT_OPENAI_MODEL if args.provider == "openai" else None
@@ -124,6 +141,7 @@ def main() -> None:
                     log(f"Reused matched cohort position {position + 1}/50.")
                     continue
                 log(f"Starting matched cohort position {position + 1}/50.")
+                pending = []
                 for iteration in EVALUATED_CHECKPOINTS:
                     preparation = source / f"iter-{iteration:03d}"
                     destination = output / f"iter-{iteration:03d}"
@@ -136,41 +154,45 @@ def main() -> None:
                             f"iteration {iteration}."
                         )
                         continue
-                    display.phase(
-                        "Evaluating matched component",
-                        component=f"{position + 1}/50",
-                        iteration=iteration,
-                        provider=args.provider,
-                    )
-                    command = _command(
-                        args, source, output, iteration, position,
-                        model, explainer, simulator,
-                    )
-                    child = subprocess.Popen(
-                        command,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        bufsize=1,
-                    )
-                    assert child.stdout is not None
-                    for line in child.stdout:
-                        print(line, end="")
-                    status = child.wait()
-                    if status:
-                        raise subprocess.CalledProcessError(status, command)
-                    if not _position_complete(
-                        destination, preparation, position, args.provider,
-                        model, explainer, simulator,
-                    ):
-                        raise ValueError(
-                            f"child did not complete cohort position {position} "
-                            f"at iteration {iteration}"
+                    pending.append(iteration)
+
+                display.phase(
+                    "Evaluating checkpoints concurrently",
+                    component=f"{position + 1}/50",
+                    checkpoints=len(pending),
+                    provider=args.provider,
+                )
+                with ThreadPoolExecutor(
+                    max_workers=min(args.max_concurrent_checkpoints, len(pending) or 1)
+                ) as executor:
+                    futures = {
+                        executor.submit(
+                            subprocess.run,
+                            _command(
+                                args, source, output, iteration, position,
+                                model, explainer, simulator,
+                            ),
+                            check=True,
+                        ): iteration
+                        for iteration in pending
+                    }
+                    for future in as_completed(futures):
+                        iteration = futures[future]
+                        future.result()
+                        preparation = source / f"iter-{iteration:03d}"
+                        destination = output / f"iter-{iteration:03d}"
+                        if not _position_complete(
+                            destination, preparation, position, args.provider,
+                            model, explainer, simulator,
+                        ):
+                            raise ValueError(
+                                f"child did not complete cohort position {position} "
+                                f"at iteration {iteration}"
+                            )
+                        log(
+                            f"Completed cohort position {position + 1}/50 at "
+                            f"iteration {iteration}."
                         )
-                    log(
-                        f"Completed cohort position {position + 1}/50 at "
-                        f"iteration {iteration}."
-                    )
                 display.complete_unit(position, refresh=True)
                 log(f"Completed matched cohort position {position + 1}/50 across checkpoints.")
             run.set_status("complete", complete=True)
@@ -188,6 +210,7 @@ def _command(args, source, output, iteration, position, model, explainer, simula
         "--methods", "ica", "--provider", args.provider,
         "--feature-position", str(position),
         "--sampling-seed", "0",
+        "--max-concurrent", str(args.max_concurrent_simulations),
         "--env-file", str(args.env_file),
     ]
     if model:

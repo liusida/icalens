@@ -65,9 +65,13 @@ Pearson correlation over the resulting 640 token-level activation pairs. Tinker
 explanation, simulation, and teacher-forced scoring requests use sampling seed 0
 so an identical request is reproducible. The
 runner is component-major: it evaluates one matched cohort position across all
-11 fitting checkpoints before advancing to the next position. Consequently, a
-partial run already provides matched convergence curves for every fully
-completed cohort position.
+11 fitting checkpoints before advancing to the next position. The 11
+checkpoints for that component run concurrently, and each checkpoint permits up
+to 10 concurrent simulator requests. These limits can be changed with
+`--max-concurrent-checkpoints` and `--max-concurrent-simulations`; the defaults
+permit up to 110 simultaneous simulator requests during the simulation phase.
+Consequently, a partial run already provides matched convergence curves for
+every fully completed cohort position.
 
 Plot the currently available individual trajectories and aggregate means
 without rerunning evaluation:
@@ -78,3 +82,19 @@ uv run python experiments/fitting-autointerpretability-convergence/plot.py
 
 Use `--force` to refresh the figures as more component trajectories finish.
 Missing evaluations remain missing rather than being interpolated.
+
+Inspect one persistent component's generated explanation across checkpoints:
+
+```bash
+uv run python experiments/fitting-autointerpretability-convergence/inspect_explanations.py \
+  --layer 31 --component 3334
+```
+
+The default view prints each checkpoint's explanation and the signed cosine
+similarity of its residual-space reading direction to iteration 200. Because
+the checkpoints belong to one continuous optimization trajectory with
+persistent row identity, the sign is retained. Add `--show-scores` when the
+numerical autointerpretability scores are also useful.
+
+Use `--input runs/evaluated-tinker-no-seed` (with the full experiment-relative
+path) to inspect an archived evaluator condition.
