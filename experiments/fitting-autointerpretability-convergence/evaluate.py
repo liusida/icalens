@@ -35,6 +35,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
     parser.add_argument("--layers", default=",".join(map(str, LAYERS)))
     parser.add_argument(
+        "--n-components",
+        type=int,
+        help="Evaluate this many prefix-stable cohort positions (default: all prepared).",
+    )
+    parser.add_argument(
         "--max-concurrent-checkpoints",
         type=int,
         default=11,
@@ -74,26 +79,45 @@ def main() -> None:
         if args.provider == "tinker"
         else None
     )
-    preparation_manifests = {}
+    preparation_protocols = {}
+    prepared_counts: set[int] = set()
     for iteration in EVALUATED_CHECKPOINTS:
         path = source / f"iter-{iteration:03d}" / "run.json"
         if not path.is_file():
             raise FileNotFoundError(f"prepared checkpoint is missing: {path}")
-        preparation_manifests[str(iteration)] = json.loads(path.read_text())["resolved"]
+        prepared = json.loads(path.read_text())["resolved"]
+        preparation_protocols[str(iteration)] = {
+            key: prepared.get(key)
+            for key in ("selection", "split_sizes", "seed_rule", "iteration")
+        }
+        for layer in layers:
+            selection = json.loads(
+                (source / f"iter-{iteration:03d}" / f"layer_{layer:02d}"
+                 / "ica/selection.json").read_text()
+            )
+            prepared_counts.add(len(selection["accepted"]))
+    if len(prepared_counts) != 1:
+        raise ValueError("prepared checkpoints do not have one consistent cohort size")
+    prepared_count = prepared_counts.pop()
+    target_count = args.n_components if args.n_components is not None else prepared_count
+    if not 0 < target_count <= prepared_count:
+        raise ValueError(
+            f"--n-components must be between 1 and prepared capacity {prepared_count}"
+        )
     resolved = {
         "format": "icalens.fastica_autointerpretability_evaluation",
         "format_version": 1,
         "input": str(source),
         "checkpoints": list(EVALUATED_CHECKPOINTS),
         "layers": list(layers),
-        "preparations": preparation_manifests,
+        "preparation_protocols": preparation_protocols,
         "provider": args.provider,
         "model": model,
         "explainer_model": explainer,
         "simulator_model": simulator,
         "sampling_seed": 0,
         "methods": ["ica"],
-        "n_features_per_layer": 50,
+        "cohort_order": "prefix-stable persistent-row permutation",
     }
     if args.dry_run:
         for iteration in EVALUATED_CHECKPOINTS:
@@ -114,7 +138,7 @@ def main() -> None:
     )
     completed = {
         position
-        for position in range(50)
+        for position in range(target_count)
         if all(
             _position_complete(
                 output / f"iter-{iteration:03d}",
@@ -134,18 +158,18 @@ def main() -> None:
             output=output / "logs",
             title=f"ICA Lens · autointerpretability convergence · {args.provider}",
             completed=len(completed),
-            total=50,
+            total=target_count,
             completed_unit_ids=completed,
             source_dirty=provenance.get("dirty"),
             unit_label="matched cohort positions",
             detail_filename="evaluation-detail.log",
         ) as display:
             warn_if_dirty(provenance)
-            for position in range(50):
+            for position in range(target_count):
                 if position in completed:
-                    log(f"Reused matched cohort position {position + 1}/50.")
+                    log(f"Reused matched cohort position {position + 1}/{target_count}.")
                     continue
-                log(f"Starting matched cohort position {position + 1}/50.")
+                log(f"Starting matched cohort position {position + 1}/{target_count}.")
                 pending = []
                 for iteration in EVALUATED_CHECKPOINTS:
                     preparation = source / f"iter-{iteration:03d}"
@@ -156,7 +180,7 @@ def main() -> None:
                         layers,
                     ):
                         log(
-                            f"Reused cohort position {position + 1}/50 at "
+                            f"Reused cohort position {position + 1}/{target_count} at "
                             f"iteration {iteration}."
                         )
                         continue
@@ -164,7 +188,7 @@ def main() -> None:
 
                 display.phase(
                     "Evaluating checkpoints concurrently",
-                    component=f"{position + 1}/50",
+                    component=f"{position + 1}/{target_count}",
                     checkpoints=len(pending),
                     provider=args.provider,
                 )
@@ -207,13 +231,19 @@ def main() -> None:
                                 f"at iteration {iteration}"
                             )
                         log(
-                            f"Completed cohort position {position + 1}/50 at "
+                            f"Completed cohort position {position + 1}/{target_count} at "
                             f"iteration {iteration}."
                         )
                 display.complete_unit(position, refresh=True)
-                log(f"Completed matched cohort position {position + 1}/50 across checkpoints.")
+                log(
+                    f"Completed matched cohort position {position + 1}/{target_count} "
+                    "across checkpoints."
+                )
             run.set_status("complete", complete=True)
-            log("Complete: 50 matched cohort positions across all fitting checkpoints.")
+            log(
+                f"Complete: {target_count} matched cohort positions across all "
+                "fitting checkpoints."
+            )
     except BaseException:
         run.set_status("interrupted")
         raise

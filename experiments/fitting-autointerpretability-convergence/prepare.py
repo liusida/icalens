@@ -40,7 +40,7 @@ DEFAULT_ARCHIVE = Path(
 EVALUATED_CHECKPOINTS = (0, 1, 2, 3, 5, 7, 10, 20, 50, 100, 200)
 MODEL_ID = "Qwen/Qwen3.5-9B-Base"
 MODEL_REVISION = "68c46c4b3498877f3ef123c856ecfde50c39f404"
-N_FRAGMENTS, N_FEATURES, PROGRESS_INTERVAL = 50_000, 50, 256
+N_FRAGMENTS, PROGRESS_INTERVAL = 50_000, 256
 
 
 def parse_args() -> argparse.Namespace:
@@ -134,7 +134,7 @@ def cache_path(archive, iteration, layer):
     return archive / f"iter-{iteration:03d}" / f"layer-{layer:02d}" / "candidate_activations.npy"
 
 
-def open_stores(archive, start):
+def open_stores(archive, start, n_features):
     result = {}
     for iteration in EVALUATED_CHECKPOINTS:
         for layer in LAYERS:
@@ -147,12 +147,12 @@ def open_stores(archive, start):
             else:
                 result[(iteration, layer)] = np.lib.format.open_memmap(
                     partial, mode="w+", dtype=np.float16,
-                    shape=(N_FRAGMENTS, FRAGMENT_LENGTH, N_FEATURES),
+                    shape=(N_FRAGMENTS, FRAGMENT_LENGTH, n_features),
                 )
     return result
 
 
-def write_metadata(output, archive, fragments, cohort_path, cohort):
+def write_metadata(output, archive, fragments, cohort_path, cohort, n_features):
     for iteration in EVALUATED_CHECKPOINTS:
         root = output / f"iter-{iteration:03d}"
         root.mkdir(parents=True, exist_ok=True)
@@ -180,13 +180,13 @@ def write_metadata(output, archive, fragments, cohort_path, cohort):
             atomic_write_json(root / f"layer_{layer:02d}" / "prepared.json",
                               {"format": "icalens.autointerpretability-prepared-layer",
                                "schema_version": 1, "layer": layer, "methods": ["ica"],
-                               "n_fragments": N_FRAGMENTS, "n_features": N_FEATURES})
+                               "n_fragments": N_FRAGMENTS, "n_features": n_features})
         atomic_write_json(root / "run.json", {"status": "prepared", "resolved": {
             "format": "icalens.autointerpretability-trajectory", "schema_version": 1,
             "model": {"repo_id": MODEL_ID, "revision": MODEL_REVISION},
             "activation_site": "resid_post", "layer_indexing": "transformer_blocks_zero_based",
             "layers": list(LAYERS), "n_fragments": N_FRAGMENTS,
-            "fragment_length": FRAGMENT_LENGTH, "n_features": N_FEATURES,
+            "fragment_length": FRAGMENT_LENGTH, "n_features": n_features,
             "iteration": iteration, "cohort": str(cohort_path)}})
 
 
@@ -201,6 +201,13 @@ def main() -> None:
     output = args.output.resolve()
     archive = args.archive.resolve()
     summary = validate_trajectory(trajectory, LAYERS)
+    cohort = json.loads(cohort_path.read_text(encoding="utf-8"))
+    counts = {len(cohort["layers"][str(layer)]["row_ids"]) for layer in LAYERS}
+    if len(counts) != 1:
+        raise ValueError("cohort layers must contain the same number of rows")
+    n_features = counts.pop()
+    if n_features < 1:
+        raise ValueError("cohort must contain at least one component per layer")
     resolved = {
         "format": "icalens.fastica_autointerpretability_preparation",
         "format_version": 1,
@@ -211,7 +218,7 @@ def main() -> None:
         "cohort_sha256": sha256(cohort_path) if cohort_path.is_file() else None,
         "layers": list(LAYERS),
         "checkpoints": list(EVALUATED_CHECKPOINTS),
-        "features_per_layer": N_FEATURES,
+        "features_per_layer": n_features,
         "fragments": str(fragments_path),
         "fragments_sha256": sha256(fragments_path),
         "n_fragments": N_FRAGMENTS,
@@ -223,14 +230,13 @@ def main() -> None:
             * len(EVALUATED_CHECKPOINTS)
             * N_FRAGMENTS
             * FRAGMENT_LENGTH
-            * N_FEATURES
+            * n_features
             * 2
         ),
     }
     if args.dry_run:
         print(json.dumps(resolved, indent=2))
         return
-    cohort = json.loads(cohort_path.read_text(encoding="utf-8"))
     fragments = read_fragments(fragments_path)
     source = source_provenance()
     run = ResumableRun.open(
@@ -313,7 +319,7 @@ def main() -> None:
                 centers[layer] = center
             if start_at == N_FRAGMENTS and final_caches_exist:
                 display.phase("Recovering finalized caches")
-                write_metadata(output, archive, fragments_path, cohort_path, cohort)
+                write_metadata(output, archive, fragments_path, cohort_path, cohort, n_features)
                 atomic_write_json(
                     archive / "summary.json", {**resolved, "status": "complete"}
                 )
@@ -335,7 +341,7 @@ def main() -> None:
                     for layer in LAYERS
                 ):
                     raise ValueError("encoded cache finalization is incomplete")
-                write_metadata(output, archive, fragments_path, cohort_path, cohort)
+                write_metadata(output, archive, fragments_path, cohort_path, cohort, n_features)
                 atomic_write_json(
                     archive / "summary.json", {**resolved, "status": "complete"}
                 )
@@ -343,7 +349,7 @@ def main() -> None:
                 run.set_status("complete", complete=True)
                 log("Recovered and finalized all encoded caches.")
                 return
-            stores = open_stores(archive, start_at)
+            stores = open_stores(archive, start_at, n_features)
             display.phase("Loading Qwen", model=MODEL_ID)
             model = cast(torch.nn.Module, load_model_to_cuda(
                 AutoModelForCausalLM, MODEL_ID, revision=MODEL_REVISION,
@@ -382,8 +388,8 @@ def main() -> None:
                         hidden = captured[layer].to(torch.float32) - centers[layer]
                         scores = (hidden @ stacked[layer].T).clamp_min(0).cpu().numpy()
                         for position, iteration in enumerate(EVALUATED_CHECKPOINTS):
-                            left = position * N_FEATURES
-                            right = (position + 1) * N_FEATURES
+                            left = position * n_features
+                            right = (position + 1) * n_features
                             stores[(iteration, layer)][start:stop] = scores[:, :, left:right]
                     if stop - checkpoint_at >= PROGRESS_INTERVAL or stop == N_FRAGMENTS:
                         for store in stores.values():
@@ -404,7 +410,7 @@ def main() -> None:
                     final = cache_path(archive, iteration, layer)
                     os.replace(final.with_suffix(".npy.partial"), final)
             display.phase("Writing evaluator metadata")
-            write_metadata(output, archive, fragments_path, cohort_path, cohort)
+            write_metadata(output, archive, fragments_path, cohort_path, cohort, n_features)
             atomic_write_json(archive / "summary.json", {**resolved, "status": "complete"})
             display.advance(refresh=True)
             run.set_status("complete", complete=True)

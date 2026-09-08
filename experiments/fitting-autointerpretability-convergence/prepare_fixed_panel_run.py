@@ -40,6 +40,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--statistics-batch-size", type=int, default=16_384)
+    parser.add_argument(
+        "--n-components",
+        type=int,
+        default=100,
+        help="Prefix-stable cohort capacity to prepare per layer (default: 100).",
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--stop-after", choices=STAGES, default="fixed-panel")
     parser.add_argument("--dry-run", action="store_true")
@@ -160,6 +166,8 @@ def main() -> None:
     fixed_prepared = output / "prepared"
     if args.trajectory_cache is not None:
         cache_arguments = tuple(args.trajectory_cache)
+    elif (trajectory / "summary.json").is_file():
+        cache_arguments = ()
     else:
         cache_arguments = tuple(path for path in DEFAULT_CACHES if path.is_dir())
         if len(cache_arguments) == 1:
@@ -177,6 +185,7 @@ def main() -> None:
         "batch_size": args.batch_size,
         "statistics_batch_size": args.statistics_batch_size,
         "device": args.device,
+        "n_components_per_layer": args.n_components,
         "selection_protocol": "checkpoint-specific-intrinsic-5-train-20-valid",
     }
     if args.dry_run:
@@ -218,6 +227,14 @@ def main() -> None:
             return
 
         if cohort.is_file():
+            existing_cohort = json.loads(cohort.read_text(encoding="utf-8"))
+            existing_count = existing_cohort.get("n_components_per_layer")
+            if existing_count != args.n_components:
+                raise ValueError(
+                    f"existing cohort has {existing_count} components, requested "
+                    f"{args.n_components}; remove stale preparation/cohort artifacts "
+                    "before changing prepared capacity"
+                )
             print(f"PASS unified cohort already exists: {cohort}")
         else:
             run([
@@ -225,6 +242,7 @@ def main() -> None:
                 "--layers", ",".join(map(str, LAYERS)),
                 "--trajectory", str(trajectory),
                 "--output", str(cohort),
+                "--n-components", str(args.n_components),
                 "--device", args.device,
             ])
         if args.stop_after == "cohort":

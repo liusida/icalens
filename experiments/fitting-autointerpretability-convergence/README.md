@@ -107,7 +107,10 @@ For the four-layer convergence condition, see
 explanation fragments and twenty held-out top fragments sampled from its own
 top-25 unique-document pool. `prepare_fixed_panel_run.py` imports the immutable
 trajectory caches and produces this condition under the historical
-`runs/fixed-panel/` run-container name.
+`runs/fixed-panel/` run-container name. Its `--n-components` option controls
+prepared cohort capacity (100 by default). The evaluator's independent
+`--n-components` option can run any prefix of that cohort and later resume with
+a larger target without changing completed component results.
 
 ##### Run layout and additive layers 7 and 23
 >

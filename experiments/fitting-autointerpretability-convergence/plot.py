@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from prepare import EVALUATED_CHECKPOINTS, LAYERS, N_FEATURES
+from prepare import EVALUATED_CHECKPOINTS, LAYERS
 from trajectory import parse_layers
 
 ROOT = Path(__file__).resolve().parent
@@ -37,8 +37,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def selected_features(preparation: Path) -> dict[int, dict[int, int]]:
+def selected_features(preparation: Path) -> tuple[dict[int, dict[int, int]], int]:
     result: dict[int, dict[int, int]] = {}
+    counts: set[int] = set()
     for iteration in EVALUATED_CHECKPOINTS:
         for layer in LAYERS:
             path = (
@@ -50,20 +51,23 @@ def selected_features(preparation: Path) -> dict[int, dict[int, int]]:
             )
             selection = json.loads(path.read_text(encoding="utf-8"))
             accepted = selection.get("accepted")
-            if not isinstance(accepted, list) or len(accepted) != N_FEATURES:
-                raise ValueError(f"expected {N_FEATURES} accepted features: {path}")
+            if not isinstance(accepted, list) or not accepted:
+                raise ValueError(f"expected a nonempty accepted-feature list: {path}")
+            counts.add(len(accepted))
             mapping = {int(row["feature"]): position for position, row in enumerate(accepted)}
-            if len(mapping) != N_FEATURES:
+            if len(mapping) != len(accepted):
                 raise ValueError(f"feature IDs are not unique: {path}")
             key = layer
             if key in result and result[key] != mapping:
                 raise ValueError(f"cohort order changed at iteration {iteration}, layer {layer}")
             result[key] = mapping
-    return result
+    if len(counts) != 1:
+        raise ValueError("prepared checkpoints do not have one consistent cohort size")
+    return result, counts.pop()
 
 
-def read_rows(input_root: Path, preparation: Path) -> list[dict[str, Any]]:
-    feature_positions = selected_features(preparation)
+def read_rows(input_root: Path, preparation: Path) -> tuple[list[dict[str, Any]], int]:
+    feature_positions, n_features = selected_features(preparation)
     rows: list[dict[str, Any]] = []
     seen: set[tuple[int, int, int]] = set()
     for iteration in EVALUATED_CHECKPOINTS:
@@ -103,7 +107,7 @@ def read_rows(input_root: Path, preparation: Path) -> list[dict[str, Any]]:
                 )
     if not rows:
         raise ValueError(f"no completed feature results found under {input_root}")
-    return rows
+    return rows, n_features
 
 
 def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -149,9 +153,10 @@ def style_axis(axis: Any) -> None:
 
 
 def trajectory_matrix(
-    rows: list[dict[str, Any]], layer: int, score_name: str = "top_score"
+    rows: list[dict[str, Any]], layer: int, n_features: int,
+    score_name: str = "top_score",
 ) -> np.ndarray:
-    matrix = np.full((N_FEATURES, len(EVALUATED_CHECKPOINTS)), np.nan)
+    matrix = np.full((n_features, len(EVALUATED_CHECKPOINTS)), np.nan)
     iteration_index = {value: index for index, value in enumerate(EVALUATED_CHECKPOINTS)}
     for row in rows:
         if row["layer"] == layer:
@@ -180,11 +185,13 @@ def subplot_grid(plt: Any) -> tuple[Any, np.ndarray]:
     return figure, axes.ravel()
 
 
-def plot_detailed(plt: Any, rows: list[dict[str, Any]], stem: Path) -> None:
+def plot_detailed(
+    plt: Any, rows: list[dict[str, Any]], n_features: int, stem: Path
+) -> None:
     with plt.rc_context(rc_params()):
         figure, axes = subplot_grid(plt)
         for panel, (axis, layer) in enumerate(zip(axes, LAYERS)):
-            matrix = trajectory_matrix(rows, layer)
+            matrix = trajectory_matrix(rows, layer, n_features)
             for values in matrix:
                 axis.plot(
                     EVALUATED_CHECKPOINTS,
@@ -210,12 +217,14 @@ def plot_detailed(plt: Any, rows: list[dict[str, Any]], stem: Path) -> None:
         plt.close(figure)
 
 
-def plot_aggregate(plt: Any, rows: list[dict[str, Any]], stem: Path) -> dict[int, list[int]]:
+def plot_aggregate(
+    plt: Any, rows: list[dict[str, Any]], n_features: int, stem: Path
+) -> dict[int, list[int]]:
     counts: dict[int, list[int]] = {}
     with plt.rc_context(rc_params()):
         figure, axes = subplot_grid(plt)
         for panel, (axis, layer) in enumerate(zip(axes, LAYERS)):
-            matrix = trajectory_matrix(rows, layer)
+            matrix = trajectory_matrix(rows, layer, n_features)
             n = np.sum(np.isfinite(matrix), axis=0)
             counts[layer] = n.tolist()
             mean = np.full(matrix.shape[1], np.nan)
@@ -240,7 +249,7 @@ def plot_aggregate(plt: Any, rows: list[dict[str, Any]], stem: Path) -> dict[int
                 capsize=2.5,
                 zorder=4,
             )
-            partial = (n > 0) & (n < N_FEATURES)
+            partial = (n > 0) & (n < n_features)
             axis.scatter(
                 np.asarray(EVALUATED_CHECKPOINTS)[partial],
                 mean[partial],
@@ -307,14 +316,14 @@ def main() -> None:
             "refusing to replace existing outputs without --force: "
             + ", ".join(map(str, existing))
         )
-    rows = read_rows(input_root, preparation)
+    rows, n_features = read_rows(input_root, preparation)
     write_csv(output / "autointerpretability-convergence-data.csv", rows)
     with tempfile.TemporaryDirectory(prefix="icalens-mpl-") as cache:
         os.environ["MPLCONFIGDIR"] = cache
         import matplotlib.pyplot as plt
 
-        plot_detailed(plt, rows, detailed)
-        counts = plot_aggregate(plt, rows, aggregate)
+        plot_detailed(plt, rows, n_features, detailed)
+        counts = plot_aggregate(plt, rows, n_features, aggregate)
     complete_positions = sum(
         all(
             any(
@@ -326,16 +335,17 @@ def main() -> None:
             for iteration in EVALUATED_CHECKPOINTS
             for layer in LAYERS
         )
-        for position in range(N_FEATURES)
+        for position in range(n_features)
     )
     detailed.with_suffix(".txt").write_text(
-        "Individual top-fragment autointerpretability scores for the same 50 persistent "
+        f"Individual top-fragment autointerpretability scores for the same {n_features} "
+        "persistent "
         f"FastICA rows at Qwen layers {', '.join(map(str, LAYERS))}. Thin lines identify "
         "cohort positions; "
         "the iteration axis uses symmetric-log spacing to expose the densely sampled "
         "early trajectory, and missing evaluations remain gaps. Current complete "
         "matched trajectories: "
-        f"{complete_positions}/{N_FEATURES}.\n",
+        f"{complete_positions}/{n_features}.\n",
         encoding="utf-8",
     )
     count_text = "; ".join(
@@ -349,13 +359,14 @@ def main() -> None:
         "Mean top-fragment autointerpretability score across available matched FastICA rows. "
         "Capped error bars show deterministic 95% bootstrap confidence intervals "
         "for the mean; "
-        "hollow points have fewer than the nominal 50 rows. The iteration axis uses "
+        f"hollow points have fewer than the nominal {n_features} rows. The iteration "
+        "axis uses "
         "symmetric-log spacing. Counts by iteration: "
         f"{count_text}.\n",
         encoding="utf-8",
     )
     print(f"Wrote detailed and aggregate figures to {output}")
-    print(f"Complete matched trajectories: {complete_positions}/{N_FEATURES}")
+    print(f"Complete matched trajectories: {complete_positions}/{n_features}")
 
 
 if __name__ == "__main__":

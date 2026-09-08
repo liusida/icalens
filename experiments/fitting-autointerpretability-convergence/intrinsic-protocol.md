@@ -25,19 +25,27 @@ control but are not pooled into `top_score`.
 The complete four-layer preparation is reproducible with:
 
 ```bash
-uv run python experiments/fitting-autointerpretability-convergence/prepare_fixed_panel_run.py
+uv run python experiments/fitting-autointerpretability-convergence/prepare_fixed_panel_run.py \
+  --n-components 100
 ```
 
 The historical script name and `runs/fixed-panel/` path refer to the unified
 four-layer run container. The prepared selection itself is checkpoint-specific,
 not a fixed fragment panel.
 
-Evaluate all four layers with:
+Preparation capacity and evaluation extent are separate. The cohort is a
+prefix of a deterministic random permutation, so increasing the extent keeps
+all earlier component IDs and positions. Evaluate any prefix one component at
+a time with:
 
 ```bash
 uv run python experiments/fitting-autointerpretability-convergence/evaluate.py \
   --layers 7,15,23,31 \
+  --n-components 50 \
   --input experiments/fitting-autointerpretability-convergence/runs/fixed-panel/prepared \
   --output experiments/fitting-autointerpretability-convergence/runs/fixed-panel/evaluated-tinker
 ```
 
+Rerunning that command later with `--n-components 100` reuses the first 50 and
+continues with positions 51--100. The target cannot exceed the capacity passed
+to `prepare_fixed_panel_run.py`.

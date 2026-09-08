@@ -37,7 +37,9 @@ def selected_rows(*, layer: int, count: int) -> list[int]:
     if not 0 < count <= WIDTH:
         raise ValueError(f"--n-components must be between 1 and {WIDTH}")
     generator = np.random.default_rng(layer)
-    return generator.choice(WIDTH, size=count, replace=False).tolist()
+    # A permutation has a stable prefix: increasing count preserves every
+    # previously selected row and its cohort position.
+    return generator.permutation(WIDTH)[:count].tolist()
 
 
 def checkpoint_path(trajectory: Path, layer: int, iteration: int) -> Path:
@@ -137,7 +139,7 @@ def main() -> None:
         "format_version": 1,
         "trajectory": str(trajectory),
         "trajectory_activation_manifest_sha256": summary["activation_manifest_sha256"],
-        "selection": "uniform sample of persistent optimization rows without replacement",
+        "selection": "prefix of a uniform permutation of persistent optimization rows",
         "layer_seed_rule": "seed = layer index",
         "n_components_per_layer": args.n_components,
         "width": WIDTH,

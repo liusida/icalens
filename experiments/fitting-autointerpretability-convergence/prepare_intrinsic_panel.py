@@ -14,7 +14,7 @@ import numpy as np
 
 from icalens.experiments._run import atomic_write_json
 
-from prepare import EVALUATED_CHECKPOINTS, LAYERS, N_FEATURES, N_FRAGMENTS
+from prepare import EVALUATED_CHECKPOINTS, LAYERS, N_FRAGMENTS
 from trajectory import parse_layers
 
 ROOT = Path(__file__).resolve().parent
@@ -139,6 +139,7 @@ def main() -> None:
             source_layer = source_iteration / f"layer_{layer:02d}" / "ica"
             destination_layer = destination_iteration / f"layer_{layer:02d}" / "ica"
             original = json.loads((source_layer / "selection.json").read_text(encoding="utf-8"))
+            n_features = len(original["accepted"])
             values_path = (source_layer / "candidate_activations.npy").resolve()
             relative_symlink(values_path, destination_layer / "candidate_activations.npy")
             values = np.load(values_path, mmap_mode="r")
@@ -167,7 +168,7 @@ def main() -> None:
                 destination_iteration / f"layer_{layer:02d}" / "prepared.json",
                 {"format": "icalens.autointerpretability-prepared-layer",
                  "schema_version": 1, "layer": layer, "methods": ["ica"],
-                 "n_fragments": N_FRAGMENTS, "n_features": N_FEATURES,
+                 "n_fragments": N_FRAGMENTS, "n_features": n_features,
                  "selection_protocol": "checkpoint-specific-intrinsic-5-train-20-valid"},
             )
         atomic_write_json(destination_iteration / "run.json", {
