@@ -102,14 +102,12 @@ numerical autointerpretability scores are also useful.
 Use `--input runs/evaluated-tinker-no-seed` (with the full experiment-relative
 path) to inspect an archived evaluator condition.
 
-For a longitudinal condition in which every checkpoint uses the same five
-explanation and five held-out top fragments, see
-[`fixed-panel-protocol.md`](fixed-panel-protocol.md). The fixed panel is sampled
-deterministically from the union of every checkpoint's top-20 fragments and is
-derived from the prepared activations without another model pass. Its default
-layout combines layers 7, 15, 23, and 31 into one evaluator input.
-Use `prepare_fixed_panel_run.py` to import the two immutable trajectory caches
-and produce the complete four-layer condition under `runs/fixed-panel/`.
+For the four-layer convergence condition, see
+[`intrinsic-protocol.md`](intrinsic-protocol.md). Each checkpoint uses five
+explanation fragments and twenty held-out top fragments sampled from its own
+top-25 unique-document pool. `prepare_fixed_panel_run.py` imports the immutable
+trajectory caches and produces this condition under the historical
+`runs/fixed-panel/` run-container name.
 
 ##### Run layout and additive layers 7 and 23
 >

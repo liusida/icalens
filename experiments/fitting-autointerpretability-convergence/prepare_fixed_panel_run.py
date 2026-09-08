@@ -177,6 +177,7 @@ def main() -> None:
         "batch_size": args.batch_size,
         "statistics_batch_size": args.statistics_batch_size,
         "device": args.device,
+        "selection_protocol": "checkpoint-specific-intrinsic-5-train-20-valid",
     }
     if args.dry_run:
         print(json.dumps(configuration, indent=2))
@@ -250,7 +251,7 @@ def main() -> None:
             return
 
         run([
-            sys.executable, str(ROOT / "prepare_fixed_panel.py"),
+            sys.executable, str(ROOT / "prepare_intrinsic_panel.py"),
             "--layers", ",".join(map(str, LAYERS)),
             "--input", str(checkpoint_prepared),
             "--output", str(fixed_prepared),
@@ -258,7 +259,7 @@ def main() -> None:
         atomic_write_json(output / "fixed-panel-run.json", {
             "status": "complete", "resolved": configuration
         })
-        print(f"PASS four-layer fixed-panel preparation: {fixed_prepared}")
+        print(f"PASS four-layer intrinsic preparation: {fixed_prepared}")
     except BaseException:
         atomic_write_json(output / "fixed-panel-run.json", {
             "status": "interrupted", "resolved": configuration

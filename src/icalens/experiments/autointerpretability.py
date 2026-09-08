@@ -787,7 +787,11 @@ async def _evaluate_openai_main(args: argparse.Namespace) -> None:
             )
             selected = _selected_records(selection, args)
             tasks.extend((layer, method, record) for record in selected)
-    print(f"{len(tasks)} features; {len(tasks)} explanations; {len(tasks) * 10} simulations")
+    simulation_count = sum(
+        len(record["valid_top"]) + len(record["valid_random"])
+        for _, _, record in tasks
+    )
+    print(f"{len(tasks)} features; {len(tasks)} explanations; {simulation_count} simulations")
     if args.dry_run:
         return
     source = source_provenance()
@@ -829,7 +833,7 @@ async def _evaluate_openai_main(args: argparse.Namespace) -> None:
         output=output / "logs",
         title="ICA Lens · Cunningham-modern autointerpretability",
         completed=completed,
-        total=len(tasks) * 11,
+        total=len(tasks) + simulation_count,
         source_dirty=bool(source.get("dirty")),
         detail_filename="evaluation-detail.log",
     )
@@ -1012,7 +1016,7 @@ async def _evaluate_openai_feature(
 
     predicted = np.stack(await asyncio.gather(*(simulate(item) for item in enumerate(validation))))
     actual = feature_values[validation].astype(np.float64)
-    split = EXAMPLES_PER_SPLIT
+    split = len(record["valid_top"])
     _write_json(
         destination,
         {
@@ -1241,9 +1245,13 @@ def _evaluate_tinker_main(args: argparse.Namespace) -> None:
             )
             selected = _selected_records(selection, args)
             tasks.extend((layer, method, record) for record in selected)
+    simulation_count = sum(
+        len(record["valid_top"]) + len(record["valid_random"])
+        for _, _, record in tasks
+    )
     print(
         f"{len(tasks)} features; {len(tasks)} explanations; "
-        f"{len(tasks) * 10} simulations; {len(tasks) * 10} logprob scoring calls"
+        f"{simulation_count} simulations; {simulation_count} logprob scoring calls"
     )
     if args.dry_run:
         return
@@ -1292,7 +1300,7 @@ def _evaluate_tinker_main(args: argparse.Namespace) -> None:
         output=output / "logs",
         title="ICA Lens · Cunningham-modern · Tinker",
         completed=completed,
-        total=len(tasks) * 11,
+        total=len(tasks) + simulation_count,
         source_dirty=bool(source.get("dirty")),
         detail_filename="evaluation-detail.log",
     )
@@ -1493,7 +1501,7 @@ def _evaluate_tinker_feature(
     with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
         predicted = np.stack(list(executor.map(simulate, enumerate(validation))))
     actual = feature_values[validation].astype(np.float64)
-    split = EXAMPLES_PER_SPLIT
+    split = len(record["valid_top"])
     _write_json(
         destination,
         {
@@ -1559,7 +1567,7 @@ def _modern_completed_units(
         feature = int(record["feature"])
         results = root / f"layer_{layer:02d}" / method / "results"
         if _modern_result_valid(results / f"feature_{feature}.json", evaluation, feature):
-            count += 11
+            count += 1 + len(record["valid_top"]) + len(record["valid_random"])
             continue
         explanation = _read_json_object(results / f"feature_{feature}.explanation.json")
         count += int(
