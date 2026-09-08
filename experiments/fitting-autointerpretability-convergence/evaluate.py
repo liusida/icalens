@@ -76,7 +76,9 @@ def main() -> None:
     if args.dry_run:
         for iteration in EVALUATED_CHECKPOINTS:
             subprocess.run(
-                _command(args, source, output, iteration, model, explainer, simulator),
+                _command(
+                    args, source, output, iteration, 0, model, explainer, simulator
+                ),
                 check=True,
             )
         return
@@ -89,61 +91,101 @@ def main() -> None:
         status="evaluating",
     )
     completed = {
-        iteration
-        for iteration in EVALUATED_CHECKPOINTS
-        if _is_complete(output / f"iter-{iteration:03d}", source, iteration, args.provider)
+        position
+        for position in range(50)
+        if all(
+            _position_complete(
+                output / f"iter-{iteration:03d}",
+                source / f"iter-{iteration:03d}",
+                position,
+                args.provider,
+                model,
+                explainer,
+                simulator,
+            )
+            for iteration in EVALUATED_CHECKPOINTS
+        )
     }
     try:
         with ExperimentDisplay(
             output=output / "logs",
             title=f"ICA Lens · autointerpretability convergence · {args.provider}",
             completed=len(completed),
-            total=len(EVALUATED_CHECKPOINTS),
+            total=50,
             completed_unit_ids=completed,
             source_dirty=provenance.get("dirty"),
-            unit_label="fitting checkpoints",
+            unit_label="matched cohort positions",
             detail_filename="evaluation-detail.log",
         ) as display:
             warn_if_dirty(provenance)
-            for iteration in EVALUATED_CHECKPOINTS:
-                if iteration in completed:
-                    log(f"Reused completed autointerpretability iteration {iteration}.")
+            for position in range(50):
+                if position in completed:
+                    log(f"Reused matched cohort position {position + 1}/50.")
                     continue
-                display.phase("Evaluating checkpoint", iteration=iteration, provider=args.provider)
-                log(f"Starting autointerpretability iteration {iteration}.")
-                command = _command(args, source, output, iteration, model, explainer, simulator)
-                child = subprocess.Popen(
-                    command,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                )
-                assert child.stdout is not None
-                for line in child.stdout:
-                    print(line, end="")
-                status = child.wait()
-                if status:
-                    raise subprocess.CalledProcessError(status, command)
-                if not _is_complete(
-                    output / f"iter-{iteration:03d}", source, iteration, args.provider
-                ):
-                    raise ValueError(f"child did not produce a valid iteration {iteration}")
-                display.complete_unit(iteration, refresh=True)
-                log(f"Completed autointerpretability iteration {iteration}.")
+                log(f"Starting matched cohort position {position + 1}/50.")
+                for iteration in EVALUATED_CHECKPOINTS:
+                    preparation = source / f"iter-{iteration:03d}"
+                    destination = output / f"iter-{iteration:03d}"
+                    if _position_complete(
+                        destination, preparation, position, args.provider,
+                        model, explainer, simulator,
+                    ):
+                        log(
+                            f"Reused cohort position {position + 1}/50 at "
+                            f"iteration {iteration}."
+                        )
+                        continue
+                    display.phase(
+                        "Evaluating matched component",
+                        component=f"{position + 1}/50",
+                        iteration=iteration,
+                        provider=args.provider,
+                    )
+                    command = _command(
+                        args, source, output, iteration, position,
+                        model, explainer, simulator,
+                    )
+                    child = subprocess.Popen(
+                        command,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                    )
+                    assert child.stdout is not None
+                    for line in child.stdout:
+                        print(line, end="")
+                    status = child.wait()
+                    if status:
+                        raise subprocess.CalledProcessError(status, command)
+                    if not _position_complete(
+                        destination, preparation, position, args.provider,
+                        model, explainer, simulator,
+                    ):
+                        raise ValueError(
+                            f"child did not complete cohort position {position} "
+                            f"at iteration {iteration}"
+                        )
+                    log(
+                        f"Completed cohort position {position + 1}/50 at "
+                        f"iteration {iteration}."
+                    )
+                display.complete_unit(position, refresh=True)
+                log(f"Completed matched cohort position {position + 1}/50 across checkpoints.")
             run.set_status("complete", complete=True)
-            log(f"Complete: {len(EVALUATED_CHECKPOINTS)} fitting checkpoints.")
+            log("Complete: 50 matched cohort positions across all fitting checkpoints.")
     except BaseException:
         run.set_status("interrupted")
         raise
 
 
-def _command(args, source, output, iteration, model, explainer, simulator):
+def _command(args, source, output, iteration, position, model, explainer, simulator):
     command = [
         "icalens", "experiment", "autointerpretability", "evaluate",
         "--input", str(source / f"iter-{iteration:03d}"),
         "--output", str(output / f"iter-{iteration:03d}"),
         "--methods", "ica", "--provider", args.provider,
+        "--feature-position", str(position),
         "--env-file", str(args.env_file),
     ]
     if model:
@@ -157,19 +199,37 @@ def _command(args, source, output, iteration, model, explainer, simulator):
     return command
 
 
-def _is_complete(directory: Path, source: Path, iteration: int, provider: str) -> bool:
-    path = directory / "run.json"
+def _position_complete(
+    directory: Path,
+    preparation: Path,
+    position: int,
+    provider: str,
+    model: str | None,
+    explainer: str | None,
+    simulator: str | None,
+) -> bool:
     try:
-        state = json.loads(path.read_text())
-        resolved = state["resolved"]
-        return (
-            state.get("status") == "complete"
-            and Path(resolved["preparation"]).resolve()
-            == (source / f"iter-{iteration:03d}").resolve()
-            and resolved.get("methods") == ["ica"]
-            and state.get("evaluation", {}).get("provider") == provider
-        )
-    except (OSError, KeyError, TypeError, json.JSONDecodeError):
+        for layer in (15, 31):
+            selection = json.loads(
+                (preparation / f"layer_{layer:02d}/ica/selection.json").read_text()
+            )
+            feature = int(selection["accepted"][position]["feature"])
+            result = json.loads(
+                (directory / f"layer_{layer:02d}/ica/results/feature_{feature}.json").read_text()
+            )
+            if result.get("status") != "complete" or result.get("provider") != provider:
+                return False
+            if model is not None and (
+                result.get("explainer_model") != model
+                or result.get("simulator_model") != model
+            ):
+                return False
+            if explainer is not None and result.get("explainer_model") != explainer:
+                return False
+            if simulator is not None and result.get("simulator_model") != simulator:
+                return False
+        return True
+    except (OSError, IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError):
         return False
 
 

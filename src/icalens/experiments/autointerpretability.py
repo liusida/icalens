@@ -579,6 +579,12 @@ def _evaluate_parser() -> argparse.ArgumentParser:
     parser.add_argument("--methods", default="ica,sae")
     parser.add_argument("--n-features", type=int, default=None)
     parser.add_argument(
+        "--feature-position",
+        type=int,
+        default=None,
+        help="Evaluate one zero-based position in each layer's accepted feature cohort.",
+    )
+    parser.add_argument(
         "--provider", choices=("tinker", "openai"), default="tinker"
     )
     parser.add_argument("--model", default=None)
@@ -610,6 +616,10 @@ def _evaluate_parser() -> argparse.ArgumentParser:
 
 def evaluate_main(argv: Sequence[str] | None = None) -> None:
     args = _evaluate_parser().parse_args(argv)
+    if args.n_features is not None and args.feature_position is not None:
+        raise ValueError("--n-features and --feature-position are mutually exclusive")
+    if args.feature_position is not None and args.feature_position < 0:
+        raise ValueError("--feature-position must be nonnegative")
     if args.max_concurrent < 1:
         raise ValueError("--max-concurrent must be positive")
     if args.request_delay < 0:
@@ -637,6 +647,19 @@ def _read_json_object(path: Path) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError):
         return None
     return value if isinstance(value, dict) else None
+
+
+def _selected_records(selection: dict[str, Any], args: argparse.Namespace) -> list[dict[str, Any]]:
+    accepted = selection["accepted"]
+    if args.feature_position is not None:
+        position = int(args.feature_position)
+        if position >= len(accepted):
+            raise ValueError(
+                f"--feature-position {position} is unavailable; "
+                f"the cohort contains {len(accepted)} features"
+            )
+        return [accepted[position]]
+    return accepted[: args.n_features] if args.n_features else accepted
 
 
 def _modern_simulator_messages(explanation: str, tokens: Sequence[str]) -> list[dict[str, str]]:
@@ -761,11 +784,7 @@ async def _evaluate_openai_main(args: argparse.Namespace) -> None:
             selection = json.loads(
                 (preparation / f"layer_{layer:02d}" / method / "selection.json").read_text()
             )
-            selected = (
-                selection["accepted"][: args.n_features]
-                if args.n_features
-                else selection["accepted"]
-            )
+            selected = _selected_records(selection, args)
             tasks.extend((layer, method, record) for record in selected)
     print(f"{len(tasks)} features; {len(tasks)} explanations; {len(tasks) * 10} simulations")
     if args.dry_run:
@@ -1207,11 +1226,7 @@ def _evaluate_tinker_main(args: argparse.Namespace) -> None:
             selection = json.loads(
                 (preparation / f"layer_{layer:02d}" / method / "selection.json").read_text()
             )
-            selected = (
-                selection["accepted"][: args.n_features]
-                if args.n_features
-                else selection["accepted"]
-            )
+            selected = _selected_records(selection, args)
             tasks.extend((layer, method, record) for record in selected)
     print(
         f"{len(tasks)} features; {len(tasks)} explanations; "
