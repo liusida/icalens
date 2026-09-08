@@ -26,6 +26,7 @@ from icalens.experiments._source_provenance import source_provenance, warn_if_di
 from icalens.experiments.autointerpretability_protocol import FRAGMENT_LENGTH, select_record_indices
 
 from select_cohort import LAYERS, checkpoint_path, validate_trajectory
+from trajectory import parse_layers
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_TRAJECTORY = ROOT / "runs/trajectory"
@@ -49,6 +50,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--fragments", type=Path, default=DEFAULT_FRAGMENTS)
     p.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     p.add_argument("--archive", type=Path, default=DEFAULT_ARCHIVE)
+    p.add_argument("--layers", default=",".join(map(str, LAYERS)))
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--statistics-batch-size", type=int, default=16_384)
     p.add_argument("--device", default="cuda")
@@ -189,14 +191,16 @@ def write_metadata(output, archive, fragments, cohort_path, cohort):
 
 
 def main() -> None:
+    global LAYERS
     args = parse_args()
+    LAYERS = parse_layers(args.layers)
     if min(args.batch_size, args.statistics_batch_size) < 1:
         raise ValueError("batch sizes must be positive")
     trajectory, cohort_path = args.trajectory.resolve(), args.cohort.resolve()
     fragments_path = args.fragments.resolve()
     output = args.output.resolve()
     archive = args.archive.resolve()
-    summary = validate_trajectory(trajectory)
+    summary = validate_trajectory(trajectory, LAYERS)
     resolved = {
         "format": "icalens.fastica_autointerpretability_preparation",
         "format_version": 1,

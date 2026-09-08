@@ -101,3 +101,52 @@ numerical autointerpretability scores are also useful.
 
 Use `--input runs/evaluated-tinker-no-seed` (with the full experiment-relative
 path) to inspect an archived evaluator condition.
+
+##### Additive layers 7 and 23
+>
+> Layers 7 and 23 are an additive extension. They use separate run and cache
+> roots, so none of the completed layer-15/layer-31 artifacts are invalidated or
+> recomputed.
+
+Fit and select the two new trajectories:
+
+```bash
+uv run python experiments/fitting-autointerpretability-convergence/trajectory.py \
+  --layers 7,23 \
+  --output experiments/fitting-autointerpretability-convergence/runs/trajectory-layers-07-23
+
+uv run python experiments/fitting-autointerpretability-convergence/select_cohort.py \
+  --layers 7,23 \
+  --trajectory experiments/fitting-autointerpretability-convergence/runs/trajectory-layers-07-23 \
+  --output experiments/fitting-autointerpretability-convergence/runs/cohort-layers-07-23.json
+```
+
+Prepare the same fragment corpus for only the two new layers:
+
+```bash
+uv run python experiments/fitting-autointerpretability-convergence/prepare.py \
+  --layers 7,23 \
+  --trajectory experiments/fitting-autointerpretability-convergence/runs/trajectory-layers-07-23 \
+  --cohort experiments/fitting-autointerpretability-convergence/runs/cohort-layers-07-23.json \
+  --output experiments/fitting-autointerpretability-convergence/runs/prepared-layers-07-23 \
+  --archive /media/liusida/Expansion/research/ICA-data/fitting-autointerpretability-convergence-layers-07-23
+```
+
+Evaluate only those layers:
+
+```bash
+uv run python experiments/fitting-autointerpretability-convergence/evaluate.py \
+  --layers 7,23 \
+  --input experiments/fitting-autointerpretability-convergence/runs/prepared-layers-07-23 \
+  --output experiments/fitting-autointerpretability-convergence/runs/evaluated-tinker-layers-07-23
+```
+
+Plot the extension with the same two-panel convention:
+
+```bash
+uv run python experiments/fitting-autointerpretability-convergence/plot.py \
+  --layers 7,23 \
+  --input experiments/fitting-autointerpretability-convergence/runs/evaluated-tinker-layers-07-23 \
+  --preparation experiments/fitting-autointerpretability-convergence/runs/prepared-layers-07-23 \
+  --output experiments/fitting-autointerpretability-convergence/figures/layers-07-23
+```

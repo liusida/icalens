@@ -14,7 +14,8 @@ from icalens.experiments._display import ExperimentDisplay
 from icalens.experiments._run import ResumableRun
 from icalens.experiments._source_provenance import source_provenance, warn_if_dirty
 
-from prepare import DEFAULT_OUTPUT, EVALUATED_CHECKPOINTS
+from prepare import DEFAULT_OUTPUT, EVALUATED_CHECKPOINTS, LAYERS
+from trajectory import parse_layers
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_EVALUATIONS = ROOT / "runs/evaluated"
@@ -32,6 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--explainer-model")
     parser.add_argument("--simulator-model")
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
+    parser.add_argument("--layers", default=",".join(map(str, LAYERS)))
     parser.add_argument(
         "--max-concurrent-checkpoints",
         type=int,
@@ -50,6 +52,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    layers = parse_layers(args.layers)
     if args.provider == "tinker" and args.model:
         raise ValueError("Tinker uses --explainer-model and --simulator-model, not --model")
     if args.provider == "openai" and (args.explainer_model or args.simulator_model):
@@ -82,6 +85,7 @@ def main() -> None:
         "format_version": 1,
         "input": str(source),
         "checkpoints": list(EVALUATED_CHECKPOINTS),
+        "layers": list(layers),
         "preparations": preparation_manifests,
         "provider": args.provider,
         "model": model,
@@ -120,6 +124,7 @@ def main() -> None:
                 model,
                 explainer,
                 simulator,
+                layers,
             )
             for iteration in EVALUATED_CHECKPOINTS
         )
@@ -148,6 +153,7 @@ def main() -> None:
                     if _position_complete(
                         destination, preparation, position, args.provider,
                         model, explainer, simulator,
+                        layers,
                     ):
                         log(
                             f"Reused cohort position {position + 1}/50 at "
@@ -194,6 +200,7 @@ def main() -> None:
                         if not _position_complete(
                             destination, preparation, position, args.provider,
                             model, explainer, simulator,
+                            layers,
                         ):
                             raise ValueError(
                                 f"child did not complete cohort position {position} "
@@ -255,9 +262,10 @@ def _position_complete(
     model: str | None,
     explainer: str | None,
     simulator: str | None,
+    layers: tuple[int, ...],
 ) -> bool:
     try:
-        for layer in (15, 31):
+        for layer in layers:
             selection = json.loads(
                 (preparation / f"layer_{layer:02d}/ica/selection.json").read_text()
             )

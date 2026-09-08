@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 
 from prepare import EVALUATED_CHECKPOINTS, LAYERS, N_FEATURES
+from trajectory import parse_layers
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_INPUT = ROOT / "runs/evaluated-tinker"
@@ -31,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--preparation", type=Path, default=DEFAULT_PREPARATION)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--layers", default=",".join(map(str, LAYERS)))
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
@@ -203,21 +205,16 @@ def plot_aggregate(plt: Any, rows: list[dict[str, Any]], stem: Path) -> dict[int
                         values, _bootstrap_seed(layer, EVALUATED_CHECKPOINTS[index])
                     )
             color = ICA_BLUE
-            axis.fill_between(
-                EVALUATED_CHECKPOINTS,
-                low,
-                high,
-                color=color,
-                alpha=0.16,
-                linewidth=0,
-            )
-            axis.plot(
+            axis.errorbar(
                 EVALUATED_CHECKPOINTS,
                 mean,
+                yerr=[mean - low, high - mean],
                 color=color,
                 linewidth=1.5,
                 marker="D",
-                markersize=2.8,
+                markersize=3.5,
+                capsize=2.5,
+                zorder=4,
             )
             partial = (n > 0) & (n < N_FEATURES)
             axis.scatter(
@@ -256,7 +253,9 @@ def _bootstrap_seed(layer: int, iteration: int) -> int:
 
 
 def main() -> None:
+    global LAYERS
     args = parse_args()
+    LAYERS = parse_layers(args.layers)
     input_root = args.input.expanduser().resolve()
     preparation = args.preparation.expanduser().resolve()
     output = args.output.expanduser().resolve()
@@ -315,7 +314,8 @@ def main() -> None:
     )
     aggregate.with_suffix(".txt").write_text(
         "Mean combined autointerpretability score across available matched FastICA rows. "
-        "Bands show deterministic 95% bootstrap confidence intervals for the mean; "
+        "Capped error bars show deterministic 95% bootstrap confidence intervals "
+        "for the mean; "
         "hollow points have fewer than the nominal 50 rows. The iteration axis uses "
         "symmetric-log spacing. Counts by iteration: "
         f"{count_text}.\n",

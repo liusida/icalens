@@ -12,6 +12,7 @@ import torch
 from safetensors.torch import load_file
 
 from icalens.experiments._run import atomic_write_json
+from trajectory import parse_layers
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_TRAJECTORY = ROOT / "runs/trajectory"
@@ -26,6 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trajectory", type=Path, default=DEFAULT_TRAJECTORY)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--n-components", type=int, default=50)
+    parser.add_argument("--layers", default=",".join(map(str, LAYERS)))
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -42,7 +44,7 @@ def checkpoint_path(trajectory: Path, layer: int, iteration: int) -> Path:
     return trajectory / "checkpoints" / f"layer-{layer:02d}" / f"iter-{iteration:03d}.safetensors"
 
 
-def validate_trajectory(trajectory: Path) -> dict:
+def validate_trajectory(trajectory: Path, layers: tuple[int, ...] | None = None) -> dict:
     summary_path = trajectory / "summary.json"
     if not summary_path.is_file():
         raise FileNotFoundError(f"trajectory summary not found: {summary_path}")
@@ -50,7 +52,6 @@ def validate_trajectory(trajectory: Path) -> dict:
     expected = {
         "format": "icalens.fastica_trajectory",
         "format_version": 1,
-        "layers": list(LAYERS),
         "checkpoints": list(CHECKPOINTS),
         "component_order": "persistent optimization row; no per-checkpoint reordering",
     }
@@ -61,6 +62,10 @@ def validate_trajectory(trajectory: Path) -> dict:
     ]
     if mismatches:
         raise ValueError("incompatible trajectory: " + "; ".join(mismatches))
+    if layers is not None and summary.get("layers") != list(layers):
+        raise ValueError(
+            f"incompatible trajectory layers: {summary.get('layers')!r} != {list(layers)!r}"
+        )
     return summary
 
 
@@ -119,12 +124,13 @@ def continuity(trajectory: Path, *, layer: int, rows: list[int], device: str) ->
 
 def main() -> None:
     args = parse_args()
+    layers_requested = parse_layers(args.layers)
     trajectory = args.trajectory.expanduser().resolve()
     output = args.output.expanduser().resolve()
-    summary = validate_trajectory(trajectory)
+    summary = validate_trajectory(trajectory, layers_requested)
     layers = {
         str(layer): {"row_ids": selected_rows(layer=layer, count=args.n_components)}
-        for layer in LAYERS
+        for layer in layers_requested
     }
     resolved = {
         "format": "icalens.fastica_autointerpretability_cohort",
@@ -144,7 +150,7 @@ def main() -> None:
     if args.dry_run:
         print(json.dumps(resolved, indent=2))
         return
-    for layer in LAYERS:
+    for layer in layers_requested:
         rows = layers[str(layer)]["row_ids"]
         layers[str(layer)]["continuity"] = continuity(
             trajectory, layer=layer, rows=rows, device=args.device
