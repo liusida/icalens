@@ -1552,7 +1552,7 @@ def _modern_result_valid(path: Path, evaluation: dict[str, Any], feature: int) -
     value = _read_json_object(path)
     return bool(
         value
-        and value.get("status") == "complete"
+        and value.get("status") in {"complete", "disabled"}
         and value.get("protocol") == "cunningham-modern"
         and value.get("prompt_hash") == evaluation["prompt_hash"]
         and value.get("feature") == feature
@@ -1604,6 +1604,8 @@ def _summarize_modern(
                 if ".explanation." in path.name or ".error." in path.name:
                     continue
                 value = json.loads(path.read_text())
+                if value.get("status") != "complete":
+                    continue
                 condition.append(value)
                 rows.append({"layer": layer, "method": method, **value})
             scores = np.asarray([row["combined_score"] for row in condition], dtype=np.float64)

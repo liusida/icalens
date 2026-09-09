@@ -475,9 +475,11 @@ class ICAFeatureEncoder(torch.nn.Module):
         self.register_buffer("center", center)
         self.register_buffer("reading", reading)
         decoder = torch.cat((writing.T, -writing.T), dim=0)
-        decoder = decoder / torch.linalg.vector_norm(decoder, dim=-1, keepdim=True).clamp_min(
+        decoder_norms = torch.linalg.vector_norm(decoder, dim=-1).clamp_min(
             float(snapshot["norm_eps"])
         )
+        decoder = decoder / decoder_norms[:, None]
+        self.register_buffer("decoder_norms", decoder_norms)
         self.W_dec = torch.nn.Parameter(decoder, requires_grad=False)
         self.dtype = dtype
         self.device = torch.device(device)
@@ -502,7 +504,11 @@ class ICAFeatureEncoder(torch.nn.Module):
                 self.norm_eps
             )
         scores = (work - self.center) @ self.reading.T
-        return torch.cat((scores.clamp_min(0), (-scores).clamp_min(0)), dim=-1)
+        signed_scores = torch.cat((scores.clamp_min(0), (-scores).clamp_min(0)), dim=-1)
+        # W_dec is unit-normalized for SAEBench. Move the removed writing-vector
+        # norms into the corresponding feature activations so the represented
+        # residual contribution remains exactly unchanged.
+        return signed_scores * self.decoder_norms
 
 
 class PCAFeatureEncoder(torch.nn.Module):

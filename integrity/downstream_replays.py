@@ -13,8 +13,10 @@ from typing import Any
 
 import numpy as np
 import torch
+from safetensors.torch import load_file
 
 from icalens import ICALens
+from icalens.experiments._saebench_worker import ICAFeatureEncoder
 from icalens.experiments.reconstruction import _aggregate_layer
 from icalens.experiments.saebench_sparse_probing import (
     _prepare_layer_baselines,
@@ -122,12 +124,33 @@ def c22_sparse_probing(output: Path) -> dict[str, Any]:
     layers = [int(v) for v in run["resolved"]["layers"]]
     actual = collect_result_rows(root, layers)
     expected = _json(root / "results.json")["rows"]
+    snapshot = _json(root / "checkpoints/layer_06/snapshot.json")
+    tensors = load_file(snapshot["layer_file"], device="cpu")
+    center = tensors["center"].to(torch.float32)
+    reading = tensors["reading_matrix"].to(torch.float32)
+    writing = tensors["writing_matrix"].to(torch.float32)
+    generator = torch.Generator(device="cpu").manual_seed(2206)
+    activations = center + torch.randn((4, center.numel()), generator=generator)
+    raw_scores = (activations - center) @ reading.T
+    signed_scores = torch.cat((raw_scores.clamp_min(0), (-raw_scores).clamp_min(0)), dim=-1)
+    norms = torch.linalg.vector_norm(writing.T, dim=-1)
+    expected_features = signed_scores * torch.cat((norms, norms))
+    encoder = ICAFeatureEncoder(snapshot, device="cpu", dtype=torch.float32)
+    actual_features = encoder.encode(activations)
     return _report(
         "C22-sparse-probing-aggregation-gpt2",
         ["D01", "D02", "D03", "D11", "D04", "D05"],
         "C22",
         "D22",
-        {"rows_exact": actual == expected},
+        {
+            "rows_exact": actual == expected,
+            "ica_decoder_rows_unit_norm": torch.allclose(
+                encoder.W_dec.norm(dim=-1), torch.ones(encoder.W_dec.shape[0]), atol=1e-6
+            ),
+            "ica_score_norm_compensation_exact": torch.allclose(
+                actual_features, expected_features, rtol=1e-6, atol=1e-6
+            ),
+        },
         reference=str(root / "results.json"),
     )
 

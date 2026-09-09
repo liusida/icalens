@@ -35,6 +35,7 @@ misc/
 /experiments/*/official/results/*/figures/
 /experiments/*/official/results/*/layers/
 /experiments/*/official/results/**/*.log
+/experiments/sparse-probing/official/results-compensated/
 pilot-experiments/output/
 /pilot-experiments/
 .worktrees/

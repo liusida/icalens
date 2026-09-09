@@ -154,7 +154,7 @@ shared artifacts + public SAE checkpoints
 | Toy example | `D01 + D02 --C20--> D20` | `C20-toy-example` | Full numerical analysis replay from retained vocabulary activations |
 | Reconstruction capture | `D01 + D02 + D03 --C14--> D14` | None | **Skipped:** independent recapture for six heterogeneous dataset loaders is not implemented |
 | Reconstruction | `D14 + D11 + D04 --C13+C21--> D21` | `C21-reconstruction-aggregation-gpt2-context64` | Aggregation replay of every layer from retained per-dataset metrics; C13 covered separately |
-| Sparse probing | `D01 + D02 + D03 + D11 + D04 + D05 --C13+C22--> D22` | `C22-sparse-probing-aggregation-gpt2` | Production row-collection replay; probing itself is not rerun |
+| Sparse probing | `D01 + D02 + D03 + D11 + D04 + D05 --C13+C22--> D22` | `C22-sparse-probing-aggregation-gpt2` | Production row-collection replay plus an independent numerical check that unit decoder rows receive exact ICA score compensation; probing itself is not rerun |
 | Autointerpretability | `D01 + D02 + D03 + D11 + D12 + D04 + D05 --C13+C23--> D23` | `C23-autointerpretability-aggregation-gpt2` | Aggregation replay; accepted external LLM responses are trusted inputs |
 | ICA ERF | `D01 + D02 + D03 + D11 + D12 --C24--> D24` | `C24-ica-erf-aggregation-gpt2-layer6` | Component/threshold aggregation replay for GPT-2 layer 6 |
 | SAE ERF | `D01 + D02 + D10 + D04 --C13+C25--> D24` | `C25-sae-erf-aggregation-gpt2-layer6` | Component/threshold validation for GPT-2 layer 6; C13 covered separately |

@@ -304,7 +304,7 @@ def _position_complete(
                 (directory / f"layer_{layer:02d}/ica/results/feature_{feature}.json").read_text()
             )
             if (
-                result.get("status") != "complete"
+                result.get("status") not in {"complete", "disabled"}
                 or result.get("provider") != provider
                 or (provider == "tinker" and result.get("sampling_seed") != 0)
             ):

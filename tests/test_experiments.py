@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from safetensors.torch import save_file
 
 from icalens.experiments._sae import SAEFeatureEncoder, _load_sae_tensors
 from icalens.experiments._saebench_environment import resolve_backend
@@ -15,6 +16,7 @@ from icalens.experiments._saebench_multilayer_worker import (
     _hook_aliases,
 )
 from icalens.experiments._saebench_worker import (
+    ICAFeatureEncoder,
     RandomFeatureEncoder,
     _merge_dataset_results,
     _remove_dataset_artifacts,
@@ -74,6 +76,35 @@ def test_k_values_override_parser() -> None:
     assert _parse_k_values("500,200,500") == [200, 500]
     with pytest.raises(ValueError, match="positive integers"):
         _parse_k_values("0,200")
+
+
+def test_ica_saebench_encoder_compensates_unit_decoder_norms(tmp_path: Path) -> None:
+    center = torch.tensor([0.25, -0.5])
+    reading = torch.tensor([[2.0, 0.0], [0.0, 0.25]])
+    writing = torch.linalg.pinv(reading)
+    layer_file = tmp_path / "layer.safetensors"
+    save_file(
+        {
+            "center": center,
+            "reading_matrix": reading,
+            "writing_matrix": writing,
+        },
+        layer_file,
+    )
+    snapshot = {
+        "layer_file": str(layer_file),
+        "saebench_model_name": "test-model",
+        "layer": 0,
+        "row_normalize": False,
+        "norm_eps": 1e-12,
+    }
+    encoder = ICAFeatureEncoder(snapshot, device="cpu", dtype=torch.float32)
+    activations = torch.tensor([[[1.25, -2.5], [-0.75, 3.5]]])
+    features = encoder.encode(activations)
+    reconstructed = features @ encoder.W_dec + center
+
+    assert torch.allclose(encoder.W_dec.norm(dim=-1), torch.ones(4))
+    assert torch.allclose(reconstructed, activations, atol=1e-6)
 
 
 def test_source_provenance_records_checkout_revision() -> None:
