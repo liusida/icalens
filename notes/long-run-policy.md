@@ -50,6 +50,7 @@ Each command defines an independently reusable work unit:
 | `icalens profile` | one profiled layer | profile that layer again |
 | reconstruction experiment | one dataset × layer × method result | evaluate that unit again |
 | sparse-probing experiment | one dataset × layer × method result | evaluate that unit again |
+| targeted-probe-perturbation experiment | one layer result; SAEBench internally retains completed methods | repeat only the interrupted method(s), then assemble the layer result |
 | autointerpretability preparation | one accepted fragment or one prepared layer | sample the current document again or prepare that layer again |
 | autointerpretability evaluation | one explanation or one simulated fragment | request that explanation or simulation again |
 | effective-receptive-field experiment | one completed layer | repeat the interrupted layer |

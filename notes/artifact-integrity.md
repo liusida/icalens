@@ -113,6 +113,7 @@ shared artifacts + public SAE checkpoints
 | `D27` | Activation-pattern results | `C28` | Activation-pattern figures |
 | `D28` | Manual-annotation results | `C29` | Confidence figure |
 | `D29` | Steering/language-control results | `C30` | Steering analysis |
+| `D33` | Targeted-probe-perturbation results | `C31` | TPP analysis and figures |
 | `D30` | Paper twin data | `C40` | Figure renderers |
 | `D31` | Paper PDF/PNG figures | `C41` | LaTeX paper |
 | `D32` | Paper `main.pdf` | `C42` | Submission artifact |
@@ -138,6 +139,7 @@ shared artifacts + public SAE checkpoints
 | `C28` | Tokenwise ICA/SAE activation-pattern measurement |
 | `C29` | Annotation sampling/aggregation; judgments remain external |
 | `C30` | Steering intervention, generation, and measurement |
+| `C31` | SAEBench targeted probe perturbation, fitted/unfitted dictionary adapters, and aggregation |
 | `C40` | Paper twin-data extraction and validation |
 | `C41` | Figure rendering and style application |
 | `C42` | LaTeX assembly |
@@ -163,6 +165,7 @@ shared artifacts + public SAE checkpoints
 | Activation patterns | `D01 + D02 + D11 + D04 --C13+C28--> D27` | `C13-sae-adapter-{model}-layer{layer}` | Numerical replay of token IDs, selected ICA/SAE responses, and top-feature identities for all models |
 | Manual annotation | `D12 + D05 --C29--> D28` | None | Not covered |
 | Steering | `D01 + D02 + D11 --C30--> D29` | None | **Skipped:** stochastic generation and external judgments lack an independent numerical oracle |
+| Targeted probe perturbation | `D01 + D02 + D03 + D11 + D04 + D05 --C13+C31--> D33` | None | Not yet covered; promoted experiment code has independent initialization checks, but no accepted official artifact exists yet |
 | Twin-data preparation | `D20...D29 --C40--> D30` | `C40-twin-data-directional-overlap` | Representative exact-array replay for both directional-overlap twin-data files |
 | Figure rendering | `D30 --C41--> D31` | `C41-render-directional-overlap` | Representative exact-raster replay for the overlap-distribution figure |
 | LaTeX assembly | `D31 --C42--> D32` | None | Not covered |
