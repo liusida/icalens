@@ -29,6 +29,7 @@ misc/
 /experiments/fitting-autointerpretability-convergence/runs/
 /experiments/record-mean-lim/runs/
 /experiments/tpp/runs/
+/experiments/tpp/official/results/
 /experiments/reconstruction/context-matched-gpt2/run/
 /experiments/manual-annotation-random-150/results/
 /experiments/toy-example/work/
