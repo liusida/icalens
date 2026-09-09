@@ -27,6 +27,7 @@ misc/
 /experiments/fitting-seed-stability/output/
 /experiments/fitting-seed-stability/results/
 /experiments/fitting-autointerpretability-convergence/runs/
+/experiments/record-mean-lim/runs/
 /experiments/reconstruction/context-matched-gpt2/run/
 /experiments/manual-annotation-random-150/results/
 /experiments/toy-example/work/
