@@ -51,6 +51,13 @@ uv run python experiments/tpp/run.py \
 Repeating the same command reuses completed layer-method results. Use a new
 output directory when changing result-affecting options.
 
+Large SAEBench activation caches are stored outside the repository under
+`~/Expansion/research/ICA-data/tpp` by default.  The runner namespaces them by
+the resolved scientific configuration and layer, and records their exact paths
+in `<output>/storage.json`.  Override the storage filesystem with
+`--activation-cache-root`; this is a storage choice and does not change run
+identity or numerical results.
+
 Render the completed pilot result:
 
 ```bash

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import subprocess
 import time
 from dataclasses import asdict
@@ -24,6 +25,9 @@ from icalens.experiments.saebench_sparse_probing import (
 )
 
 METHODS = ("ica", "unfitted_ica", "sae", "untrained_sae_matched_l0", "pca")
+DEFAULT_ACTIVATION_CACHE_ROOT = Path(
+    "~/Expansion/research/ICA-data/tpp"
+).expanduser()
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,6 +39,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-values", default=None, help="Comma-separated feature budgets.")
     parser.add_argument("--saebench-path", type=Path, default=None)
     parser.add_argument("--cache-dir", type=Path, default=None)
+    parser.add_argument(
+        "--activation-cache-root",
+        type=Path,
+        default=DEFAULT_ACTIVATION_CACHE_ROOT,
+        help=(
+            "Root for large transient SAEBench activation caches "
+            f"(default: {DEFAULT_ACTIVATION_CACHE_ROOT})."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -75,6 +88,30 @@ def main() -> None:
         print(json.dumps(config, indent=2, sort_keys=True))
         return
     output.mkdir(parents=True, exist_ok=True)
+    activation_cache_root = args.activation_cache_root.expanduser().resolve()
+    cache_key = hashlib.sha256(
+        json.dumps(config, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    run_cache_dir = activation_cache_root / _path_slug(lens.model_id) / cache_key
+    run_cache_dir.mkdir(parents=True, exist_ok=True)
+    free_bytes = shutil.disk_usage(run_cache_dir).free
+    print(
+        f"TPP activation cache: {run_cache_dir} "
+        f"({free_bytes / 2**30:.1f} GiB free)",
+        flush=True,
+    )
+    atomic_write_json(
+        output / "storage.json",
+        {
+            "schema_version": 1,
+            "activation_cache_root": str(activation_cache_root),
+            "run_cache_key": cache_key,
+            "run_cache_dir": str(run_cache_dir),
+            "layer_cache_dirs": {
+                str(layer): str(run_cache_dir / f"layer_{layer:02d}") for layer in layers
+            },
+        },
+    )
     config_path = output / "config.json"
     validate_or_write(config_path, config)
     run = ResumableRun.open(
@@ -111,50 +148,58 @@ def main() -> None:
         started_at=started_at,
         completed_unit_ids=completed_layers,
     )
-    with display:
-        for layer in layers:
-            if layer in completed_layers:
-                continue
-            display.phase("Evaluating five representations", Layer=layer)
-            layer_dir = output / "layers" / f"layer_{layer:02d}"
-            snapshot = _write_layer_snapshot(
-                lens,
-                layer=layer,
-                output=output / "checkpoints" / f"layer_{layer:02d}",
-                saebench_model_name=backend.saebench_model_name,
-                baselines=baselines,
-            )
-            snapshot_payload = json.loads(snapshot.read_text(encoding="utf-8"))
-            snapshot_payload["fitting_seed"] = fitting_seeds[str(layer)]
-            atomic_write_json(snapshot, snapshot_payload)
-            command = [
-                str(prepared.python),
-                str(Path(__file__).with_name("worker.py")),
-                "--saebench-root",
-                str(prepared.root),
-                "--snapshot",
-                str(snapshot),
-                "--config",
-                str(config_path),
-                "--output",
-                str(layer_dir),
-            ]
-            print("RUN " + " ".join(command), flush=True)
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
-            assert process.stdout is not None
-            for line in process.stdout:
-                print(line, end="", flush=True)
-            code = process.wait()
-            if code:
-                raise subprocess.CalledProcessError(code, command)
-            display.complete_unit(layer, refresh=True)
-    run.set_status("complete", complete=True)
+    try:
+        with display:
+            for layer in layers:
+                if layer in completed_layers:
+                    continue
+                display.phase("Evaluating five representations", Layer=layer)
+                layer_dir = output / "layers" / f"layer_{layer:02d}"
+                snapshot = _write_layer_snapshot(
+                    lens,
+                    layer=layer,
+                    output=output / "checkpoints" / f"layer_{layer:02d}",
+                    saebench_model_name=backend.saebench_model_name,
+                    baselines=baselines,
+                )
+                snapshot_payload = json.loads(snapshot.read_text(encoding="utf-8"))
+                snapshot_payload["fitting_seed"] = fitting_seeds[str(layer)]
+                atomic_write_json(snapshot, snapshot_payload)
+                layer_cache_dir = run_cache_dir / f"layer_{layer:02d}"
+                command = [
+                    str(prepared.python),
+                    str(Path(__file__).with_name("worker.py")),
+                    "--saebench-root",
+                    str(prepared.root),
+                    "--snapshot",
+                    str(snapshot),
+                    "--config",
+                    str(config_path),
+                    "--output",
+                    str(layer_dir),
+                    "--activation-cache",
+                    str(layer_cache_dir),
+                ]
+                print("RUN " + " ".join(command), flush=True)
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
+                assert process.stdout is not None
+                for line in process.stdout:
+                    print(line, end="", flush=True)
+                code = process.wait()
+                if code:
+                    raise subprocess.CalledProcessError(code, command)
+                display.complete_unit(layer, refresh=True)
+    except BaseException:
+        run.set_status("failed")
+        raise
+    else:
+        run.set_status("complete", complete=True)
 
 
 def valid_layer_result(path: Path, *, settings: dict[str, object]) -> bool:
@@ -198,6 +243,12 @@ def layer_fingerprint(lens: ICALens, layer: int) -> str:
         digest.update(np.asarray(array.shape, dtype=np.int64).tobytes())
         digest.update(array.tobytes())
     return digest.hexdigest()
+
+
+def _path_slug(value: str) -> str:
+    return "".join(
+        character.lower() if character.isalnum() else "-" for character in value
+    ).strip("-")
 
 
 def settings_for(preset: str, n_values: str | None) -> dict[str, object]:

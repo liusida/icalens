@@ -266,6 +266,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--snapshot", type=Path, required=True)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--activation-cache", type=Path, required=True)
     return parser.parse_args()
 
 
@@ -326,6 +327,7 @@ def main() -> None:
     config.random_seed = int(settings["random_seed"])
     config.lower_vram_usage = False
     args.output.mkdir(parents=True, exist_ok=True)
+    args.activation_cache.mkdir(parents=True, exist_ok=True)
     tpp_main.run_eval(
         config,
         selected_saes=[(name, encoders[name]) for name in METHODS],
@@ -334,7 +336,7 @@ def main() -> None:
         force_rerun=False,
         clean_up_activations=False,
         save_activations=True,
-        artifacts_path=str(args.output / "activation-cache"),
+        artifacts_path=str(args.activation_cache),
     )
     method_results = {}
     for name in METHODS:
