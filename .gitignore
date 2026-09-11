@@ -28,6 +28,7 @@ misc/
 /experiments/fitting-seed-stability/results/
 /experiments/fitting-autointerpretability-convergence/runs/
 /experiments/record-mean-lim/runs/
+/experiments/kurtosis-variance-comparison/runs/
 /experiments/tpp/runs/
 /experiments/tpp/official/results/
 /experiments/reconstruction/context-matched-gpt2/run/
