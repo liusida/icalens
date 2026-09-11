@@ -118,3 +118,13 @@ model, selects the token family, and regenerates the figure and compact results.
 Large activation and fitting artifacts are kept under the ignored `work/`
 directory; only the final figure, results, documentation, and scripts are
 released.
+
+To compare principal-component projections of the same centered activation
+population, run:
+
+```bash
+uv run python experiments/toy-example/scripts/make_pca_projection_figure.py --force
+```
+
+This writes `figures/pca-projection-distributions.png` for PC1 and PC150, where
+principal components are ordered by decreasing covariance eigenvalue.
