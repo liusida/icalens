@@ -16,7 +16,7 @@ import torch
 from matplotlib.lines import Line2D
 from safetensors.torch import load_file
 
-COLORS = {"background": "#B8C1CC", "concept": "#3D5F99", "gaussian": "#777777"}
+COLORS = {"background": "#B8C1CC", "gaussian": "#777777"}
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -46,7 +46,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     samples = json.loads((capture / "samples.json").read_text(encoding="utf-8"))
     x = load_file(capture / "activations.safetensors")["layer_00"].double()
     background = torch.tensor([sample["role"] == "background" for sample in samples])
-    concept = ~background
     center = x[background].mean(dim=0)
     centered = x - center
     covariance = centered.T @ centered / (len(centered) - 1)
@@ -62,9 +61,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     _render(
         projections.numpy(),
         background.numpy(),
-        concept.numpy(),
         component_numbers,
         eigenvalues[selected].numpy(),
+        tuple(str(sample["token"]) for sample in samples),
         output,
     )
     print(output)
@@ -73,9 +72,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 def _render(
     projections: np.ndarray,
     background: np.ndarray,
-    concept: np.ndarray,
     component_numbers: tuple[int, int],
     eigenvalues: np.ndarray,
+    tokens: tuple[str, ...],
     output: Path,
 ) -> None:
     cache = Path(tempfile.gettempdir()) / "icalens-matplotlib"
@@ -124,14 +123,35 @@ def _render(
                 linewidth=1.5,
                 zorder=2,
             )
-            axis.vlines(
-                values[concept],
-                0,
-                0.045 * axis.get_ylim()[1],
-                color=COLORS["concept"],
-                linewidth=1.2,
-                zorder=3,
-            )
+            standardized = (values - mean) / sigma
+            outlier_indices = np.argsort(np.abs(standardized))[-3:][::-1]
+            label_x = (0.60, 0.60, 0.60)
+            label_y = (0.72, 0.57, 0.42)
+            for rank, index in enumerate(outlier_indices):
+                token = tokens[int(index)].replace(" ", "␣")
+                axis.annotate(
+                    token,
+                    xy=(values[index], 0.002),
+                    xycoords="data",
+                    xytext=(label_x[rank], label_y[rank]),
+                    textcoords="axes fraction",
+                    ha="left",
+                    va="center",
+                    fontsize=6.2,
+                    fontfamily="monospace",
+                    bbox={
+                        "boxstyle": "round,pad=0.22",
+                        "facecolor": "white",
+                        "edgecolor": "#6B7280",
+                        "linewidth": 0.55,
+                    },
+                    arrowprops={
+                        "arrowstyle": "-",
+                        "color": "#6B7280",
+                        "linewidth": 0.55,
+                    },
+                    zorder=5,
+                )
             axis.text(
                 0.03,
                 0.94,
@@ -163,7 +183,6 @@ def _render(
         figure.supxlabel("Raw projection", y=0.04)
         figure.legend(
             handles=[
-                Line2D([], [], color=COLORS["concept"], linewidth=2, label="Related tokens"),
                 Line2D(
                     [], [], color=COLORS["gaussian"], linestyle=(0, (4, 2)),
                     linewidth=1.5, label="Gaussian fit",
@@ -171,7 +190,7 @@ def _render(
             ],
             loc="upper center",
             bbox_to_anchor=(0.52, 1.01),
-            ncol=2,
+            ncol=1,
             frameon=False,
         )
         figure.subplots_adjust(left=0.085, right=0.995, bottom=0.25, top=0.79, wspace=0.16)
