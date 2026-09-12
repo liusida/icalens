@@ -41,6 +41,9 @@ misc/
 /experiments/*/official/results/*/layers/
 /experiments/*/official/results/**/*.log
 /experiments/sparse-probing/official/results-compensated/
+/experiments/efficiency-measurement/results/
+/experiments/efficiency-measurement/smoke/
+/experiments/efficiency-measurement/fitting-time-results/
 pilot-experiments/output/
 /pilot-experiments/
 .worktrees/
