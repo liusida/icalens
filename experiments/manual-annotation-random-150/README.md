@@ -72,3 +72,17 @@ uv run python experiments/manual-annotation-random-150/make_latex_table.py
 
 This writes one caption-free table fragment per model under `tables/`. Existing
 outputs require `--force` to replace.
+
+Run controlled counterfactual prompts for five selected components from the
+refitted Qwen ICA Lens with:
+
+```bash
+uv run python experiments/manual-annotation-random-150/run_qwen_counterfactuals.py
+```
+
+The hypotheses and two activating/two non-activating prompts per component are
+stored separately in `qwen-counterfactual-tests.json`. Each target must occur
+exactly once and map to one tokenizer token. Results report the component's raw
+signed score and its one-based rank by absolute ICA score at that target. A
+completed component is the durable resume unit; outputs are written under
+`results-counterfactual/`.
