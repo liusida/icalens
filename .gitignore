@@ -30,7 +30,9 @@ misc/
 /experiments/record-mean-lim/runs/
 /experiments/kurtosis-variance-comparison/runs/
 /experiments/tpp/runs/
+/experiments/tpp/diagnostics/
 /experiments/tpp/official/results/
+/experiments/tpp/official/results-*/
 /experiments/reconstruction/context-matched-gpt2/run/
 /experiments/manual-annotation-random-150/results/
 /experiments/manual-annotation-random-150/results-counterfactual/

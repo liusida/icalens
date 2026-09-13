@@ -6,8 +6,10 @@ import argparse
 import codecs
 import csv
 import errno
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -26,13 +28,17 @@ from safetensors.torch import save_file
 from icalens import ICALens, __version__
 from icalens.cli._status import log
 
+from ._run import ResumableRun
 from ._saebench_environment import (
     backend_description,
     prepare_backend,
     resolve_backend,
 )
 from ._source_provenance import source_provenance, warn_if_dirty
-from ._run import ResumableRun
+
+DEFAULT_ACTIVATION_CACHE_ROOT = Path(
+    "~/Expansion/research/ICA-data/sparse-probing"
+).expanduser()
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -56,6 +62,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cache-dir", type=Path, default=None)
+    parser.add_argument(
+        "--activation-cache-root",
+        type=Path,
+        default=DEFAULT_ACTIVATION_CACHE_ROOT,
+        help=(
+            "Root for persistent sparse-probing activation caches "
+            f"(default: {DEFAULT_ACTIVATION_CACHE_ROOT})."
+        ),
+    )
     parser.add_argument(
         "--saebench-path", type=Path, default=None, help="Use an existing SAEBench checkout."
     )
@@ -81,15 +96,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.k_values is not None:
         settings["k_values"] = _parse_k_values(args.k_values)
     baselines = _resolve_baselines(lens.model_id, args.baselines)
+    input_protocol = _evaluation_input_protocol(lens._get_profile(lens._get_layer(layers[0])))
     cache_estimate = _estimate_activation_cache_bytes(settings, lens.hidden_size)
     resolved: dict[str, Any] = {
         "experiment": "saebench-sparse-probing",
-        "experiment_schema_version": 2,
+        "experiment_schema_version": 4,
         "icalens_version": __version__,
         "lens": str(args.lens),
         "model_id": lens.model_id,
         "model_revision": lens.model_revision,
         "activation_site": lens.activation_site,
+        "evaluation_input_protocol": input_protocol,
         "layers": layers,
         "preset": settings,
         "backend": backend_description(backend, args.cache_dir),
@@ -113,6 +130,28 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     output = args.output.expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
+    activation_cache_root = args.activation_cache_root.expanduser().resolve()
+    cache_identity = {
+        "schema_version": 1,
+        "model_id": lens.model_id,
+        "model_revision": lens.model_revision,
+        "layers": layers,
+        "preset": settings,
+        "evaluation_input_protocol": input_protocol,
+    }
+    cache_key = hashlib.sha256(
+        json.dumps(cache_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    activation_cache_dir = activation_cache_root / _path_slug(lens.model_id) / cache_key
+    activation_cache_dir.mkdir(parents=True, exist_ok=True)
+    resolved["activation_cache"].update(
+        {
+            "root": str(activation_cache_root),
+            "run_cache_key": cache_key,
+            "run_cache_dir": str(activation_cache_dir),
+            "persistent": True,
+        }
+    )
     run_path = output / "run.json"
     run = _load_or_initialize_run(run_path, resolved, source=source)
     run["icalens_source"] = source
@@ -136,7 +175,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     }
     if any(len(methods) > 1 for methods in missing_by_layer.values()):
         _check_activation_cache_space(
-            output,
+            activation_cache_dir,
             settings=settings,
             hidden_size=lens.hidden_size,
             layers_at_once=len(pending_layers),
@@ -197,9 +236,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "methods": missing_methods,
             }
         )
-        log(
-            f"Layer {layer}: queued {args.preset} sparse probing for {', '.join(missing_methods)}."
-        )
+        log(f"Layer {layer}: queued {args.preset} sparse probing for {', '.join(missing_methods)}.")
         _write_json(run_path, run)
 
     jobs_path = output / "checkpoints" / "multilayer-jobs.json"
@@ -214,7 +251,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--config",
         str(config_path),
         "--artifacts",
-        str(output / "checkpoints" / "saebench-activations"),
+        str(activation_cache_dir),
+        "--keep-artifacts",
         "--progress-initial",
         str(completed_evaluations),
         "--progress-total",
@@ -453,11 +491,34 @@ def _write_layer_snapshot(
         "layer_file": str(tensor_path),
         "ica_orientation": "profile_tail_direction",
         "ica_feature_sides": "one_signed_coordinate",
+        "evaluation_input_protocol": _evaluation_input_protocol(profile),
         "baselines": _prepare_layer_baselines(baselines, layer=layer),
     }
     path = output / "snapshot.json"
     _write_json(path, snapshot)
     return path
+
+
+def _evaluation_input_protocol(profile: dict[str, Any]) -> dict[str, Any]:
+    framing = profile.get("provenance", {}).get("document_framing")
+    if not isinstance(framing, dict):
+        raise ValueError("component profile is missing document_framing provenance")
+    strategy = str(framing.get("strategy"))
+    if strategy not in {"prepend-bos", "prepend-eos"}:
+        raise ValueError(f"unsupported evaluation document framing: {strategy!r}")
+    return {
+        "protocol_version": 1,
+        "strategy": strategy,
+        "token_id": int(framing["token_id"]),
+        "token": str(framing["token"]),
+        "boundary_source": "tokenizer" if strategy == "prepend-bos" else "adapter",
+        "exclude_boundary_activation": True,
+        "attention_mask": "pad_tokens_hidden_boundary_visible",
+    }
+
+
+def _path_slug(value: str) -> str:
+    return "-".join(part for part in re.split(r"[^a-zA-Z0-9]+", value.lower()) if part)
 
 
 def _parse_layers(value: str, available: Sequence[int]) -> list[int]:

@@ -71,9 +71,7 @@ class SignedLinearDictionary(torch.nn.Module):
             if orientation is None
             else orientation.to(torch.float32)
         )
-        if signs.shape != (reading.shape[0],) or not bool(
-            torch.all((signs == 1) | (signs == -1))
-        ):
+        if signs.shape != (reading.shape[0],) or not bool(torch.all((signs == 1) | (signs == -1))):
             raise ValueError("orientation must contain one +1 or -1 per linear component")
         self.register_buffer("orientation", signs)
         decoder = writing.T.to(torch.float32) * signs[:, None]
@@ -322,7 +320,7 @@ def main() -> None:
     class Factory:
         @staticmethod
         def from_pretrained_no_processing(_: str, device: str, dtype: torch.dtype) -> Any:
-            return HFHookedModel(model, tokenizer)
+            return HFHookedModel(model, tokenizer, snapshot["evaluation_input_protocol"])
 
     tpp_main.HookedTransformer = Factory
     encoders = build_methods(snapshot, device="cuda", dtype=dtype)

@@ -29,6 +29,7 @@ try:
         _dataset_output,
         _dataset_result_path,
         _merge_dataset_results,
+        _prepare_model_inputs,
         _remove_dataset_artifacts,
         _unwrap_runtime_types,
     )
@@ -43,6 +44,7 @@ except ModuleNotFoundError:  # Direct execution inside the isolated SAEBench env
         _dataset_output,
         _dataset_result_path,
         _merge_dataset_results,
+        _prepare_model_inputs,
         _remove_dataset_artifacts,
         _unwrap_runtime_types,
     )
@@ -84,6 +86,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--jobs", type=Path, required=True)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path, required=True)
+    parser.add_argument("--keep-artifacts", action="store_true")
     parser.add_argument("--progress-initial", type=int, default=0)
     parser.add_argument("--progress-total", type=int, default=1)
     parser.add_argument("--progress-run-initial", type=int, default=0)
@@ -108,6 +111,8 @@ def main() -> None:
         for key in ("model_id", "model_revision", "saebench_model_name"):
             if snapshot[key] != first[key]:
                 raise ValueError(f"multi-layer jobs disagree on {key}")
+        if snapshot["evaluation_input_protocol"] != first["evaluation_input_protocol"]:
+            raise ValueError("multi-layer jobs disagree on evaluation_input_protocol")
 
     if not hasattr(transformers, "TRANSFORMERS_CACHE"):
         transformers.TRANSFORMERS_CACHE = HF_HUB_CACHE  # type: ignore[attr-defined]
@@ -223,7 +228,7 @@ def main() -> None:
                     ]
                 pending_layers = [layer for layer, missing in missing_by_layer.items() if missing]
                 dataset_artifacts = args.artifacts / f"dataset_{index:02d}"
-                if not pending_layers:
+                if not pending_layers and not args.keep_artifacts:
                     _remove_dataset_artifacts(dataset_artifacts)
                     continue
 
@@ -304,7 +309,8 @@ def main() -> None:
                         artifacts_path=str(dataset_artifacts),
                     )
                     del result
-                _remove_dataset_artifacts(dataset_artifacts)
+                if not args.keep_artifacts:
+                    _remove_dataset_artifacts(dataset_artifacts)
     finally:
         sparse_main.tqdm = original_tqdm
 
@@ -397,8 +403,13 @@ def _prepare_shared_dataset_cache(
         test = dataset_utils.tokenize_data_dictionary(
             test, tokenizer, config.context_length, "cuda"
         )
-        train_acts = _capture_layers(train, model, tokenizer, missing_layers, config.llm_batch_size)
-        test_acts = _capture_layers(test, model, tokenizer, missing_layers, config.llm_batch_size)
+        protocol = snapshots[missing_layers[0]]["evaluation_input_protocol"]
+        train_acts = _capture_layers(
+            train, model, tokenizer, missing_layers, config.llm_batch_size, protocol
+        )
+        test_acts = _capture_layers(
+            test, model, tokenizer, missing_layers, config.llm_batch_size, protocol
+        )
     for layer in missing_layers:
         random.seed(config.random_seed)
         torch.manual_seed(config.random_seed)
@@ -446,6 +457,7 @@ def _capture_layers(
     tokenizer: Any,
     layers: list[int],
     batch_size: int,
+    input_protocol: dict[str, Any],
 ) -> dict[int, dict[str, torch.Tensor]]:
     from tqdm import tqdm
 
@@ -457,6 +469,9 @@ def _capture_layers(
         chunks = {layer: [] for layer in layers}
         for start in tqdm(range(0, len(tokens), batch_size), desc="Collecting shared activations"):
             batch = tokens[start : start + batch_size].to(next(model.parameters()).device)
+            model_batch, attention_mask, strip_prefix = _prepare_model_inputs(
+                batch, tokenizer, input_protocol
+            )
             captured: dict[int, torch.Tensor] = {}
             handles = []
             for layer in layers:
@@ -468,9 +483,10 @@ def _capture_layers(
                     *,
                     layer: int = layer,
                     captured: dict[int, torch.Tensor] = captured,
+                    strip_prefix: int = strip_prefix,
                 ) -> None:
                     hidden = output[0] if isinstance(output, tuple) else output
-                    captured[layer] = hidden.detach()
+                    captured[layer] = hidden[:, strip_prefix:].detach()
                     if layer == final_layer:
                         raise _StopAfterLastLayer
 
@@ -478,7 +494,11 @@ def _capture_layers(
             try:
                 with torch.inference_mode():
                     try:
-                        model(input_ids=batch, use_cache=False)
+                        model(
+                            input_ids=model_batch,
+                            attention_mask=attention_mask,
+                            use_cache=False,
+                        )
                     except _StopAfterLastLayer:
                         pass
             finally:

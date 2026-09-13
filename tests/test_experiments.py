@@ -19,6 +19,7 @@ from icalens.experiments._saebench_worker import (
     ICAFeatureEncoder,
     RandomFeatureEncoder,
     _merge_dataset_results,
+    _prepare_model_inputs,
     _remove_dataset_artifacts,
 )
 from icalens.experiments._source_provenance import source_provenance, warn_if_dirty
@@ -205,8 +206,16 @@ def test_reconstruction_conversation_serialization_is_model_independent() -> Non
 
 def test_reconstruction_context_length_override_parser() -> None:
     args = parse_reconstruction_args(
-        ["--lens", "owner/lens", "--layers", "6", "--output", "results/run",
-         "--context-length", "512"]
+        [
+            "--lens",
+            "owner/lens",
+            "--layers",
+            "6",
+            "--output",
+            "results/run",
+            "--context-length",
+            "512",
+        ]
     )
     assert args.context_length == 512
 
@@ -252,16 +261,33 @@ def test_reconstruction_capture_defaults_to_all() -> None:
 
 
 def test_reconstruction_split_cli_paths_and_k_values() -> None:
-    capture = parse_capture_args([
-        "--lens", "owner/lens", "--layers", "all", "--preset", "paper",
-        "--output", "~/Expansion/reconstruction/gpt2",
-    ])
+    capture = parse_capture_args(
+        [
+            "--lens",
+            "owner/lens",
+            "--layers",
+            "all",
+            "--preset",
+            "paper",
+            "--output",
+            "~/Expansion/reconstruction/gpt2",
+        ]
+    )
     assert capture.output == Path("~/Expansion/reconstruction/gpt2")
-    measure = parse_measure_args([
-        "--lens", "owner/lens", "--activations", "~/Expansion/reconstruction/gpt2",
-        "--k-values", "300,30,1,30", "--evaluation-context-length", "64",
-        "--output", "results/gpt2",
-    ])
+    measure = parse_measure_args(
+        [
+            "--lens",
+            "owner/lens",
+            "--activations",
+            "~/Expansion/reconstruction/gpt2",
+            "--k-values",
+            "300,30,1,30",
+            "--evaluation-context-length",
+            "64",
+            "--output",
+            "results/gpt2",
+        ]
+    )
     assert measure.k_values == [1, 30, 300]
     assert measure.evaluation_context_length == 64
 
@@ -323,14 +349,16 @@ def test_reconstruction_measurement_checkpoints_each_method(tmp_path: Path) -> N
     ):
         path = _method_result_path(tmp_path, 6, 2, method)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps({"n_tokens": 50, "methods": payload_methods}), encoding="utf-8"
-        )
-    assert _completed_measurement_units(
-        tmp_path, layers=[6], dataset_count=3, methods=["ica", "sae"]
-    ) == 2
+        path.write_text(json.dumps({"n_tokens": 50, "methods": payload_methods}), encoding="utf-8")
+    assert (
+        _completed_measurement_units(tmp_path, layers=[6], dataset_count=3, methods=["ica", "sae"])
+        == 2
+    )
     merged = _merge_method_results(
-        tmp_path, layer=6, dataset_index=2, methods=["ica", "sae"],
+        tmp_path,
+        layer=6,
+        dataset_index=2,
+        methods=["ica", "sae"],
         dataset={"repo_id": "owner/data"},
     )
     assert merged["n_tokens"] == 50
@@ -339,11 +367,16 @@ def test_reconstruction_measurement_checkpoints_each_method(tmp_path: Path) -> N
 
 def test_failed_empty_reconstruction_run_rejects_corrected_preset(tmp_path: Path) -> None:
     path = tmp_path / "run.json"
-    path.write_text(json.dumps({
-        "status": "running",
-        "resolved": {"preset": "old"},
-        "layer_runs": {"0": {"status": "failed"}},
-    }), encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "resolved": {"preset": "old"},
+                "layer_runs": {"0": {"status": "failed"}},
+            }
+        ),
+        encoding="utf-8",
+    )
 
     with pytest.raises(ValueError, match="preset: 'old' != 'corrected'"):
         _load_run(path, {"preset": "corrected"})
@@ -452,8 +485,10 @@ def test_shared_capture_runs_model_once_per_batch_and_masks_special_tokens() -> 
             self.model.layers = torch.nn.ModuleList([Block(1), Block(2), Block(3)])
             self.calls = 0
 
-        def forward(self, input_ids: torch.Tensor, use_cache: bool) -> torch.Tensor:
-            del use_cache
+        def forward(
+            self, input_ids: torch.Tensor, attention_mask: torch.Tensor, use_cache: bool
+        ) -> torch.Tensor:
+            del attention_mask, use_cache
             self.calls += 1
             values = input_ids[..., None].to(torch.float32).expand(-1, -1, 2)
             for block in self.model.layers:
@@ -464,7 +499,14 @@ def test_shared_capture_runs_model_once_per_batch_and_masks_special_tokens() -> 
     model = TinyModel()
     tokenized = {"class": {"input_ids": torch.tensor([[1, 9], [2, 3], [8, 4]], dtype=torch.long)}}
 
-    captured = _capture_layers(tokenized, model, tokenizer, [0, 2], batch_size=2)
+    captured = _capture_layers(
+        tokenized,
+        model,
+        tokenizer,
+        [0, 2],
+        batch_size=2,
+        input_protocol={"boundary_source": "tokenizer"},
+    )
 
     assert model.calls == 2
     assert captured[0]["class"].shape == (3, 2, 2)
@@ -472,6 +514,34 @@ def test_shared_capture_runs_model_once_per_batch_and_masks_special_tokens() -> 
     assert torch.equal(captured[2]["class"][2, 0], torch.zeros(2))
     assert captured[0]["class"][1, 0, 0].item() == 3.0
     assert captured[2]["class"][1, 0, 0].item() == 8.0
+
+
+def test_saebench_model_inputs_prepend_visible_boundary_and_hide_padding() -> None:
+    tokenizer = type("Tokenizer", (), {"pad_token_id": 9})()
+    tokens = torch.tensor([[4, 5, 9], [6, 9, 9]])
+    model_tokens, attention_mask, strip_prefix = _prepare_model_inputs(
+        tokens,
+        tokenizer,
+        {"boundary_source": "adapter", "token_id": 9},
+    )
+
+    assert torch.equal(model_tokens, torch.tensor([[9, 4, 5, 9], [9, 6, 9, 9]]))
+    assert torch.equal(attention_mask, torch.tensor([[1, 1, 1, 0], [1, 1, 0, 0]]))
+    assert strip_prefix == 1
+
+
+def test_saebench_model_inputs_do_not_duplicate_tokenizer_boundary() -> None:
+    tokenizer = type("Tokenizer", (), {"pad_token_id": 0})()
+    tokens = torch.tensor([[0, 2, 4, 5]])
+    model_tokens, attention_mask, strip_prefix = _prepare_model_inputs(
+        tokens,
+        tokenizer,
+        {"boundary_source": "tokenizer", "token_id": 2},
+    )
+
+    assert torch.equal(model_tokens, tokens)
+    assert torch.equal(attention_mask, torch.tensor([[0, 1, 1, 1]]))
+    assert strip_prefix == 0
 
 
 def test_shared_capture_uses_saebench_and_sae_hook_aliases() -> None:

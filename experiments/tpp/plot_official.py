@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--results",
         type=Path,
-        default=Path("experiments/tpp/official/results"),
+        default=Path("experiments/tpp/official/results-dominant"),
     )
     parser.add_argument(
         "--output",
@@ -116,8 +116,8 @@ def main() -> None:
         (model_name, title, layers, load_available(args.results / model_name, layers))
         for model_name, title, layers in MODELS
     ]
-    if not all(data for _, _, _, data in model_data):
-        raise ValueError("at least one model has no available TPP method results")
+    if not any(data for _, _, _, data in model_data):
+        raise ValueError("no TPP method results are available")
 
     plt.rcParams.update(
         {
@@ -143,7 +143,9 @@ def main() -> None:
         )
 
     for model_index, (_, title, expected_layers, data) in enumerate(model_data):
-        complete_layers = sorted(set.intersection(*(set(v) for v in data.values())))
+        complete_layers = (
+            sorted(set.intersection(*(set(v) for v in data.values()))) if data else []
+        )
         complete_methods = sum(set(v) == set(expected_layers) for v in data.values())
         subtitle = (
             f"mean of L{expected_layers[0]} and L{expected_layers[1]}"

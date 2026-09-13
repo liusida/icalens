@@ -19,15 +19,14 @@ from icalens.experiments._run import ResumableRun, atomic_write_json
 from icalens.experiments._saebench_environment import prepare_backend, resolve_backend
 from icalens.experiments._source_provenance import source_provenance, warn_if_dirty
 from icalens.experiments.saebench_sparse_probing import (
+    _evaluation_input_protocol,
     _parse_layers,
     _resolve_baselines,
     _write_layer_snapshot,
 )
 
 METHODS = ("ica", "unfitted_ica", "sae", "untrained_sae_matched_l0", "pca")
-DEFAULT_ACTIVATION_CACHE_ROOT = Path(
-    "~/Expansion/research/ICA-data/tpp"
-).expanduser()
+DEFAULT_ACTIVATION_CACHE_ROOT = Path("~/Expansion/research/ICA-data/tpp").expanduser()
 
 
 def parse_args() -> argparse.Namespace:
@@ -73,8 +72,9 @@ def main() -> None:
         str(layer): int(lens._get_layer(layer).fitting["random_state"]) for layer in layers
     }
     layer_fingerprints = {str(layer): layer_fingerprint(lens, layer) for layer in layers}
+    input_protocol = _evaluation_input_protocol(lens._get_profile(lens._get_layer(layers[0])))
     config = {
-        "schema_version": 2,
+        "schema_version": 3,
         "experiment": "tpp-five-representation",
         "lens": str(args.lens),
         "model_id": lens.model_id,
@@ -82,6 +82,7 @@ def main() -> None:
         "layers": layers,
         "methods": list(METHODS),
         "method_definition_version": 3,
+        "evaluation_input_protocol": input_protocol,
         "settings": settings,
         "saebench_backend": asdict(backend),
         "baseline_definitions": baselines,
@@ -106,8 +107,7 @@ def main() -> None:
     run_cache_dir.mkdir(parents=True, exist_ok=True)
     free_bytes = shutil.disk_usage(run_cache_dir).free
     print(
-        f"TPP activation cache: {run_cache_dir} "
-        f"({free_bytes / 2**30:.1f} GiB free)",
+        f"TPP activation cache: {run_cache_dir} ({free_bytes / 2**30:.1f} GiB free)",
         flush=True,
     )
     atomic_write_json(
@@ -265,9 +265,9 @@ def layer_fingerprint(lens: ICALens, layer: int) -> str:
 
 
 def _path_slug(value: str) -> str:
-    return "".join(
-        character.lower() if character.isalnum() else "-" for character in value
-    ).strip("-")
+    return "".join(character.lower() if character.isalnum() else "-" for character in value).strip(
+        "-"
+    )
 
 
 def settings_for(preset: str, n_values: str | None) -> dict[str, object]:

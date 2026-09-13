@@ -401,9 +401,12 @@ def _blocks(model: torch.nn.Module) -> Any:
 class HFHookedModel:
     """The small TransformerLens surface used by SAEBench sparse probing."""
 
-    def __init__(self, model: torch.nn.Module, tokenizer: Any) -> None:
+    def __init__(
+        self, model: torch.nn.Module, tokenizer: Any, input_protocol: dict[str, Any] | None = None
+    ) -> None:
         self.model = model
         self.tokenizer = tokenizer
+        self.input_protocol = input_protocol or {"boundary_source": "tokenizer"}
 
     @property
     def device(self) -> torch.device:
@@ -430,20 +433,50 @@ class HFHookedModel:
         if stop_at_layer != layer + 1:
             raise ValueError("stop_at_layer must immediately follow the captured block")
 
+        model_tokens, attention_mask, strip_prefix = _prepare_model_inputs(
+            tokens.to(self.device), self.tokenizer, self.input_protocol
+        )
+
         def capture(_: Any, __: Any, output: Any) -> None:
             hidden = output[0] if isinstance(output, tuple) else output
-            callback(hidden, None)
+            callback(hidden[:, strip_prefix:], None)
             raise _StopForward
 
         handle = _blocks(self.model)[layer].register_forward_hook(capture)
         try:
             with torch.inference_mode():
                 try:
-                    self.model(input_ids=tokens.to(self.device), use_cache=False)
+                    self.model(
+                        input_ids=model_tokens,
+                        attention_mask=attention_mask,
+                        use_cache=False,
+                    )
                 except _StopForward:
                     pass
         finally:
             handle.remove()
+
+
+def _prepare_model_inputs(
+    tokens: torch.Tensor, tokenizer: Any, input_protocol: dict[str, Any]
+) -> tuple[torch.Tensor, torch.Tensor, int]:
+    """Apply artifact-matched document framing and construct a real attention mask."""
+    pad_token_id = getattr(tokenizer, "pad_token_id", None)
+    attention_mask = torch.ones_like(tokens, dtype=torch.long)
+    if pad_token_id is not None:
+        attention_mask = (tokens != int(pad_token_id)).to(dtype=torch.long)
+    if input_protocol.get("boundary_source") != "adapter":
+        return tokens, attention_mask, 0
+    token_id = int(input_protocol["token_id"])
+    boundary = torch.full((tokens.shape[0], 1), token_id, dtype=tokens.dtype, device=tokens.device)
+    boundary_mask = torch.ones(
+        (tokens.shape[0], 1), dtype=attention_mask.dtype, device=tokens.device
+    )
+    return (
+        torch.cat((boundary, tokens), dim=1),
+        torch.cat((boundary_mask, attention_mask), dim=1),
+        1,
+    )
 
 
 @dataclass
@@ -693,7 +726,7 @@ def main() -> None:
         @staticmethod
         def from_pretrained_no_processing(_: str, device: str, dtype: torch.dtype) -> Any:
             del device, dtype
-            return HFHookedModel(model, tokenizer)
+            return HFHookedModel(model, tokenizer, snapshot["evaluation_input_protocol"])
 
     sparse_main.HookedTransformer = Factory
     encoders: dict[str, torch.nn.Module] = {}
