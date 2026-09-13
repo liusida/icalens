@@ -1,21 +1,21 @@
 {
-  "completed_at": "2026-09-04T10:44:46.651785+00:00",
+  "completed_at": "2026-09-13T08:38:00.860565+00:00",
   "icalens_source": {
-    "commit": "286afe4a2ecd792be342bd7c55d545438ca31a78",
-    "dirty": false,
+    "commit": "fc15989cba218343c939a287cca9276c99089226",
+    "dirty": true,
     "git_available": true
   },
   "layer_runs": {
     "10": {
-      "completed_at": "2026-09-04T10:44:46.640129+00:00",
+      "completed_at": "2026-09-13T08:38:00.858848+00:00",
       "result": "/home/liusida/research/ICA-paper/icalens_pypi/experiments/sparse-probing/official/results/gpt2/layers/layer_10/raw-result.json",
-      "started_at": "2026-09-04T09:54:24.522678+00:00",
+      "started_at": "2026-09-13T08:05:47.726707+00:00",
       "status": "complete"
     },
     "6": {
-      "completed_at": "2026-09-04T10:44:46.639716+00:00",
+      "completed_at": "2026-09-13T08:38:00.858797+00:00",
       "result": "/home/liusida/research/ICA-paper/icalens_pypi/experiments/sparse-probing/official/results/gpt2/layers/layer_06/raw-result.json",
-      "started_at": "2026-09-04T09:54:24.245288+00:00",
+      "started_at": "2026-09-13T08:05:47.721227+00:00",
       "status": "complete"
     }
   },
@@ -25,8 +25,12 @@
       "estimated_peak": "9.2 GiB",
       "estimated_peak_bytes": 9830400000,
       "estimated_per_layer": "4.6 GiB",
+      "persistent": true,
       "recommended_free": "11.0 GiB",
       "recommended_free_bytes": 11796480000,
+      "root": "/media/liusida/Expansion/research/ICA-data/sparse-probing",
+      "run_cache_dir": "/media/liusida/Expansion/research/ICA-data/sparse-probing/openai-community-gpt2/bf412664da195e7b",
+      "run_cache_key": "bf412664da195e7b",
       "shared_capture_layers": 2,
       "used_when_multiple_methods_are_pending": true
     },
@@ -43,14 +47,14 @@
     "baselines": {
       "pca": {
         "components": "model_hidden_size",
-        "feature_sides": "positive_and_negative",
+        "feature_sides": "one_signed_coordinate",
         "fit_source": "derived_from_full_rank_ica_whitening",
         "name": "PCA",
         "preprocessing": "match_ica_lens"
       },
       "random": {
         "components": "model_hidden_size",
-        "feature_sides": "positive_and_negative",
+        "feature_sides": "one_signed_coordinate",
         "name": "Random orthogonal basis",
         "preprocessing": "match_ica_lens",
         "seed": 0
@@ -71,14 +75,23 @@
         "width": 32768
       }
     },
+    "evaluation_input_protocol": {
+      "attention_mask": "pad_tokens_hidden_boundary_visible",
+      "boundary_source": "adapter",
+      "exclude_boundary_activation": true,
+      "protocol_version": 1,
+      "strategy": "prepend-eos",
+      "token": "<|endoftext|>",
+      "token_id": 50256
+    },
     "experiment": "saebench-sparse-probing",
-    "experiment_schema_version": 1,
+    "experiment_schema_version": 4,
     "icalens_version": "0.3.6",
     "layers": [
       6,
       10
     ],
-    "lens": "sida/icalens-gpt2-small-pile10k",
+    "lens": "local-icalens-models/official/icalens-gpt2-small-pile10k",
     "model_id": "openai-community/gpt2",
     "model_revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e",
     "output": "/home/liusida/research/ICA-paper/icalens_pypi/experiments/sparse-probing/official/results/gpt2",
@@ -112,6 +125,6 @@
       "sae_batch_size": 125
     }
   },
-  "started_at": "2026-09-04T17:54:22+08:00",
+  "started_at": "2026-09-13T16:05:45+08:00",
   "status": "complete"
 }

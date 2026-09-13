@@ -5,8 +5,12 @@
       "estimated_peak": "9.2 GiB",
       "estimated_peak_bytes": 9830400000,
       "estimated_per_layer": "4.6 GiB",
+      "persistent": true,
       "recommended_free": "11.0 GiB",
       "recommended_free_bytes": 11796480000,
+      "root": "/media/liusida/Expansion/research/ICA-data/sparse-probing",
+      "run_cache_dir": "/media/liusida/Expansion/research/ICA-data/sparse-probing/openai-community-gpt2/bf412664da195e7b",
+      "run_cache_key": "bf412664da195e7b",
       "shared_capture_layers": 2,
       "used_when_multiple_methods_are_pending": true
     },
@@ -23,14 +27,14 @@
     "baselines": {
       "pca": {
         "components": "model_hidden_size",
-        "feature_sides": "positive_and_negative",
+        "feature_sides": "one_signed_coordinate",
         "fit_source": "derived_from_full_rank_ica_whitening",
         "name": "PCA",
         "preprocessing": "match_ica_lens"
       },
       "random": {
         "components": "model_hidden_size",
-        "feature_sides": "positive_and_negative",
+        "feature_sides": "one_signed_coordinate",
         "name": "Random orthogonal basis",
         "preprocessing": "match_ica_lens",
         "seed": 0
@@ -51,14 +55,23 @@
         "width": 32768
       }
     },
+    "evaluation_input_protocol": {
+      "attention_mask": "pad_tokens_hidden_boundary_visible",
+      "boundary_source": "adapter",
+      "exclude_boundary_activation": true,
+      "protocol_version": 1,
+      "strategy": "prepend-eos",
+      "token": "<|endoftext|>",
+      "token_id": 50256
+    },
     "experiment": "saebench-sparse-probing",
-    "experiment_schema_version": 1,
+    "experiment_schema_version": 4,
     "icalens_version": "0.3.6",
     "layers": [
       6,
       10
     ],
-    "lens": "sida/icalens-gpt2-small-pile10k",
+    "lens": "local-icalens-models/official/icalens-gpt2-small-pile10k",
     "model_id": "openai-community/gpt2",
     "model_revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e",
     "output": "/home/liusida/research/ICA-paper/icalens_pypi/experiments/sparse-probing/official/results/gpt2",
@@ -93,345 +106,345 @@
     }
   },
   "icalens_source": {
-    "commit": "286afe4a2ecd792be342bd7c55d545438ca31a78",
-    "dirty": false,
+    "commit": "fc15989cba218343c939a287cca9276c99089226",
+    "dirty": true,
     "git_available": true
   },
   "rows": [
     {
       "k": 1,
       "layer": 6,
-      "mean_probe_accuracy": 0.6924062500000001,
+      "mean_probe_accuracy": 0.7579499999999999,
       "method": "ica"
     },
     {
       "k": 2,
       "layer": 6,
-      "mean_probe_accuracy": 0.7698812499999999,
+      "mean_probe_accuracy": 0.807275,
       "method": "ica"
     },
     {
       "k": 5,
+      "layer": 6,
+      "mean_probe_accuracy": 0.8473999999999999,
+      "method": "ica"
+    },
+    {
+      "k": 10,
+      "layer": 6,
+      "mean_probe_accuracy": 0.8749312500000002,
+      "method": "ica"
+    },
+    {
+      "k": 20,
+      "layer": 6,
+      "mean_probe_accuracy": 0.8869375,
+      "method": "ica"
+    },
+    {
+      "k": 50,
+      "layer": 6,
+      "mean_probe_accuracy": 0.9054625000000002,
+      "method": "ica"
+    },
+    {
+      "k": 100,
+      "layer": 6,
+      "mean_probe_accuracy": 0.911625,
+      "method": "ica"
+    },
+    {
+      "k": 1,
+      "layer": 6,
+      "mean_probe_accuracy": 0.6591812499999999,
+      "method": "pca"
+    },
+    {
+      "k": 2,
+      "layer": 6,
+      "mean_probe_accuracy": 0.715375,
+      "method": "pca"
+    },
+    {
+      "k": 5,
+      "layer": 6,
+      "mean_probe_accuracy": 0.77213125,
+      "method": "pca"
+    },
+    {
+      "k": 10,
+      "layer": 6,
+      "mean_probe_accuracy": 0.81475,
+      "method": "pca"
+    },
+    {
+      "k": 20,
+      "layer": 6,
+      "mean_probe_accuracy": 0.8519249999999998,
+      "method": "pca"
+    },
+    {
+      "k": 50,
+      "layer": 6,
+      "mean_probe_accuracy": 0.8882000000000001,
+      "method": "pca"
+    },
+    {
+      "k": 100,
+      "layer": 6,
+      "mean_probe_accuracy": 0.90530625,
+      "method": "pca"
+    },
+    {
+      "k": 1,
+      "layer": 6,
+      "mean_probe_accuracy": 0.7290124999999998,
+      "method": "random"
+    },
+    {
+      "k": 2,
+      "layer": 6,
+      "mean_probe_accuracy": 0.76545625,
+      "method": "random"
+    },
+    {
+      "k": 5,
+      "layer": 6,
+      "mean_probe_accuracy": 0.80749375,
+      "method": "random"
+    },
+    {
+      "k": 10,
       "layer": 6,
       "mean_probe_accuracy": 0.8329125000000001,
-      "method": "ica"
-    },
-    {
-      "k": 10,
-      "layer": 6,
-      "mean_probe_accuracy": 0.85999375,
-      "method": "ica"
-    },
-    {
-      "k": 20,
-      "layer": 6,
-      "mean_probe_accuracy": 0.883075,
-      "method": "ica"
-    },
-    {
-      "k": 50,
-      "layer": 6,
-      "mean_probe_accuracy": 0.9033,
-      "method": "ica"
-    },
-    {
-      "k": 100,
-      "layer": 6,
-      "mean_probe_accuracy": 0.9108624999999999,
-      "method": "ica"
-    },
-    {
-      "k": 1,
-      "layer": 6,
-      "mean_probe_accuracy": 0.599425,
-      "method": "pca"
-    },
-    {
-      "k": 2,
-      "layer": 6,
-      "mean_probe_accuracy": 0.6429375,
-      "method": "pca"
-    },
-    {
-      "k": 5,
-      "layer": 6,
-      "mean_probe_accuracy": 0.7213999999999999,
-      "method": "pca"
-    },
-    {
-      "k": 10,
-      "layer": 6,
-      "mean_probe_accuracy": 0.77936875,
-      "method": "pca"
-    },
-    {
-      "k": 20,
-      "layer": 6,
-      "mean_probe_accuracy": 0.82293125,
-      "method": "pca"
-    },
-    {
-      "k": 50,
-      "layer": 6,
-      "mean_probe_accuracy": 0.8768875,
-      "method": "pca"
-    },
-    {
-      "k": 100,
-      "layer": 6,
-      "mean_probe_accuracy": 0.8996000000000001,
-      "method": "pca"
-    },
-    {
-      "k": 1,
-      "layer": 6,
-      "mean_probe_accuracy": 0.6535562500000001,
-      "method": "random"
-    },
-    {
-      "k": 2,
-      "layer": 6,
-      "mean_probe_accuracy": 0.7032,
-      "method": "random"
-    },
-    {
-      "k": 5,
-      "layer": 6,
-      "mean_probe_accuracy": 0.7612,
-      "method": "random"
-    },
-    {
-      "k": 10,
-      "layer": 6,
-      "mean_probe_accuracy": 0.80705625,
       "method": "random"
     },
     {
       "k": 20,
       "layer": 6,
-      "mean_probe_accuracy": 0.8418125,
+      "mean_probe_accuracy": 0.8598499999999999,
       "method": "random"
     },
     {
       "k": 50,
       "layer": 6,
-      "mean_probe_accuracy": 0.8824625,
+      "mean_probe_accuracy": 0.8864124999999999,
       "method": "random"
     },
     {
       "k": 100,
       "layer": 6,
-      "mean_probe_accuracy": 0.9021562500000001,
+      "mean_probe_accuracy": 0.9020749999999998,
       "method": "random"
     },
     {
       "k": 1,
       "layer": 6,
-      "mean_probe_accuracy": 0.705225,
+      "mean_probe_accuracy": 0.691575,
       "method": "sae"
     },
     {
       "k": 2,
       "layer": 6,
-      "mean_probe_accuracy": 0.77719375,
+      "mean_probe_accuracy": 0.78805,
       "method": "sae"
     },
     {
       "k": 5,
       "layer": 6,
-      "mean_probe_accuracy": 0.8257,
+      "mean_probe_accuracy": 0.8284125000000001,
       "method": "sae"
     },
     {
       "k": 10,
       "layer": 6,
-      "mean_probe_accuracy": 0.855425,
+      "mean_probe_accuracy": 0.8566999999999999,
       "method": "sae"
     },
     {
       "k": 20,
       "layer": 6,
-      "mean_probe_accuracy": 0.8784624999999999,
+      "mean_probe_accuracy": 0.8802,
       "method": "sae"
     },
     {
       "k": 50,
       "layer": 6,
-      "mean_probe_accuracy": 0.903775,
+      "mean_probe_accuracy": 0.9046937499999999,
       "method": "sae"
     },
     {
       "k": 100,
       "layer": 6,
-      "mean_probe_accuracy": 0.9153875,
+      "mean_probe_accuracy": 0.91401875,
       "method": "sae"
     },
     {
       "k": 1,
       "layer": 10,
-      "mean_probe_accuracy": 0.7673875000000001,
+      "mean_probe_accuracy": 0.78303125,
       "method": "ica"
     },
     {
       "k": 2,
       "layer": 10,
-      "mean_probe_accuracy": 0.8179000000000001,
+      "mean_probe_accuracy": 0.8174874999999999,
       "method": "ica"
     },
     {
       "k": 5,
       "layer": 10,
-      "mean_probe_accuracy": 0.86430625,
+      "mean_probe_accuracy": 0.86818125,
       "method": "ica"
     },
     {
       "k": 10,
       "layer": 10,
-      "mean_probe_accuracy": 0.87898125,
+      "mean_probe_accuracy": 0.88664375,
       "method": "ica"
     },
     {
       "k": 20,
       "layer": 10,
-      "mean_probe_accuracy": 0.89740625,
+      "mean_probe_accuracy": 0.9034625,
       "method": "ica"
     },
     {
       "k": 50,
       "layer": 10,
-      "mean_probe_accuracy": 0.9167437500000001,
+      "mean_probe_accuracy": 0.9163125,
       "method": "ica"
     },
     {
       "k": 100,
       "layer": 10,
-      "mean_probe_accuracy": 0.9249499999999999,
+      "mean_probe_accuracy": 0.92236875,
       "method": "ica"
     },
     {
       "k": 1,
       "layer": 10,
-      "mean_probe_accuracy": 0.6886375,
+      "mean_probe_accuracy": 0.72679375,
       "method": "pca"
     },
     {
       "k": 2,
       "layer": 10,
-      "mean_probe_accuracy": 0.7340249999999999,
+      "mean_probe_accuracy": 0.7646750000000001,
       "method": "pca"
     },
     {
       "k": 5,
       "layer": 10,
-      "mean_probe_accuracy": 0.80300625,
+      "mean_probe_accuracy": 0.8184249999999998,
       "method": "pca"
     },
     {
       "k": 10,
       "layer": 10,
-      "mean_probe_accuracy": 0.8437625,
+      "mean_probe_accuracy": 0.8549625,
       "method": "pca"
     },
     {
       "k": 20,
       "layer": 10,
-      "mean_probe_accuracy": 0.87414375,
+      "mean_probe_accuracy": 0.88366875,
       "method": "pca"
     },
     {
       "k": 50,
       "layer": 10,
-      "mean_probe_accuracy": 0.9029875,
+      "mean_probe_accuracy": 0.90463125,
       "method": "pca"
     },
     {
       "k": 100,
       "layer": 10,
-      "mean_probe_accuracy": 0.91405625,
+      "mean_probe_accuracy": 0.91705625,
       "method": "pca"
     },
     {
       "k": 1,
       "layer": 10,
-      "mean_probe_accuracy": 0.7331750000000001,
+      "mean_probe_accuracy": 0.753275,
       "method": "random"
     },
     {
       "k": 2,
       "layer": 10,
-      "mean_probe_accuracy": 0.7775687499999999,
+      "mean_probe_accuracy": 0.7906,
       "method": "random"
     },
     {
       "k": 5,
       "layer": 10,
-      "mean_probe_accuracy": 0.82354375,
+      "mean_probe_accuracy": 0.8307749999999999,
       "method": "random"
     },
     {
       "k": 10,
       "layer": 10,
-      "mean_probe_accuracy": 0.8485625000000001,
+      "mean_probe_accuracy": 0.8559875000000001,
       "method": "random"
     },
     {
       "k": 20,
       "layer": 10,
-      "mean_probe_accuracy": 0.8762124999999998,
+      "mean_probe_accuracy": 0.8781374999999999,
       "method": "random"
     },
     {
       "k": 50,
       "layer": 10,
-      "mean_probe_accuracy": 0.90393125,
+      "mean_probe_accuracy": 0.90339375,
       "method": "random"
     },
     {
       "k": 100,
       "layer": 10,
-      "mean_probe_accuracy": 0.9129812500000001,
+      "mean_probe_accuracy": 0.91591875,
       "method": "random"
     },
     {
       "k": 1,
       "layer": 10,
-      "mean_probe_accuracy": 0.74071875,
+      "mean_probe_accuracy": 0.7461562499999999,
       "method": "sae"
     },
     {
       "k": 2,
       "layer": 10,
-      "mean_probe_accuracy": 0.7986312499999999,
+      "mean_probe_accuracy": 0.7929499999999999,
       "method": "sae"
     },
     {
       "k": 5,
       "layer": 10,
-      "mean_probe_accuracy": 0.8478374999999999,
+      "mean_probe_accuracy": 0.84590625,
       "method": "sae"
     },
     {
       "k": 10,
       "layer": 10,
-      "mean_probe_accuracy": 0.8745812500000001,
+      "mean_probe_accuracy": 0.8774375,
       "method": "sae"
     },
     {
       "k": 20,
       "layer": 10,
-      "mean_probe_accuracy": 0.8951374999999999,
+      "mean_probe_accuracy": 0.89394375,
       "method": "sae"
     },
     {
       "k": 50,
       "layer": 10,
-      "mean_probe_accuracy": 0.91521875,
+      "mean_probe_accuracy": 0.91539375,
       "method": "sae"
     },
     {
       "k": 100,
       "layer": 10,
-      "mean_probe_accuracy": 0.92349375,
+      "mean_probe_accuracy": 0.9230750000000001,
       "method": "sae"
     }
   ]
