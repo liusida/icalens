@@ -44,6 +44,7 @@ misc/
 /experiments/*/official/results/*/layers/
 /experiments/*/official/results/**/*.log
 /experiments/sparse-probing/official/results-*/
+/experiments/sparse-probing/official/results/
 /experiments/sparse-probing/official/staled/
 /experiments/efficiency-measurement/results/
 /experiments/efficiency-measurement/smoke/
