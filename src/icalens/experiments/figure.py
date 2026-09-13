@@ -339,8 +339,8 @@ def _sparse_probing_caption(payload: dict[str, Any], layers: Sequence[int]) -> s
     return (
         f"SAEBench sparse-probing performance for {lens}, layer(s) {layer_text}, using the "
         f"{preset_name} preset{dataset_text}. Mean probe accuracy is shown against the number "
-        f"of top-ranked features used by the linear probe. Methods: {method_text}. Signed ICA "
-        "and PCA coordinates are split into separate positive and negative nonnegative features."
+        f"of top-ranked features used by the linear probe. Methods: {method_text}. ICA "
+        "coordinates are profile-oriented and signed; linear dictionaries use one feature per axis."
     )
 
 

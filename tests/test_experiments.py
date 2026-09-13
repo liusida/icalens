@@ -88,6 +88,7 @@ def test_ica_saebench_encoder_compensates_unit_decoder_norms(tmp_path: Path) -> 
             "center": center,
             "reading_matrix": reading,
             "writing_matrix": writing,
+            "tail_signs": torch.tensor([-1.0, 1.0]),
         },
         layer_file,
     )
@@ -103,7 +104,9 @@ def test_ica_saebench_encoder_compensates_unit_decoder_norms(tmp_path: Path) -> 
     features = encoder.encode(activations)
     reconstructed = features @ encoder.W_dec + center
 
-    assert torch.allclose(encoder.W_dec.norm(dim=-1), torch.ones(4))
+    assert encoder.cfg.d_sae == 2
+    assert encoder.cfg.activation_fn_str == "identity"
+    assert torch.allclose(encoder.W_dec.norm(dim=-1), torch.ones(2))
     assert torch.allclose(reconstructed, activations, atol=1e-6)
 
 
@@ -489,7 +492,7 @@ def test_gpt2_baseline_registry_resolves_sae_and_pca() -> None:
     assert baselines["sae"]["activation"] == "topk"
     assert baselines["sae"]["top_k"] == 32
     assert baselines["sae"]["normalize_activations"] == "layer_norm"
-    assert baselines["pca"]["feature_sides"] == "positive_and_negative"
+    assert baselines["pca"]["feature_sides"] == "one_signed_coordinate"
 
 
 def test_random_baseline_is_model_independent_and_seeded() -> None:

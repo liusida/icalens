@@ -27,8 +27,9 @@ Feature selection is performed by SAEBench on its training split and evaluated
 on its held-out split. Report both absolute feature budgets and fractions of
 each dictionary because SAE dictionaries are wider than ICA and PCA.
 The paper preset uses the sparse-probing grid
-$k \in \{1,2,5,10,20,50,100\}$; $k=1$ tests
-whether a single feature polarity can exert a selective causal effect.
+$k \in \{1,2,5,10,20,50,100\}$. Fitted ICA coordinates are sign-oriented
+using each component profile's dominant tail, but remain signed. ICA, unfitted
+ICA, and PCA therefore use one feature per linear direction.
 
 For each target class, SAEBench ranks features by the product of their positive
 class-conditional activation difference and their alignment with the trained

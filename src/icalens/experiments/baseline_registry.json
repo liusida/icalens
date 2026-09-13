@@ -21,7 +21,7 @@
         "name": "PCA",
         "components": "model_hidden_size",
         "preprocessing": "match_ica_lens",
-        "feature_sides": "positive_and_negative",
+        "feature_sides": "one_signed_coordinate",
         "fit_source": "derived_from_full_rank_ica_whitening"
       }
     },
@@ -70,7 +70,7 @@
         "name": "PCA",
         "components": "model_hidden_size",
         "preprocessing": "match_ica_lens",
-        "feature_sides": "positive_and_negative",
+        "feature_sides": "one_signed_coordinate",
         "fit_source": "derived_from_full_rank_ica_whitening"
       }
     },
@@ -93,7 +93,7 @@
         "name": "PCA",
         "components": "model_hidden_size",
         "preprocessing": "match_ica_lens",
-        "feature_sides": "positive_and_negative",
+        "feature_sides": "one_signed_coordinate",
         "fit_source": "derived_from_full_rank_ica_whitening"
       }
     }

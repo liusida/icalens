@@ -453,15 +453,15 @@ class ICAFeatureConfig:
     d_sae: int
     hook_layer: int
     hook_name: str
-    architecture: str = "icalens_split_signed"
-    activation_fn_str: str = "relu"
+    architecture: str = "icalens_profile_oriented_signed"
+    activation_fn_str: str = "identity"
     dtype: str = "float32"
     device: str = "cuda"
     random_seed: int | None = None
 
 
 class ICAFeatureEncoder(torch.nn.Module):
-    """Expose signed ICA coordinates as two nonnegative SAEBench features."""
+    """Expose one signed, profile-oriented feature per ICA component."""
 
     center: torch.Tensor
     reading: torch.Tensor
@@ -472,9 +472,15 @@ class ICAFeatureEncoder(torch.nn.Module):
         center = tensors["center"].to(torch.float32)
         reading = tensors["reading_matrix"].to(torch.float32)
         writing = tensors["writing_matrix"].to(torch.float32)
+        tail_signs = tensors["tail_signs"].to(torch.float32)
+        if tail_signs.shape != (reading.shape[0],) or not bool(
+            torch.all((tail_signs == 1) | (tail_signs == -1))
+        ):
+            raise ValueError("tail_signs must contain one +1 or -1 per ICA component")
         self.register_buffer("center", center)
         self.register_buffer("reading", reading)
-        decoder = torch.cat((writing.T, -writing.T), dim=0)
+        self.register_buffer("tail_signs", tail_signs)
+        decoder = writing.T * tail_signs[:, None]
         decoder_norms = torch.linalg.vector_norm(decoder, dim=-1).clamp_min(
             float(snapshot["norm_eps"])
         )
@@ -489,7 +495,7 @@ class ICAFeatureEncoder(torch.nn.Module):
         self.cfg = ICAFeatureConfig(
             model_name=str(snapshot["saebench_model_name"]),
             d_in=int(reading.shape[1]),
-            d_sae=components * 2,
+            d_sae=components,
             hook_layer=int(snapshot["layer"]),
             hook_name=f"blocks.{int(snapshot['layer'])}.hook_resid_post",
             dtype=str(dtype).removeprefix("torch."),
@@ -504,7 +510,7 @@ class ICAFeatureEncoder(torch.nn.Module):
                 self.norm_eps
             )
         scores = (work - self.center) @ self.reading.T
-        signed_scores = torch.cat((scores.clamp_min(0), (-scores).clamp_min(0)), dim=-1)
+        signed_scores = scores * self.tail_signs
         # W_dec is unit-normalized for SAEBench. Move the removed writing-vector
         # norms into the corresponding feature activations so the represented
         # residual contribution remains exactly unchanged.
@@ -532,7 +538,7 @@ class PCAFeatureEncoder(torch.nn.Module):
         components = eigenvectors.flip(1).T.contiguous().to(torch.float32)
         self.register_buffer("center", center)
         self.register_buffer("components", components)
-        decoder = torch.cat((components, -components), dim=0)
+        decoder = components
         self.W_dec = torch.nn.Parameter(decoder, requires_grad=False)
         self.dtype = dtype
         self.device = torch.device(device)
@@ -542,10 +548,11 @@ class PCAFeatureEncoder(torch.nn.Module):
         self.cfg = ICAFeatureConfig(
             model_name=str(snapshot["saebench_model_name"]),
             d_in=hidden_size,
-            d_sae=hidden_size * 2,
+            d_sae=hidden_size,
             hook_layer=int(snapshot["layer"]),
             hook_name=f"blocks.{int(snapshot['layer'])}.hook_resid_post",
-            architecture="pca_split_signed",
+            architecture="pca_signed",
+            activation_fn_str="identity",
             dtype=str(dtype).removeprefix("torch."),
             device=device,
         )
@@ -558,7 +565,7 @@ class PCAFeatureEncoder(torch.nn.Module):
                 self.norm_eps
             )
         scores = (work - self.center) @ self.components.T
-        return torch.cat((scores.clamp_min(0), (-scores).clamp_min(0)), dim=-1)
+        return scores
 
 
 class RandomFeatureEncoder(torch.nn.Module):
@@ -589,7 +596,7 @@ class RandomFeatureEncoder(torch.nn.Module):
         del matrix, basis, triangular
         self.register_buffer("center", center)
         self.register_buffer("components", components)
-        decoder = torch.cat((components, -components), dim=0)
+        decoder = components
         self.W_dec = torch.nn.Parameter(decoder, requires_grad=False)
         self.dtype = dtype
         self.device = torch.device(device)
@@ -598,10 +605,11 @@ class RandomFeatureEncoder(torch.nn.Module):
         self.cfg = ICAFeatureConfig(
             model_name=str(snapshot["saebench_model_name"]),
             d_in=hidden_size,
-            d_sae=hidden_size * 2,
+            d_sae=hidden_size,
             hook_layer=int(snapshot["layer"]),
             hook_name=f"blocks.{int(snapshot['layer'])}.hook_resid_post",
-            architecture="random_orthogonal_split_signed",
+            architecture="random_orthogonal_signed",
+            activation_fn_str="identity",
             dtype=str(dtype).removeprefix("torch."),
             device=device,
             random_seed=seed,
@@ -615,7 +623,7 @@ class RandomFeatureEncoder(torch.nn.Module):
                 self.norm_eps
             )
         scores = (work - self.center) @ self.components.T
-        return torch.cat((scores.clamp_min(0), (-scores).clamp_min(0)), dim=-1)
+        return scores
 
 
 def parse_args() -> argparse.Namespace:

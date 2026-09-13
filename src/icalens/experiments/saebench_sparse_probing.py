@@ -84,7 +84,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     cache_estimate = _estimate_activation_cache_bytes(settings, lens.hidden_size)
     resolved: dict[str, Any] = {
         "experiment": "saebench-sparse-probing",
-        "experiment_schema_version": 1,
+        "experiment_schema_version": 2,
         "icalens_version": __version__,
         "lens": str(args.lens),
         "model_id": lens.model_id,
@@ -415,6 +415,21 @@ def _write_layer_snapshot(
     assert artifact.center is not None
     assert artifact.reading_matrix is not None
     assert artifact.writing_matrix is not None
+    profile = lens._get_profile(artifact)
+    tail_signs = torch.empty(artifact.n_components, dtype=torch.float32)
+    seen: set[int] = set()
+    for component in profile.get("components", []):
+        index = int(component["component"])
+        direction = component.get("tail_direction")
+        if not 0 <= index < artifact.n_components or index in seen:
+            raise ValueError(f"layer {layer} has an invalid profiled component index {index}")
+        if direction not in {"positive", "negative"}:
+            raise ValueError(f"layer {layer} C{index} has no profiled tail_direction")
+        tail_signs[index] = 1.0 if direction == "positive" else -1.0
+        seen.add(index)
+    if len(seen) != artifact.n_components:
+        missing = sorted(set(range(artifact.n_components)).difference(seen))
+        raise ValueError(f"layer {layer} profile is missing components {missing[:10]}")
     output.mkdir(parents=True, exist_ok=True)
     tensor_path = output / "layer.safetensors"
     save_file(
@@ -422,6 +437,7 @@ def _write_layer_snapshot(
             "center": torch.from_numpy(np.asarray(artifact.center)),
             "reading_matrix": torch.from_numpy(np.asarray(artifact.reading_matrix)),
             "writing_matrix": torch.from_numpy(np.asarray(artifact.writing_matrix)),
+            "tail_signs": tail_signs,
         },
         tensor_path,
     )
@@ -435,6 +451,8 @@ def _write_layer_snapshot(
         "row_normalize": lens.row_normalize,
         "norm_eps": lens.norm_eps,
         "layer_file": str(tensor_path),
+        "ica_orientation": "profile_tail_direction",
+        "ica_feature_sides": "one_signed_coordinate",
         "baselines": _prepare_layer_baselines(baselines, layer=layer),
     }
     path = output / "snapshot.json"
@@ -580,7 +598,7 @@ def _resolve_baselines(model_id: str, value: str) -> dict[str, dict[str, Any]]:
             "name": "Random orthogonal basis",
             "components": "model_hidden_size",
             "preprocessing": "match_ica_lens",
-            "feature_sides": "positive_and_negative",
+            "feature_sides": "one_signed_coordinate",
             "seed": 0,
         }
     return {name: resolved[name] for name in selected}

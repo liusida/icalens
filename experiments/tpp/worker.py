@@ -61,11 +61,22 @@ class SignedLinearDictionary(torch.nn.Module):
         device: str,
         dtype: torch.dtype,
         seed: int | None = None,
+        orientation: torch.Tensor | None = None,
     ) -> None:
         super().__init__()
         self.register_buffer("center", center.to(torch.float32))
         self.register_buffer("reading", reading.to(torch.float32))
-        decoder = torch.cat((writing.T, -writing.T), dim=0).to(torch.float32)
+        signs = (
+            torch.ones(reading.shape[0], dtype=torch.float32)
+            if orientation is None
+            else orientation.to(torch.float32)
+        )
+        if signs.shape != (reading.shape[0],) or not bool(
+            torch.all((signs == 1) | (signs == -1))
+        ):
+            raise ValueError("orientation must contain one +1 or -1 per linear component")
+        self.register_buffer("orientation", signs)
+        decoder = writing.T.to(torch.float32) * signs[:, None]
         decoder_norms = torch.linalg.vector_norm(decoder, dim=-1).clamp_min(1e-12)
         self.register_buffer("decoder_norms", decoder_norms)
         self.W_dec = torch.nn.Parameter(decoder / decoder_norms[:, None], requires_grad=False)
@@ -76,11 +87,11 @@ class SignedLinearDictionary(torch.nn.Module):
         self.cfg = Config(
             model_name=str(snapshot["saebench_model_name"]),
             d_in=int(reading.shape[1]),
-            d_sae=int(reading.shape[0] * 2),
+            d_sae=int(reading.shape[0]),
             hook_layer=int(snapshot["layer"]),
             hook_name=f"blocks.{int(snapshot['layer'])}.hook_resid_post",
             architecture=architecture,
-            activation_fn_str="relu",
+            activation_fn_str="identity",
             dtype=str(dtype).removeprefix("torch."),
             device=device,
             random_seed=seed,
@@ -94,7 +105,7 @@ class SignedLinearDictionary(torch.nn.Module):
                 self.norm_eps
             )
         score = (work - self.center) @ self.reading.T
-        code = torch.cat((score.clamp_min(0), (-score).clamp_min(0)), dim=-1)
+        code = score * self.orientation
         return code * self.decoder_norms
 
     def decode(self, code: torch.Tensor) -> torch.Tensor:
@@ -214,6 +225,7 @@ def build_methods(
     center = tensors["center"].to(torch.float32)
     fitted_reading = tensors["reading_matrix"].to(torch.float64)
     fitted_writing = tensors["writing_matrix"].to(torch.float64)
+    tail_signs = tensors["tail_signs"].to(torch.float32)
     covariance_whitener_gram = fitted_reading.T @ fitted_reading
     eigenvalues, eigenvectors = torch.linalg.eigh(covariance_whitener_gram)
     symmetric_whitener = (eigenvectors * eigenvalues.clamp_min(0).sqrt()) @ eigenvectors.T
@@ -235,6 +247,7 @@ def build_methods(
             architecture="fitted_ica",
             device=device,
             dtype=dtype,
+            orientation=tail_signs,
         ),
         "unfitted_ica": SignedLinearDictionary(
             center=center,
@@ -346,7 +359,7 @@ def main() -> None:
         method_results[f"{name}_custom_sae"] = json.loads(result_path.read_text(encoding="utf-8"))
     payload = {
         "schema_version": 1,
-        "method_definition_version": 2,
+        "method_definition_version": 3,
         "methods": method_results,
         "feature_configs": {name: asdict(encoders[name].cfg) for name in METHODS},
     }

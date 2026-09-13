@@ -48,6 +48,12 @@ def parse_args() -> argparse.Namespace:
             f"(default: {DEFAULT_ACTIVATION_CACHE_ROOT})."
         ),
     )
+    parser.add_argument(
+        "--activation-cache-run-dir",
+        type=Path,
+        default=None,
+        help="Reuse an explicit existing run cache directory instead of the derived cache key.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -75,7 +81,7 @@ def main() -> None:
         "model_revision": lens.model_revision,
         "layers": layers,
         "methods": list(METHODS),
-        "method_definition_version": 2,
+        "method_definition_version": 3,
         "settings": settings,
         "saebench_backend": asdict(backend),
         "baseline_definitions": baselines,
@@ -92,7 +98,11 @@ def main() -> None:
     cache_key = hashlib.sha256(
         json.dumps(config, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:16]
-    run_cache_dir = activation_cache_root / _path_slug(lens.model_id) / cache_key
+    run_cache_dir = (
+        args.activation_cache_run_dir.expanduser().resolve()
+        if args.activation_cache_run_dir is not None
+        else activation_cache_root / _path_slug(lens.model_id) / cache_key
+    )
     run_cache_dir.mkdir(parents=True, exist_ok=True)
     free_bytes = shutil.disk_usage(run_cache_dir).free
     print(
@@ -107,6 +117,9 @@ def main() -> None:
             "activation_cache_root": str(activation_cache_root),
             "run_cache_key": cache_key,
             "run_cache_dir": str(run_cache_dir),
+            "cache_directory_source": (
+                "explicit" if args.activation_cache_run_dir is not None else "derived"
+            ),
             "layer_cache_dirs": {
                 str(layer): str(run_cache_dir / f"layer_{layer:02d}") for layer in layers
             },
@@ -207,7 +220,7 @@ def valid_layer_result(path: Path, *, settings: dict[str, object]) -> bool:
         return False
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        if payload.get("schema_version") != 1 or payload.get("method_definition_version") != 2:
+        if payload.get("schema_version") != 1 or payload.get("method_definition_version") != 3:
             return False
         methods = payload["methods"]
         expected = {f"{name}_custom_sae" for name in METHODS}
@@ -242,6 +255,12 @@ def layer_fingerprint(lens: ICALens, layer: int) -> str:
         digest.update(str(array.dtype).encode("ascii"))
         digest.update(np.asarray(array.shape, dtype=np.int64).tobytes())
         digest.update(array.tobytes())
+    profile = lens._get_profile(artifact)
+    directions = {
+        int(component["component"]): component.get("tail_direction")
+        for component in profile.get("components", [])
+    }
+    digest.update(json.dumps(directions, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     return digest.hexdigest()
 
 
