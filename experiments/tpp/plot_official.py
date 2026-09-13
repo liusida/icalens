@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import statistics
 from pathlib import Path
@@ -16,8 +17,10 @@ METHODS = (
     ("sae_custom_sae", "SAE", "#B45F4D", "o"),
     ("unfitted_ica_custom_sae", "Unfitted ICA", "#8FA9CC", "v"),
     ("untrained_sae_matched_l0_custom_sae", "Untrained SAE", "#D29A8E", "s"),
+    ("pca_custom_sae", "PCA", "#7A8B63", "D"),
 )
 DRAW_ORDER = tuple(reversed(METHODS))
+DEFAULT_METHOD_IDS = ("ica_custom_sae", "sae_custom_sae")
 MODELS = (
     ("gpt2", "GPT-2 Small", (6, 10)),
     ("gemma2", "Gemma 2 2B", (12, 20)),
@@ -35,14 +38,47 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--results",
         type=Path,
-        default=Path("experiments/tpp/official/results-dominant"),
+        default=Path("experiments/tpp/official/results"),
     )
     parser.add_argument(
         "--output",
         type=Path,
         default=Path("experiments/tpp/official/figures/tpp-model-comparison-partial.png"),
     )
+    parser.add_argument(
+        "--expected-seeds",
+        type=int,
+        default=3,
+        help="Expected number of official seeds used in partial-status labels (default: 3).",
+    )
     return parser.parse_args()
+
+
+def discover_seed_roots(results: Path) -> list[tuple[str, Path]]:
+    seed_roots = sorted(
+        (path.name, path) for path in results.glob("seed-*") if path.is_dir()
+    )
+    return seed_roots or [("single", results)]
+
+
+def validate_seed_configs(seed_roots: list[tuple[str, Path]], model_name: str) -> None:
+    """Reject seed aggregation when anything except the evaluation seed differs."""
+    reference: dict | None = None
+    reference_seed = ""
+    for seed_name, seed_root in seed_roots:
+        path = seed_root / model_name / "config.json"
+        if not path.is_file():
+            continue
+        config = copy.deepcopy(json.loads(path.read_text(encoding="utf-8")))
+        config.get("settings", {}).pop("random_seed", None)
+        if reference is None:
+            reference = config
+            reference_seed = seed_name
+        elif config != reference:
+            raise ValueError(
+                f"incompatible TPP configurations for {model_name}: "
+                f"{reference_seed} and {seed_name} differ beyond random_seed"
+            )
 
 
 def load_available(root: Path, layers: tuple[int, ...]) -> dict[str, dict[int, dict]]:
@@ -81,7 +117,7 @@ def metric_value(payload: dict, budget: int, suffix: str) -> float:
 
 def plot_method(
     axis: plt.Axes,
-    payloads: dict[int, dict],
+    payloads_by_seed: dict[str, dict[int, dict]],
     *,
     suffix: str,
     label: str,
@@ -89,15 +125,18 @@ def plot_method(
     marker: str,
     zorder: int,
 ) -> None:
-    first = next(iter(payloads.values()))
-    budgets = [int(value) for value in first["eval_config"]["n_values"]]
-    layer_values = np.asarray(
-        [
-            [metric_value(payload, budget, suffix) for budget in budgets]
-            for payload in payloads.values()
-        ]
-    )
-    mean = layer_values.mean(axis=0)
+    budgets, values = aggregate_seed_curves(payloads_by_seed, suffix=suffix)
+    mean = values.mean(axis=0)
+    if len(values) > 1:
+        axis.fill_between(
+            budgets,
+            values.min(axis=0),
+            values.max(axis=0),
+            color=color,
+            alpha=0.14,
+            linewidth=0,
+            zorder=zorder - 1,
+        )
     axis.plot(
         budgets,
         mean,
@@ -110,13 +149,48 @@ def plot_method(
     )
 
 
+def aggregate_seed_curves(
+    payloads_by_seed: dict[str, dict[int, dict]], *, suffix: str
+) -> tuple[list[int], np.ndarray]:
+    """Average layers within each seed and return one curve per available seed."""
+    first = next(iter(next(iter(payloads_by_seed.values())).values()))
+    budgets = [int(value) for value in first["eval_config"]["n_values"]]
+    seed_values = []
+    for payloads in payloads_by_seed.values():
+        for payload in payloads.values():
+            payload_budgets = [int(value) for value in payload["eval_config"]["n_values"]]
+            if payload_budgets != budgets:
+                raise ValueError("TPP seed/layer results use different feature budgets")
+        layer_values = np.asarray(
+            [
+                [metric_value(payload, budget, suffix) for budget in budgets]
+                for payload in payloads.values()
+            ]
+        )
+        seed_values.append(layer_values.mean(axis=0))
+    return budgets, np.asarray(seed_values)
+
+
 def main() -> None:
     args = parse_args()
+    if args.expected_seeds < 1:
+        raise ValueError("--expected-seeds must be positive")
+    seed_roots = discover_seed_roots(args.results)
+    for model_name, _, _ in MODELS:
+        validate_seed_configs(seed_roots, model_name)
     model_data = [
-        (model_name, title, layers, load_available(args.results / model_name, layers))
+        (
+            model_name,
+            title,
+            layers,
+            {
+                seed_name: load_available(seed_root / model_name, layers)
+                for seed_name, seed_root in seed_roots
+            },
+        )
         for model_name, title, layers in MODELS
     ]
-    if not any(data for _, _, _, data in model_data):
+    if not any(data for _, _, _, seeds in model_data for data in seeds.values()):
         raise ValueError("no TPP method results are available")
 
     plt.rcParams.update(
@@ -142,16 +216,18 @@ def main() -> None:
             )
         )
 
-    for model_index, (_, title, expected_layers, data) in enumerate(model_data):
-        complete_layers = (
-            sorted(set.intersection(*(set(v) for v in data.values()))) if data else []
+    for model_index, (_, title, expected_layers, seed_data) in enumerate(model_data):
+        seeds_with_data = {
+            seed: data for seed, data in seed_data.items() if any(data.values())
+        }
+        complete_seeds = sum(
+            all(set(data.get(method, {})) == set(expected_layers) for method in DEFAULT_METHOD_IDS)
+            for data in seeds_with_data.values()
         )
-        complete_methods = sum(set(v) == set(expected_layers) for v in data.values())
+        available_seeds = len(seeds_with_data)
         subtitle = (
-            f"mean of L{expected_layers[0]} and L{expected_layers[1]}"
-            if complete_methods == len(METHODS)
-            else f"partial: L{','.join(map(str, complete_layers)) or '—'}; "
-            f"{len(data)}/{len(METHODS)} methods"
+            f"{complete_seeds}/{args.expected_seeds} complete seeds; "
+            f"{available_seeds}/{args.expected_seeds} with data"
         )
         top, intended, unintended = axes[model_index]
         top.set_title(f"{title}\n{subtitle}", fontweight="bold", loc="left")
@@ -160,10 +236,15 @@ def main() -> None:
         for metric_index, axis in enumerate((top, intended, unintended)):
             suffix, _ = METRICS[metric_index]
             for draw_index, (method_id, label, color, marker) in enumerate(DRAW_ORDER):
-                if method_id in data:
+                method_payloads = {
+                    seed: data[method_id]
+                    for seed, data in seeds_with_data.items()
+                    if method_id in data
+                }
+                if method_payloads:
                     plot_method(
                         axis,
-                        data[method_id],
+                        method_payloads,
                         suffix=suffix,
                         label=label,
                         color=color,
@@ -183,7 +264,12 @@ def main() -> None:
     all_axes = [axis for group in axes for axis in group]
     for axis in all_axes:
         axis.set_ylim(0, 0.44)
-    handles, labels = axes[0][0].get_legend_handles_labels()
+    handles: list[object] = []
+    labels: list[str] = []
+    for axis in all_axes:
+        axis_handles, axis_labels = axis.get_legend_handles_labels()
+        handles.extend(axis_handles)
+        labels.extend(axis_labels)
     by_label = dict(zip(labels, handles, strict=True))
     ordered_labels = [label for _, label, _, _ in METHODS if label in by_label]
     figure.legend(
