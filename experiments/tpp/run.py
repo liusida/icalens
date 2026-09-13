@@ -26,6 +26,7 @@ from icalens.experiments.saebench_sparse_probing import (
 )
 
 METHODS = ("ica", "unfitted_ica", "sae", "untrained_sae_matched_l0", "pca")
+METHOD_DEFINITION_VERSION = 4
 DEFAULT_ACTIVATION_CACHE_ROOT = Path("~/Expansion/research/ICA-data/tpp").expanduser()
 
 
@@ -34,8 +35,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lens", required=True)
     parser.add_argument("--layers", required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--preset", choices=("smoke", "paper"), default="smoke")
+    parser.add_argument("--preset", choices=("smoke", "paper"), default="paper")
     parser.add_argument("--n-values", default=None, help="Comma-separated feature budgets.")
+    parser.add_argument(
+        "--methods",
+        default="ica,sae",
+        help="Comma-separated representations to evaluate, or 'all' (default: ica,sae).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Override the preset random seed for dataset sampling and probe training.",
+    )
     parser.add_argument("--saebench-path", type=Path, default=None)
     parser.add_argument("--cache-dir", type=Path, default=None)
     parser.add_argument(
@@ -67,6 +79,17 @@ def main() -> None:
     backend = resolve_backend(lens.model_id)
     baselines = _resolve_baselines(lens.model_id, "sae,pca")
     settings = settings_for(args.preset, args.n_values)
+    if args.seed is not None:
+        settings["random_seed"] = args.seed
+    method_argument = ",".join(METHODS) if args.methods.strip().lower() == "all" else args.methods
+    methods = tuple(
+        dict.fromkeys(value.strip() for value in method_argument.split(",") if value.strip())
+    )
+    unknown_methods = sorted(set(methods).difference(METHODS))
+    if not methods or unknown_methods:
+        raise ValueError(
+            f"--methods must select from {','.join(METHODS)}; unknown: {unknown_methods}"
+        )
     output = args.output.expanduser().resolve()
     fitting_seeds = {
         str(layer): int(lens._get_layer(layer).fitting["random_state"]) for layer in layers
@@ -80,8 +103,9 @@ def main() -> None:
         "model_id": lens.model_id,
         "model_revision": lens.model_revision,
         "layers": layers,
-        "methods": list(METHODS),
-        "method_definition_version": 3,
+        "methods": list(methods),
+        "method_definition_version": METHOD_DEFINITION_VERSION,
+        "ica_definition": "profile-oriented one-sided ReLU feature per ICA component",
         "evaluation_input_protocol": input_protocol,
         "settings": settings,
         "saebench_backend": asdict(backend),
@@ -139,6 +163,7 @@ def main() -> None:
         if valid_layer_result(
             output / "layers" / f"layer_{layer:02d}" / "result.json",
             settings=settings,
+            methods=methods,
         )
     }
     if len(completed_layers) == len(layers):
@@ -177,6 +202,8 @@ def main() -> None:
                 )
                 snapshot_payload = json.loads(snapshot.read_text(encoding="utf-8"))
                 snapshot_payload["fitting_seed"] = fitting_seeds[str(layer)]
+                snapshot_payload["ica_feature_sides"] = "profile_oriented_positive_half_wave"
+                snapshot_payload["ica_activation"] = "relu"
                 atomic_write_json(snapshot, snapshot_payload)
                 layer_cache_dir = run_cache_dir / f"layer_{layer:02d}"
                 command = [
@@ -215,18 +242,23 @@ def main() -> None:
         run.set_status("complete", complete=True)
 
 
-def valid_layer_result(path: Path, *, settings: dict[str, object]) -> bool:
+def valid_layer_result(
+    path: Path, *, settings: dict[str, object], methods: tuple[str, ...]
+) -> bool:
     if not path.is_file():
         return False
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        if payload.get("schema_version") != 1 or payload.get("method_definition_version") != 3:
+        if (
+            payload.get("schema_version") != 1
+            or payload.get("method_definition_version") != METHOD_DEFINITION_VERSION
+        ):
             return False
-        methods = payload["methods"]
-        expected = {f"{name}_custom_sae" for name in METHODS}
-        if set(methods) != expected:
+        result_methods = payload["methods"]
+        expected = {f"{name}_custom_sae" for name in methods}
+        if set(result_methods) != expected:
             return False
-        for result in methods.values():
+        for result in result_methods.values():
             config = result["eval_config"]
             if list(config["dataset_names"]) != list(settings["datasets"]):
                 return False
@@ -242,7 +274,7 @@ def valid_layer_result(path: Path, *, settings: dict[str, object]) -> bool:
                     value = metrics[f"tpp_threshold_{int(budget)}_{suffix}"]
                     if value is None or not isinstance(value, (int, float)):
                         return False
-        return set(payload["feature_configs"]) == set(METHODS)
+        return set(payload["feature_configs"]) == set(methods)
     except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
         return False
 

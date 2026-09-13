@@ -30,6 +30,7 @@ from icalens.experiments._saebench_worker import (  # noqa: E402
 )
 
 METHODS = ("ica", "unfitted_ica", "sae", "untrained_sae_matched_l0", "pca")
+METHOD_DEFINITION_VERSION = 4
 
 
 @dataclass
@@ -62,6 +63,7 @@ class SignedLinearDictionary(torch.nn.Module):
         dtype: torch.dtype,
         seed: int | None = None,
         orientation: torch.Tensor | None = None,
+        activation: str = "identity",
     ) -> None:
         super().__init__()
         self.register_buffer("center", center.to(torch.float32))
@@ -78,6 +80,9 @@ class SignedLinearDictionary(torch.nn.Module):
         decoder_norms = torch.linalg.vector_norm(decoder, dim=-1).clamp_min(1e-12)
         self.register_buffer("decoder_norms", decoder_norms)
         self.W_dec = torch.nn.Parameter(decoder / decoder_norms[:, None], requires_grad=False)
+        if activation not in {"identity", "relu"}:
+            raise ValueError(f"unsupported linear dictionary activation: {activation!r}")
+        self.activation = activation
         self.row_normalize = bool(snapshot["row_normalize"])
         self.norm_eps = float(snapshot["norm_eps"])
         self.device = torch.device(device)
@@ -89,7 +94,7 @@ class SignedLinearDictionary(torch.nn.Module):
             hook_layer=int(snapshot["layer"]),
             hook_name=f"blocks.{int(snapshot['layer'])}.hook_resid_post",
             architecture=architecture,
-            activation_fn_str="identity",
+            activation_fn_str=activation,
             dtype=str(dtype).removeprefix("torch."),
             device=device,
             random_seed=seed,
@@ -104,6 +109,8 @@ class SignedLinearDictionary(torch.nn.Module):
             )
         score = (work - self.center) @ self.reading.T
         code = score * self.orientation
+        if self.activation == "relu":
+            code = torch.relu(code)
         return code * self.decoder_norms
 
     def decode(self, code: torch.Tensor) -> torch.Tensor:
@@ -217,37 +224,36 @@ def _fastica_initial_unmixing(shape: torch.Size, *, seed: int) -> torch.Tensor:
 
 
 def build_methods(
-    snapshot: dict[str, Any], *, device: str, dtype: torch.dtype
+    snapshot: dict[str, Any], *, methods: tuple[str, ...], device: str, dtype: torch.dtype
 ) -> dict[str, torch.nn.Module]:
     tensors = load_file(snapshot["layer_file"], device="cpu")
     center = tensors["center"].to(torch.float32)
     fitted_reading = tensors["reading_matrix"].to(torch.float64)
     fitted_writing = tensors["writing_matrix"].to(torch.float64)
     tail_signs = tensors["tail_signs"].to(torch.float32)
-    covariance_whitener_gram = fitted_reading.T @ fitted_reading
-    eigenvalues, eigenvectors = torch.linalg.eigh(covariance_whitener_gram)
-    symmetric_whitener = (eigenvectors * eigenvalues.clamp_min(0).sqrt()) @ eigenvectors.T
-    initial_unmixing = _fastica_initial_unmixing(
-        fitted_reading.shape, seed=int(snapshot["fitting_seed"])
-    )
-    initial_reading = initial_unmixing @ symmetric_whitener
-    initial_writing = torch.linalg.pinv(initial_reading)
-    covariance = fitted_writing @ fitted_writing.T
-    _, pca_vectors = torch.linalg.eigh(covariance)
-    pca_reading = pca_vectors.flip(1).T.contiguous()
-    pca_writing = pca_reading.T
-    return {
-        "ica": SignedLinearDictionary(
+    result: dict[str, torch.nn.Module] = {}
+    if "ica" in methods:
+        result["ica"] = SignedLinearDictionary(
             center=center,
             reading=fitted_reading,
             writing=fitted_writing,
             snapshot=snapshot,
-            architecture="fitted_ica",
+            architecture="fitted_ica_profile_oriented_relu",
             device=device,
             dtype=dtype,
             orientation=tail_signs,
-        ),
-        "unfitted_ica": SignedLinearDictionary(
+            activation="relu",
+        )
+    if "unfitted_ica" in methods:
+        covariance_whitener_gram = fitted_reading.T @ fitted_reading
+        eigenvalues, eigenvectors = torch.linalg.eigh(covariance_whitener_gram)
+        symmetric_whitener = (eigenvectors * eigenvalues.clamp_min(0).sqrt()) @ eigenvectors.T
+        initial_unmixing = _fastica_initial_unmixing(
+            fitted_reading.shape, seed=int(snapshot["fitting_seed"])
+        )
+        initial_reading = initial_unmixing @ symmetric_whitener
+        initial_writing = torch.linalg.pinv(initial_reading)
+        result["unfitted_ica"] = SignedLinearDictionary(
             center=center,
             reading=initial_reading,
             writing=initial_writing,
@@ -256,10 +262,19 @@ def build_methods(
             device=device,
             dtype=dtype,
             seed=int(snapshot["fitting_seed"]),
-        ),
-        "sae": TrainedSAE(snapshot, device=device, dtype=dtype),
-        "untrained_sae_matched_l0": UntrainedMatchedL0SAE(snapshot, device=device, dtype=dtype),
-        "pca": SignedLinearDictionary(
+        )
+    if "sae" in methods:
+        result["sae"] = TrainedSAE(snapshot, device=device, dtype=dtype)
+    if "untrained_sae_matched_l0" in methods:
+        result["untrained_sae_matched_l0"] = UntrainedMatchedL0SAE(
+            snapshot, device=device, dtype=dtype
+        )
+    if "pca" in methods:
+        covariance = fitted_writing @ fitted_writing.T
+        _, pca_vectors = torch.linalg.eigh(covariance)
+        pca_reading = pca_vectors.flip(1).T.contiguous()
+        pca_writing = pca_reading.T
+        result["pca"] = SignedLinearDictionary(
             center=center,
             reading=pca_reading,
             writing=pca_writing,
@@ -267,8 +282,8 @@ def build_methods(
             architecture="pca",
             device=device,
             dtype=dtype,
-        ),
-    }
+        )
+    return result
 
 
 def parse_args() -> argparse.Namespace:
@@ -299,7 +314,9 @@ def main() -> None:
             )
 
     snapshot = json.loads(args.snapshot.read_text(encoding="utf-8"))
-    settings = json.loads(args.config.read_text(encoding="utf-8"))["settings"]
+    experiment_config = json.loads(args.config.read_text(encoding="utf-8"))
+    settings = experiment_config["settings"]
+    methods = tuple(experiment_config["methods"])
     tokenizer = AutoTokenizer.from_pretrained(
         snapshot["model_id"], revision=snapshot["model_revision"]
     )
@@ -323,7 +340,7 @@ def main() -> None:
             return HFHookedModel(model, tokenizer, snapshot["evaluation_input_protocol"])
 
     tpp_main.HookedTransformer = Factory
-    encoders = build_methods(snapshot, device="cuda", dtype=dtype)
+    encoders = build_methods(snapshot, methods=methods, device="cuda", dtype=dtype)
     config = ScrAndTppEvalConfig(model_name=snapshot["saebench_model_name"], perform_scr=False)
     config.dataset_names = list(settings["datasets"])
     config.n_values = list(settings["n_values"])
@@ -341,7 +358,7 @@ def main() -> None:
     args.activation_cache.mkdir(parents=True, exist_ok=True)
     tpp_main.run_eval(
         config,
-        selected_saes=[(name, encoders[name]) for name in METHODS],
+        selected_saes=[(name, encoders[name]) for name in methods],
         device="cuda",
         output_path=str(args.output / "saebench"),
         force_rerun=False,
@@ -350,16 +367,16 @@ def main() -> None:
         artifacts_path=str(args.activation_cache),
     )
     method_results = {}
-    for name in METHODS:
+    for name in methods:
         result_path = args.output / "saebench" / "tpp" / f"{name}_custom_sae_eval_results.json"
         if not result_path.is_file():
             raise FileNotFoundError(f"SAEBench did not produce the expected result: {result_path}")
         method_results[f"{name}_custom_sae"] = json.loads(result_path.read_text(encoding="utf-8"))
     payload = {
         "schema_version": 1,
-        "method_definition_version": 3,
+        "method_definition_version": METHOD_DEFINITION_VERSION,
         "methods": method_results,
-        "feature_configs": {name: asdict(encoders[name].cfg) for name in METHODS},
+        "feature_configs": {name: asdict(encoders[name].cfg) for name in methods},
     }
     temporary = args.output / "result.json.tmp"
     temporary.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")

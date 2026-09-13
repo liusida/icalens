@@ -32,6 +32,7 @@ misc/
 /experiments/tpp/runs/
 /experiments/tpp/diagnostics/
 /experiments/tpp/official/results/
+/experiments/tpp/official/staled/
 /experiments/tpp/official/results-*/
 /experiments/reconstruction/context-matched-gpt2/run/
 /experiments/manual-annotation-random-150/results/

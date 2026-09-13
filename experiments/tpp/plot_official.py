@@ -181,10 +181,8 @@ def main() -> None:
         intended.set_ylabel("TPP effect" if model_index == 0 else "")
 
     all_axes = [axis for group in axes for axis in group]
-    y_min = min(axis.get_ylim()[0] for axis in all_axes)
-    y_max = max(axis.get_ylim()[1] for axis in all_axes)
     for axis in all_axes:
-        axis.set_ylim(y_min, y_max)
+        axis.set_ylim(0, 0.44)
     handles, labels = axes[0][0].get_legend_handles_labels()
     by_label = dict(zip(labels, handles, strict=True))
     ordered_labels = [label for _, label, _, _ in METHODS if label in by_label]
