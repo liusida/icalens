@@ -291,7 +291,7 @@ def settings_for(preset: str, n_values: str | None) -> dict[str, object]:
                 "canrager/amazon_reviews_mcauley_1and5",
             ],
             "n_values": [1, 2, 5, 10, 20, 50, 100],
-            "train_size": 2000,
+            "train_size": 4000,
             "test_size": 1000,
             "context_length": 128,
             "probe_epochs": 20,
