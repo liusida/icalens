@@ -28,13 +28,17 @@ general policy for experiment figures and previews.
 - Put paper-only rendering code under
   `paper/overleaf-v2.1/scripts/`, with one module per figure and shared visual
   constants in `scripts/style.py`.
+- Apply the same separation to tables. Put paper-only table renderers under
+  `paper/overleaf-v2.1/scripts/tables/`; they should consume frozen paper data
+  and generate the corresponding LaTeX fragments under `tables/`.
 - `scripts/prepare_data.py` may read source results directly from the project
   by relative path. It should reorganize them into the exact representation
-  consumed by the paper plot; it must not rerun an experiment.
-- Before preparing a data twin, understand and state the figure's intended
-  meaning: what question it answers, which comparison supports that answer,
-  and what each plotted quantity represents. Trace the source computation far
-  enough to verify that its logic actually measures the intended quantity.
+  consumed by the paper figure or table; it must not rerun an experiment.
+- Before preparing a data twin, understand and state the figure or table's
+  intended meaning: what question it answers, which comparison or evidence
+  supports that answer, and what each displayed quantity represents. Trace the
+  source computation far enough to verify that its logic actually measures the
+  intended quantity.
 - Audit the source data during preparation whenever practical. Check run
   completion, expected coverage, uniqueness, missing or non-finite values,
   aggregation denominators, normalization, and relevant invariants. Also check
@@ -46,19 +50,36 @@ general policy for experiment figures and previews.
   for example, `figures/overview.npz` and `figures/overview.pdf`. The data twin
   is plot-specific and should be sufficient to reproduce the corresponding
   PDF without reopening the full experiment output.
+- Store one compact JSON twin beside each generated paper table, using the same
+  semantic stem: for example, `tables/component-profile-examples.json` and
+  `tables/component-profile-examples.tex`. Use JSON rather than NPZ for tables
+  because table rows combine strings, identifiers, nested records, provenance,
+  and a small number of scalar values. The JSON twin must be sufficient to
+  reproduce the LaTeX fragment without reopening experiment outputs or model
+  artifacts.
+- Table twins should preserve the complete audited values needed for the
+  presentation, such as full contexts and exact target spans. Truncation,
+  abbreviation, wrapping, escaping, and emphasis belong in the LaTeX renderer,
+  not in the twin.
+- When a table combines several artifacts, validate their semantic join before
+  freezing it: component or example identities must agree, requested entries
+  must be unique, required fields must be complete, and metric definitions and
+  aggregation settings must match the caption. Record source paths and content
+  hashes in the JSON twin whenever practical.
 - Data preparation and rendering are separate explicit operations. Require
-  `--force` before replacing a frozen data twin or rendered figure.
+  `--force` before replacing a frozen data twin, rendered figure, or generated
+  LaTeX table fragment.
 - `scripts/make_all.py` is the single entry point for regenerating paper
   figures. Debug decorations must be opt-in and absent from final output.
 
-## Use semantic identities, not figure numbers
+## Use semantic identities, not figure or table numbers
 
-- Name renderers, preparation targets, data twins, PDFs, and LaTeX labels by
-  scientific role rather than current display number. Prefer
+- Name renderers, preparation targets, data twins, PDFs, table fragments, and
+  LaTeX labels by scientific role rather than current display number. Prefer
   `historical_ica_sae.py`, `--figure historical-ica-sae`, and
   `fig:historical-baseline` over names containing `figure_04` or `figure-4`.
-- LaTeX alone owns displayed figure numbers. Inserting or reordering a figure
-  must not change the meaning of a filename or command.
+- LaTeX alone owns displayed figure and table numbers. Inserting or reordering
+  an item must not change the meaning of a filename or command.
 - Preserve intended regeneration order in an explicit ordered registry in
   `prepare_data.py` and `make_all.py`. Stable identity and mutable paper order
   are separate concerns.
