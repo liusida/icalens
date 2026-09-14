@@ -30,7 +30,8 @@ from icalens.experiments.saebench_sparse_probing import (
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 FORMAT = "icalens.activation_pattern"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+MAX_FEATURE_RANK = 5
 DEFAULT_SENTENCE = (
     "Maya stopped at the bank before the trip, waiting in line to deposit a check "
     "and withdraw enough cash for the weekend."
@@ -137,9 +138,10 @@ def resolved_configuration(
         "layer_selection": "first, index floor(number of layers / 2), last",
         "ica_quantity": "signed score from ICALens.transform",
         "sae_quantity": "native checkpoint post-activation before decoder-row-norm scaling",
+        "cached_feature_ranks": MAX_FEATURE_RANK,
         "feature_selection": (
-            "within each method, union of features attaining top-1 absolute ICA score "
-            "or top-1 SAE activation at any reported token"
+            "within each method, union of features attaining ranks 1 through 5 by "
+            "absolute ICA score or positive SAE activation at any reported token"
         ),
         "models": models,
     }
@@ -157,6 +159,7 @@ def unit_identity(resolved: dict[str, Any], label: str, layer: int) -> dict[str,
             "layer_selection",
             "ica_quantity",
             "sae_quantity",
+            "cached_feature_ranks",
             "feature_selection",
         )
     } | {
@@ -199,9 +202,11 @@ def validate_checkpoint(path: Path, identity: dict[str, Any]) -> dict[str, np.nd
         "ica_feature_ids",
         "ica_scores",
         "ica_top_feature",
+        "ica_top_features",
         "sae_feature_ids",
         "sae_activations",
         "sae_top_feature",
+        "sae_top_features",
     }
     if not required.issubset(data):
         return None
@@ -217,7 +222,9 @@ def validate_checkpoint(path: Path, identity: dict[str, Any]) -> dict[str, np.nd
         or data["ica_scores"].shape != (len(data["ica_feature_ids"]), token_count)
         or data["sae_activations"].shape != (len(data["sae_feature_ids"]), token_count)
         or data["ica_top_feature"].shape != (token_count,)
+        or data["ica_top_features"].shape != (token_count, MAX_FEATURE_RANK)
         or data["sae_top_feature"].shape != (token_count,)
+        or data["sae_top_features"].shape != (token_count, MAX_FEATURE_RANK)
         or not np.isfinite(data["ica_scores"]).all()
         or not np.isfinite(data["sae_activations"]).all()
         or np.any(data["sae_activations"] < 0)
@@ -225,10 +232,14 @@ def validate_checkpoint(path: Path, identity: dict[str, Any]) -> dict[str, np.nd
         or np.any((data["sae_feature_ids"] < 0) | (data["sae_feature_ids"] >= sae_width))
         or np.any((data["ica_top_feature"] < 0) | (data["ica_top_feature"] >= ica_width))
         or np.any((data["sae_top_feature"] < -1) | (data["sae_top_feature"] >= sae_width))
+        or np.any((data["ica_top_features"] < 0) | (data["ica_top_features"] >= ica_width))
+        or np.any((data["sae_top_features"] < -1) | (data["sae_top_features"] >= sae_width))
+        or not np.array_equal(data["ica_top_feature"], data["ica_top_features"][:, 0])
+        or not np.array_equal(data["sae_top_feature"], data["sae_top_features"][:, 0])
         or set(int(value) for value in data["ica_feature_ids"])
-        != set(int(value) for value in data["ica_top_feature"])
+        != set(int(value) for value in data["ica_top_features"].ravel())
         or set(int(value) for value in data["sae_feature_ids"])
-        != set(int(value) for value in data["sae_top_feature"] if value >= 0)
+        != set(int(value) for value in data["sae_top_features"].ravel() if value >= 0)
     ):
         return None
     return data
@@ -287,8 +298,10 @@ def measure_layer(
     if not isinstance(ica, torch.Tensor):
         ica = torch.as_tensor(ica)
     ica = ica.detach().cpu().float().numpy()
-    ica_top = np.abs(ica).argmax(axis=1).astype(np.int64)
-    ica_ids = ordered_union(ica_top)
+    ica_top_features = np.argsort(-np.abs(ica), axis=1, kind="stable")[:, :MAX_FEATURE_RANK].astype(
+        np.int64
+    )
+    ica_ids = ordered_union(ica_top_features.ravel())
 
     prepared = _prepare_layer_baselines({"sae": baseline}, layer=layer)
     snapshot = {
@@ -300,9 +313,12 @@ def measure_layer(
     encoder = SAEFeatureEncoder(snapshot, device=device, dtype=torch.float32)
     scaled_sae = encoder.encode(captured.activations.float())
     sae = (scaled_sae / encoder.decoder_norms.clamp_min(1e-12)).detach().cpu().float().numpy()
-    sae_top = sae.argmax(axis=1).astype(np.int64)
-    sae_top[sae.max(axis=1) <= 0] = -1
-    sae_ids = ordered_union(sae_top)
+    sae_top_features = np.argsort(-sae, axis=1, kind="stable")[:, :MAX_FEATURE_RANK].astype(
+        np.int64
+    )
+    sae_top_values = np.take_along_axis(sae, sae_top_features, axis=1)
+    sae_top_features[sae_top_values <= 0] = -1
+    sae_ids = ordered_union(sae_top_features.ravel())
 
     return {
         "token_ids": captured.token_ids.cpu().numpy().astype(np.int64),
@@ -312,10 +328,12 @@ def measure_layer(
         "token_labels": np.asarray(captured.token_labels),
         "ica_feature_ids": ica_ids,
         "ica_scores": ica[:, ica_ids].T.astype(np.float32),
-        "ica_top_feature": ica_top,
+        "ica_top_feature": ica_top_features[:, 0],
+        "ica_top_features": ica_top_features,
         "sae_feature_ids": sae_ids,
         "sae_activations": sae[:, sae_ids].T.astype(np.float32),
-        "sae_top_feature": sae_top,
+        "sae_top_feature": sae_top_features[:, 0],
+        "sae_top_features": sae_top_features,
     }
 
 
