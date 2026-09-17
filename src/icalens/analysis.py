@@ -435,21 +435,58 @@ def add_logit_effects(
     return replace(result, logit_effects=tuple(effects))
 
 
+def _intervention_values(
+    intervention: tuple[int, float] | Mapping[int, float] | None, *, name: str
+) -> dict[int, float]:
+    if intervention is None:
+        return {}
+    values = (
+        dict(intervention.items())
+        if isinstance(intervention, Mapping)
+        else {intervention[0]: intervention[1]}
+    )
+    if not values:
+        raise ValueError(f"{name} mapping cannot be empty")
+    for component, value in values.items():
+        if isinstance(component, bool) or not isinstance(component, int) or component < 0:
+            raise ValueError(f"{name} components must be non-negative integers")
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not torch.isfinite(torch.tensor(float(value)))
+        ):
+            raise ValueError(f"{name} values must be finite numbers")
+    return {int(component): float(value) for component, value in values.items()}
+
+
 def generate(
     lens: Any,
     prompt: str | list[dict[str, str]],
     *,
     layer: int | None = None,
     clamp: tuple[int, float] | Mapping[int, float] | None = None,
-    steer: tuple[int, float] | Mapping[int, float] | None = None,
+    steer: tuple[int, float] | tuple[int, float, float] | Mapping[int, float] | None = None,
+    initial_steer: tuple[int, float] | tuple[int, float, float] | Mapping[int, float] | None = None,
+    steer_cap: tuple[int, float] | Mapping[int, float] | None = None,
     steering_scope: Literal["current-position", "all-positions"] = "current-position",
     max_new_tokens: int = 64,
     device: str | torch.device | None = "auto",
     model: torch.nn.Module | None = None,
     tokenizer: Any = None,
+    debug: bool = False,
     **generation_kwargs: Any,
 ) -> str:
-    """Generate text, optionally clamping or additively steering ICA scores."""
+    """Generate text, optionally clamping or additively steering ICA scores.
+
+    Both ``steer`` and ``initial_steer`` accept ``(component, offset, cap)``. Step zero
+    uses ``initial_steer`` when supplied and otherwise falls back to ``steer``; later
+    steps use ``steer``. A cap limits positive (negative) steering at an upper (lower)
+    component score without reducing a score already beyond the limit.
+
+    Set ``debug=True`` to print the selected components' scores immediately before and
+    after each intervention. For interventions affecting multiple positions, the output
+    reports the last-position score plus the range and mean across affected positions.
+    """
     if isinstance(prompt, list):
         prompt = _normalize_messages(prompt)
         if not prompt:
@@ -458,8 +495,27 @@ def generate(
         raise TypeError("prompt must be a string or a list of messages")
     if max_new_tokens <= 0:
         raise ValueError("max_new_tokens must be positive")
+    if not isinstance(debug, bool):
+        raise TypeError("debug must be a bool")
+    shorthand_steer_cap: tuple[int, float] | None = None
+    shorthand_initial_cap: tuple[int, float] | None = None
+    if isinstance(steer, tuple) and len(steer) == 3:
+        if steer_cap is not None:
+            raise ValueError("three-item steer cannot be combined with steer_cap")
+        component, offset, cap = steer
+        steer = (component, offset)
+        shorthand_steer_cap = (component, cap)
+        steer_cap = shorthand_steer_cap
+    if isinstance(initial_steer, tuple) and len(initial_steer) == 3:
+        component, offset, cap = initial_steer
+        initial_steer = (component, offset)
+        shorthand_initial_cap = (component, cap)
     if clamp is not None and steer is not None:
         raise ValueError("clamp and steer are mutually exclusive")
+    if initial_steer is not None and steer is None:
+        raise ValueError("initial_steer requires steer")
+    if steer_cap is not None and steer is None:
+        raise ValueError("steer_cap requires steer")
     intervention = clamp if clamp is not None else steer
     intervention_name = "clamp" if clamp is not None else "steer"
     if intervention is None:
@@ -513,6 +569,24 @@ def generate(
             steering_direction += float(offset) * torch.from_numpy(
                 artifact.writing_matrix[:, component]
             )
+        initial_values = _intervention_values(initial_steer, name="initial_steer")
+        cap_values = _intervention_values(steer_cap, name="steer_cap")
+        initial_cap_values = _intervention_values(
+            shorthand_initial_cap, name="initial_steer cap"
+        )
+        unknown_initial = set(initial_values) - set(values)
+        unknown_caps = set(cap_values) - set(values)
+        if unknown_initial:
+            raise ValueError("initial_steer components must also appear in steer")
+        if unknown_caps:
+            raise ValueError("steer_cap components must also appear in steer")
+        unknown_initial_caps = set(initial_cap_values) - set(initial_values)
+        if unknown_initial_caps:
+            raise ValueError("initial_steer cap components must appear in initial_steer")
+    else:
+        initial_values = {}
+        cap_values = {}
+        initial_cap_values = {}
 
     model, tokenizer = _resolve_model_and_tokenizer(lens, model, tokenizer, device)
     is_text_prompt = isinstance(prompt, str)
@@ -589,19 +663,82 @@ def generate(
             )
             return restored.to(original_dtype)
 
+        debug_step = 0
+        debug_records: list[dict[str, Any]] = []
+
         def edit(hidden: torch.Tensor) -> torch.Tensor:
+            nonlocal debug_step
             if steer is None:
-                return clamp_scores(hidden)
-            assert steering_direction is not None
-            steering = steering_direction.to(device=hidden.device, dtype=hidden.dtype)
-            if steering_scope == "all-positions":
-                return hidden + steering
-            if hidden.ndim != 3:
-                raise ValueError(
-                    "current-position steering requires a [batch, sequence, hidden] tensor"
-                )
-            edited = hidden.clone()
-            edited[:, -1, :] += steering
+                edited = clamp_scores(hidden)
+                affected = slice(None)
+            else:
+                assert steering_direction is not None
+                if steering_scope == "current-position":
+                    if hidden.ndim != 3:
+                        raise ValueError(
+                            "current-position steering requires a "
+                            "[batch, sequence, hidden] tensor"
+                        )
+                    affected = slice(-1, None)
+                else:
+                    affected = slice(None)
+                use_initial = debug_step == 0 and bool(initial_values)
+                step_values = initial_values if use_initial else values
+                step_caps = initial_cap_values if use_initial else cap_values
+                needs_dynamic_offset = bool(step_caps)
+                if not needs_dynamic_offset and step_values == values:
+                    steering = steering_direction.to(device=hidden.device, dtype=hidden.dtype)
+                    edited = hidden.clone()
+                    edited[:, affected, :] += steering
+                else:
+                    before_scores_for_edit = lens.transform(hidden.float(), layer=layer)
+                    selected_scores = before_scores_for_edit[:, affected, :]
+                    score_offsets = torch.zeros_like(selected_scores)
+                    for component, configured_offset in step_values.items():
+                        offset = float(configured_offset)
+                        if component in step_caps:
+                            cap = float(step_caps[component])
+                            if offset > 0:
+                                applied = torch.clamp(
+                                    cap - selected_scores[..., component], min=0.0, max=offset
+                                )
+                            elif offset < 0:
+                                applied = torch.clamp(
+                                    cap - selected_scores[..., component], min=offset, max=0.0
+                                )
+                            else:
+                                applied = torch.zeros_like(selected_scores[..., component])
+                            score_offsets[..., component] = applied
+                        else:
+                            score_offsets[..., component] = offset
+                    writing = torch.from_numpy(artifact.writing_matrix).to(
+                        device=hidden.device, dtype=torch.float32
+                    )
+                    residual_offsets = score_offsets @ writing.T
+                    edited = hidden.clone()
+                    edited[:, affected, :] += residual_offsets.to(hidden.dtype)
+            if debug:
+                before_scores = lens.transform(hidden.float(), layer=layer)
+                after_scores = lens.transform(edited.float(), layer=layer)
+                for component in values:
+                    before = before_scores[:, affected, component].detach().cpu().reshape(-1)
+                    after = after_scores[:, affected, component].detach().cpu().reshape(-1)
+                    debug_records.append(
+                        {
+                            "step": debug_step,
+                            "component": component,
+                            "last_before": before[-1].item(),
+                            "last_after": after[-1].item(),
+                            "affected": before.numel(),
+                            "before_min": before.min().item(),
+                            "before_mean": before.mean().item(),
+                            "before_max": before.max().item(),
+                            "after_min": after.min().item(),
+                            "after_mean": after.mean().item(),
+                            "after_max": after.max().item(),
+                        }
+                    )
+            debug_step += 1
             return edited
 
         with clamp_resid_post(model, layer=layer, edit=edit), torch.inference_mode():
@@ -614,6 +751,34 @@ def generate(
     sequences = generated.sequences if hasattr(generated, "sequences") else generated
     if not isinstance(sequences, torch.Tensor):
         raise TypeError("model.generate() must return token IDs or an object with .sequences")
+    if debug and intervention is not None:
+        prompt_last_id = int(model_inputs["input_ids"][0, -1].item())
+        for record in debug_records:
+            step = int(record["step"])
+            if step == 0:
+                token_id = prompt_last_id
+            else:
+                generated_index = prompt_length + step - 1
+                token_id = (
+                    int(sequences[0, generated_index].item())
+                    if generated_index < sequences.shape[1]
+                    else -1
+                )
+            token_text = (
+                str(tokenizer.decode([token_id], skip_special_tokens=False))
+                if token_id >= 0
+                else "<unavailable>"
+            )
+            print(
+                f"[ICALens debug] step={step} token={token_text!r} "
+                f"C{record['component']} "
+                f"last={record['last_before']:+.4f}->{record['last_after']:+.4f} "
+                f"affected={record['affected']} "
+                f"before[min/mean/max]={record['before_min']:+.4f}/"
+                f"{record['before_mean']:+.4f}/{record['before_max']:+.4f} "
+                f"after[min/mean/max]={record['after_min']:+.4f}/"
+                f"{record['after_mean']:+.4f}/{record['after_max']:+.4f}"
+            )
     continuation = sequences[0, prompt_length:].detach().cpu()
     return str(tokenizer.decode(continuation, skip_special_tokens=True))
 

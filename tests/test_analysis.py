@@ -366,6 +366,35 @@ def test_generate_steers_all_positions(mixed_signals: np.ndarray) -> None:
     torch.testing.assert_close(model.block_output, expected)
 
 
+def test_generate_debug_prints_scores_before_and_after(
+    mixed_signals: np.ndarray, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lens = ICALens(
+        model_id="example/model",
+        model_revision="abc",
+        icalens_preprocessing="none",
+    ).fit(mixed_signals, layer=0)
+    lens.generate(
+        "one two",
+        layer=0,
+        steer=(1, 2.5),
+        steering_scope="all-positions",
+        max_new_tokens=1,
+        device="cpu",
+        model=DummyGenerationModel(),
+        tokenizer=DummyGenerationTokenizer(),
+        debug=True,
+    )
+
+    output = capsys.readouterr().out
+    assert "[ICALens debug] step=0 token='t2' C1" in output
+    assert "token='t2'" in output
+    assert "last=" in output
+    assert "affected=2" in output
+    assert "before[min/mean/max]=" in output
+    assert "after[min/mean/max]=" in output
+
+
 def test_generate_current_position_also_steers_each_decode_step(
     mixed_signals: np.ndarray,
 ) -> None:
@@ -401,6 +430,137 @@ def test_generate_current_position_also_steers_each_decode_step(
         + 1
         + direction
     )
+    torch.testing.assert_close(decode, expected_decode)
+
+
+def test_generate_supports_stronger_initial_steer_and_later_cap(
+    mixed_signals: np.ndarray,
+) -> None:
+    lens = ICALens(
+        model_id="example/model",
+        model_revision="abc",
+        icalens_preprocessing="none",
+    ).fit(mixed_signals, layer=0)
+    model = DummyAutoregressiveGenerationModel()
+    lens.generate(
+        "one two",
+        layer=0,
+        steer=(1, 10.0),
+        initial_steer=(1, 20.0),
+        steer_cap=(1, 10.0),
+        max_new_tokens=1,
+        device="cpu",
+        model=model,
+        tokenizer=DummyGenerationTokenizer(),
+    )
+
+    assert len(model.block_outputs) == 2
+    prefill, decode = model.block_outputs
+    values = torch.tensor([[1.0, 2.0]])
+    original_prefill = torch.stack((values, values.square(), values + 1), dim=-1) + 1
+    original_decode_values = torch.tensor([[9.0]])
+    original_decode = (
+        torch.stack(
+            (
+                original_decode_values,
+                original_decode_values.square(),
+                original_decode_values + 1,
+            ),
+            dim=-1,
+        )
+        + 1
+    )
+    prefill_scores = lens.transform(original_prefill, layer=0)
+    decode_scores = lens.transform(original_decode, layer=0)
+    artifact = lens._get_layer(0)
+    assert artifact.writing_matrix is not None
+    direction = torch.from_numpy(artifact.writing_matrix[:, 1])
+    expected_prefill = original_prefill.clone()
+    expected_prefill[:, -1, :] += 20.0 * direction
+    decode_offset = torch.clamp(10.0 - decode_scores[:, -1, 1], min=0.0, max=10.0)
+    expected_decode = original_decode.clone()
+    expected_decode[:, -1, :] += decode_offset.unsqueeze(-1) * direction
+    torch.testing.assert_close(prefill, expected_prefill)
+    torch.testing.assert_close(decode, expected_decode)
+
+
+def test_generate_three_item_steer_is_cap_shorthand(
+    mixed_signals: np.ndarray,
+) -> None:
+    lens = ICALens(
+        model_id="example/model",
+        model_revision="abc",
+        icalens_preprocessing="none",
+    ).fit(mixed_signals, layer=0)
+    explicit_model = DummyAutoregressiveGenerationModel()
+    shorthand_model = DummyAutoregressiveGenerationModel()
+
+    common = {
+        "layer": 0,
+        "max_new_tokens": 1,
+        "device": "cpu",
+        "tokenizer": DummyGenerationTokenizer(),
+    }
+    lens.generate(
+        "one two",
+        steer=(1, 10.0),
+        steer_cap=(1, 20.0),
+        model=explicit_model,
+        **common,
+    )
+    lens.generate(
+        "one two",
+        steer=(1, 10.0, 20.0),
+        model=shorthand_model,
+        **common,
+    )
+
+    assert len(explicit_model.block_outputs) == len(shorthand_model.block_outputs)
+    for explicit, shorthand in zip(
+        explicit_model.block_outputs, shorthand_model.block_outputs, strict=True
+    ):
+        torch.testing.assert_close(explicit, shorthand)
+
+
+def test_generate_initial_steer_uses_its_own_optional_cap(
+    mixed_signals: np.ndarray,
+) -> None:
+    lens = ICALens(
+        model_id="example/model",
+        model_revision="abc",
+        icalens_preprocessing="none",
+    ).fit(mixed_signals, layer=0)
+    model = DummyAutoregressiveGenerationModel()
+    lens.generate(
+        "one two",
+        layer=0,
+        initial_steer=(1, 20.0, 25.0),
+        steer=(1, 5.0, 10.0),
+        max_new_tokens=1,
+        device="cpu",
+        model=model,
+        tokenizer=DummyGenerationTokenizer(),
+    )
+
+    prefill, decode = model.block_outputs
+    values = torch.tensor([[1.0, 2.0]])
+    original_prefill = torch.stack((values, values.square(), values + 1), dim=-1) + 1
+    decode_values = torch.tensor([[9.0]])
+    original_decode = (
+        torch.stack((decode_values, decode_values.square(), decode_values + 1), dim=-1) + 1
+    )
+    prefill_scores = lens.transform(original_prefill, layer=0)
+    decode_scores = lens.transform(original_decode, layer=0)
+    artifact = lens._get_layer(0)
+    assert artifact.writing_matrix is not None
+    direction = torch.from_numpy(artifact.writing_matrix[:, 1])
+    prefill_offset = torch.clamp(25.0 - prefill_scores[:, -1, 1], min=0.0, max=20.0)
+    decode_offset = torch.clamp(10.0 - decode_scores[:, -1, 1], min=0.0, max=5.0)
+    expected_prefill = original_prefill.clone()
+    expected_prefill[:, -1, :] += prefill_offset.unsqueeze(-1) * direction
+    expected_decode = original_decode.clone()
+    expected_decode[:, -1, :] += decode_offset.unsqueeze(-1) * direction
+    torch.testing.assert_close(prefill, expected_prefill)
     torch.testing.assert_close(decode, expected_decode)
 
 
@@ -460,6 +620,10 @@ def test_generate_validates_steering_arguments() -> None:
         lens.generate("prompt", layer=0, clamp=(0, 1.0), steer=(0, 1.0))
     with pytest.raises(ValueError, match="layer is required"):
         lens.generate("prompt", steer=(0, 1.0))
+    with pytest.raises(ValueError, match="initial_steer requires steer"):
+        lens.generate("prompt", initial_steer=(0, 1.0))
+    with pytest.raises(ValueError, match="steer_cap requires steer"):
+        lens.generate("prompt", steer_cap=(0, 1.0))
     with pytest.raises(ValueError, match="steering_scope"):
         lens.generate(
             "prompt",
