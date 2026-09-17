@@ -1,48 +1,74 @@
 # ICA steering showcase
 
-This experiment finds language-control components for GPT-2 Small, Gemma 2 2B, and
-Qwen 3.5 9B Base, then provides candidates for qualitative additive-steering and
-ablation demonstrations.
+This experiment reproduces three qualitative ICA steering demonstrations:
 
-## Reproduce the component search
+- GPT-2 Small: steer a weekend continuation from going to a bar toward playing
+  with children.
+- Gemma 2 2B: steer English to Chinese and ablate the same component to shift
+  Chinese back toward English.
+- Qwen 3.5 9B Base: steer English to French and ablate the same component to
+  shift French back toward English.
 
-The default command searches English-versus-Chinese contrasts in GPT-2 layer 6,
-Gemma layer 20, and Qwen layer 20:
+Gemma and Qwen components are recovered by reproducible language-contrast
+searches. The GPT-2 component comes from the hand-made weekend demonstration and
+does not require a language search.
 
-```bash
-uv run python experiments/steering-showcase/search.py
-```
+## Reproduce from scratch
 
-For each model, it samples the same 1,000 ManyThings English/Chinese translation
-pairs with seed 0, measures every ICA component at the last non-padding text token,
-and ranks components by the absolute difference between Chinese and English mean
-scores. The full mean and contrast vectors are saved alongside the top ten candidates.
-The command is resumable at the model boundary. On first use, it downloads the selected
-ManyThings corpus into `experiments/steering-showcase/data/`; subsequent runs reuse that
-local archive. Corpus ZIPs and run outputs are excluded from Git.
-
-Search one model or override layers with an index, inclusive range, or comma-separated
-combination:
+Remove or move aside any existing folders under `runs/`, then run the two searches:
 
 ```bash
 uv run python experiments/steering-showcase/search.py \
   --models gemma2 \
-  --layers gemma2=18-22
+  --layers gemma2=18-22 \
+  --target-language chinese \
+  --output experiments/steering-showcase/runs/component-search-chinese-gemma2
 
 uv run python experiments/steering-showcase/search.py \
-  --models gpt2 gemma2 qwen9b \
-  --layers gpt2=4-8 \
-  --layers gemma2=18-22 \
-  --layers qwen9b=7,15,23,31
+  --models qwen9b \
+  --layers qwen9b=23-27 \
+  --target-language french \
+  --output experiments/steering-showcase/runs/component-search-french-qwen9b
 ```
 
-Each model-layer result is checkpointed separately, so interrupting and repeating the
-same command skips every completed layer.
+These searches reproduce Gemma L20 C105 as the strongest Chinese–English
+component and Qwen L26 C9 as the strongest French–English component. Each search
+samples 1,000 ManyThings translation pairs with seed 0, measures every ICA
+component at the last non-padding text token, and ranks components by the absolute
+target-minus-English mean-score difference.
 
-Other registered targets can be selected with `--target-language french`,
-`japanese`, or `spanish`; use a separate `--output` directory when changing the
-configuration.
+Then reproduce all three demonstrations in one run:
 
-The Gemma layer-20 Chinese search exactly matches the calibration protocol that
-originally identified C105: 1,000 pairs, seed 0, and the final text token without
-appending EOS.
+```bash
+uv run python experiments/steering-showcase/steer.py --models all
+```
+
+The resulting run layout is:
+
+```text
+runs/
+├── component-search-chinese-gemma2/
+├── component-search-french-qwen9b/
+└── steering-demonstrations-model-framing-all/
+```
+
+The corpus archives are downloaded into `data/` on first use and reused later.
+Corpus ZIPs and run outputs are excluded from Git. Search results are checkpointed
+per layer; steering results are checkpointed per model, so repeating an interrupted
+command reuses completed units.
+
+## Run the matched steering demonstrations
+
+The demonstration script mirrors the final hand-made notebook examples:
+
+- `misc/language-steering-gpt.ipynb`: GPT-2 L7 C317, using a strong initial
+  intervention to change “go to a local bar” into “play with the kids.”
+- `demo/language-steering.ipynb`: Gemma L20 C105, English–Chinese steering and
+  ablation.
+- `misc/language-steering-qwen.ipynb`: Qwen L26 C9, English–French steering and
+  ablation.
+
+Models are loaded sequentially. Use `--models gpt2`, `gemma2`, or `qwen9b` to run
+one model, and `--debug` to print token-aligned component scores. All generations
+use `document_framing="model"`, matching each tokenizer's ordinary direct-generation
+behavior: Gemma receives its normal BOS, while GPT-2 and Qwen receive no extra prefix.

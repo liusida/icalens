@@ -125,6 +125,97 @@ def test_analyze_raw_text_returns_scores_and_energy(mixed_signals: np.ndarray) -
     torch.testing.assert_close(result.energy.sum(dim=-1), torch.ones(3))
 
 
+def test_analyze_uses_recorded_document_framing_by_default(
+    mixed_signals: np.ndarray,
+) -> None:
+    lens = ICALens(
+        model_id="example/model",
+        model_revision="abc",
+        activation_site="hidden_states",
+        layer_indexing="hidden_states",
+    ).fit(
+        mixed_signals,
+        layer=0,
+        provenance={
+            "document_framing": {
+                "strategy": "prepend-bos",
+                "token": "<bos>",
+                "token_id": 42,
+            }
+        },
+    )
+
+    result = lens.analyze(
+        "one two",
+        layer=0,
+        model=DummyModel(),
+        tokenizer=DummyTokenizer(),
+    )
+
+    assert result.tokens == ("t1", "t2")
+    torch.testing.assert_close(result.activations[:, 0], torch.tensor([1.0, 2.0]))
+
+
+def test_analyze_document_framing_controls_tokenizer_special_tokens(
+    mixed_signals: np.ndarray,
+) -> None:
+    class RecordingTokenizer(DummyTokenizer):
+        def __init__(self) -> None:
+            self.add_special_tokens: list[bool] = []
+
+        def __call__(self, text: str, **kwargs: object) -> dict[str, torch.Tensor]:
+            add_special_tokens = bool(kwargs.get("add_special_tokens"))
+            self.add_special_tokens.append(add_special_tokens)
+            encoded = super().__call__(text, **kwargs)
+            if add_special_tokens:
+                prefix = torch.tensor([[42]])
+                encoded["input_ids"] = torch.cat((prefix, encoded["input_ids"]), dim=1)
+                encoded["attention_mask"] = torch.ones_like(encoded["input_ids"])
+                encoded["special_tokens_mask"] = torch.tensor([[1, 0, 0]])
+            return encoded
+
+    lens = ICALens(
+        model_id="example/model",
+        model_revision="abc",
+        activation_site="hidden_states",
+        layer_indexing="hidden_states",
+    ).fit(mixed_signals, layer=0)
+    tokenizer = RecordingTokenizer()
+
+    model_result = lens.analyze(
+        "one two",
+        layer=0,
+        document_framing="model",
+        model=DummyModel(),
+        tokenizer=tokenizer,
+    )
+    none_result = lens.analyze(
+        "one two",
+        layer=0,
+        document_framing="none",
+        model=DummyModel(),
+        tokenizer=tokenizer,
+    )
+
+    assert tokenizer.add_special_tokens == [True, False]
+    assert model_result.tokens == ("t1", "t2")
+    assert none_result.tokens == ("t1", "t2")
+
+
+def test_analyze_rejects_invalid_document_framing(mixed_signals: np.ndarray) -> None:
+    lens = ICALens(model_id="example/model", model_revision="abc").fit(
+        mixed_signals, layer=0
+    )
+    with pytest.raises(ValueError, match="document_framing"):
+        lens.analyze(
+            "one two",
+            layer=0,
+            document_framing="automatic",
+            model=DummyModel(),
+            tokenizer=DummyTokenizer(),
+        )
+
+
 def test_analyze_records_initial_component_selection(mixed_signals: np.ndarray) -> None:
     lens = ICALens(
         model_id="example/model",
@@ -366,6 +457,37 @@ def test_generate_steers_all_positions(mixed_signals: np.ndarray) -> None:
     torch.testing.assert_close(model.block_output, expected)
 
 
+def test_generate_can_clamp_and_steer_together(mixed_signals: np.ndarray) -> None:
+    lens = ICALens(
+        model_id="example/model",
+        model_revision="abc",
+        icalens_preprocessing="none",
+    ).fit(mixed_signals, layer=0)
+    model = DummyGenerationModel()
+    lens.generate(
+        "one two",
+        layer=0,
+        clamp=(0, 0.0),
+        steer=(1, 2.5),
+        max_new_tokens=1,
+        device="cpu",
+        model=model,
+        tokenizer=DummyGenerationTokenizer(),
+    )
+
+    assert model.block_output is not None
+    values = torch.tensor([[1.0, 2.0]])
+    original = torch.stack((values, values.square(), values + 1), dim=-1) + 1
+    clamped_scores = lens.transform(original, layer=0)
+    clamped_scores[..., 0] = 0.0
+    reconstructed = lens.inverse_transform(clamped_scores, layer=0)
+    expected = lens.restore_norm(reconstructed, reference=original)
+    artifact = lens._get_layer(0)
+    assert artifact.writing_matrix is not None
+    expected[:, -1, :] += 2.5 * torch.from_numpy(artifact.writing_matrix[:, 1])
+    torch.testing.assert_close(model.block_output, expected)
+
+
 def test_generate_debug_prints_scores_before_and_after(
     mixed_signals: np.ndarray, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -470,7 +592,6 @@ def test_generate_supports_stronger_initial_steer_and_later_cap(
         )
         + 1
     )
-    prefill_scores = lens.transform(original_prefill, layer=0)
     decode_scores = lens.transform(original_decode, layer=0)
     artifact = lens._get_layer(0)
     assert artifact.writing_matrix is not None
@@ -582,6 +703,7 @@ def test_generate_empty_text_uses_recorded_document_framing(
 
     output = lens.generate(
         "",
+        document_framing="recorded",
         max_new_tokens=1,
         device="cpu",
         model=model,
@@ -594,6 +716,64 @@ def test_generate_empty_text_uses_recorded_document_framing(
     torch.testing.assert_close(model.block_output, expected)
 
 
+def test_generate_uses_model_document_framing_by_default(
+    mixed_signals: np.ndarray,
+) -> None:
+    lens = ICALens(model_id="example/model", model_revision="abc").fit(
+        mixed_signals,
+        layer=0,
+        provenance={
+            "document_framing": {
+                "strategy": "prepend-bos",
+                "token": "<bos>",
+                "token_id": 42,
+            }
+        },
+    )
+    model = DummyGenerationModel()
+
+    lens.generate(
+        "one two",
+        max_new_tokens=1,
+        device="cpu",
+        model=model,
+        tokenizer=DummyGenerationTokenizer(),
+    )
+
+    assert model.block_output is not None
+    values = torch.tensor([[1.0, 2.0]])
+    expected = torch.stack((values, values.square(), values + 1), dim=-1) + 1
+    torch.testing.assert_close(model.block_output, expected)
+
+
+def test_generate_document_framing_controls_tokenizer_special_tokens(
+    mixed_signals: np.ndarray,
+) -> None:
+    class RecordingTokenizer(DummyGenerationTokenizer):
+        def __init__(self) -> None:
+            self.add_special_tokens: list[bool] = []
+
+        def __call__(self, text: str, **kwargs: object) -> dict[str, torch.Tensor]:
+            self.add_special_tokens.append(bool(kwargs.get("add_special_tokens")))
+            return super().__call__(text, **kwargs)
+
+    lens = ICALens(model_id="example/model", model_revision="abc").fit(
+        mixed_signals, layer=0
+    )
+    tokenizer = RecordingTokenizer()
+    for framing in ("model", "none"):
+        lens.generate(
+            "one two",
+            document_framing=framing,
+            max_new_tokens=1,
+            device="cpu",
+            model=DummyGenerationModel(),
+            tokenizer=tokenizer,
+        )
+
+    assert tokenizer.add_special_tokens == [True, False]
+
+
 def test_generate_empty_text_requires_recorded_document_framing(
     mixed_signals: np.ndarray,
 ) -> None:
@@ -601,6 +781,7 @@ def test_generate_empty_text_requires_recorded_document_framing(
     with pytest.raises(ValueError, match="requires a recorded BOS/EOS"):
         lens.generate(
             "",
+            document_framing="recorded",
             max_new_tokens=1,
             device="cpu",
             model=DummyGenerationModel(),
@@ -616,8 +797,6 @@ def test_generate_validates_clamp_arguments() -> None:
 
 def test_generate_validates_steering_arguments() -> None:
     lens = ICALens(model_id="example/model", model_revision="abc")
-    with pytest.raises(ValueError, match="mutually exclusive"):
-        lens.generate("prompt", layer=0, clamp=(0, 1.0), steer=(0, 1.0))
     with pytest.raises(ValueError, match="layer is required"):
         lens.generate("prompt", steer=(0, 1.0))
     with pytest.raises(ValueError, match="initial_steer requires steer"):
@@ -631,6 +810,8 @@ def test_generate_validates_steering_arguments() -> None:
             steer=(0, 1.0),
             steering_scope="decode-only",
         )
+    with pytest.raises(ValueError, match="document_framing"):
+        lens.generate("prompt", document_framing="automatic")
 
 
 def test_generate_additive_steering_rejects_normalized_lens(

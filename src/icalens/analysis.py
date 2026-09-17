@@ -138,16 +138,23 @@ def capture(
     model: torch.nn.Module | None = None,
     tokenizer: Any = None,
     token_scope: Literal["assistant", "user", "content", "all"] = "all",
+    document_framing: Literal["model", "none", "recorded"] = "recorded",
     context_length: int | None = None,
     device: str | torch.device | None = "auto",
     verbose: bool = False,
 ) -> CaptureResult:
     """Capture activations for raw text or a completed chat conversation."""
+    if document_framing not in ("model", "none", "recorded"):
+        raise ValueError("document_framing must be 'model', 'none', or 'recorded'")
     started = perf_counter()
     _analysis_log(verbose, f"Preparing {lens.model_id}...")
     model, tokenizer = _resolve_model_and_tokenizer(lens, model, tokenizer, device, verbose=verbose)
     if isinstance(inputs, str):
-        framing = _document_framing_for_layer(lens, layer)
+        framing = (
+            _document_framing_for_layer(lens, layer)
+            if document_framing == "recorded"
+            else {"strategy": "none", "token": None, "token_id": None}
+        )
         prefix_id = framing.get("token_id") if framing.get("strategy") != "none" else None
         content_limit = context_length
         if content_limit is not None and prefix_id is not None:
@@ -156,9 +163,10 @@ def capture(
                 raise ValueError("context_length must leave room for document framing")
         encoded = tokenizer(
             inputs,
-            add_special_tokens=False,
+            add_special_tokens=document_framing == "model",
             truncation=content_limit is not None,
             max_length=content_limit,
+            return_special_tokens_mask=document_framing == "model",
             return_tensors="pt",
         )
         if prefix_id is not None:
@@ -174,8 +182,13 @@ def capture(
                 f"Applied recorded document framing {framing.get('token')!r}; "
                 "the prefix is excluded from reported tokens.",
             )
-        offset = 1 if prefix_id is not None else 0
-        positions = torch.arange(offset, encoded["input_ids"].shape[1], dtype=torch.long)
+        if document_framing == "model" and "special_tokens_mask" in encoded:
+            positions = torch.nonzero(
+                encoded.pop("special_tokens_mask")[0] == 0, as_tuple=False
+            ).flatten()
+        else:
+            offset = 1 if prefix_id is not None else 0
+            positions = torch.arange(offset, encoded["input_ids"].shape[1], dtype=torch.long)
         token_groups: tuple[str, ...] = ()
     else:
         encoded, positions, token_groups = _encode_chat(
@@ -262,12 +275,20 @@ def analyze(
     *,
     layer: int,
     selected_components: int | tuple[int, ...] | list[int] | None = None,
+    document_framing: Literal["model", "none", "recorded"] = "recorded",
     verbose: bool = False,
     **kwargs: Any,
 ) -> AnalysisResult:
     """Capture an input and calculate signed scores and per-token energy shares."""
     started = perf_counter()
-    captured = capture(lens, inputs, layer=layer, verbose=verbose, **kwargs)
+    captured = capture(
+        lens,
+        inputs,
+        layer=layer,
+        document_framing=document_framing,
+        verbose=verbose,
+        **kwargs,
+    )
     _analysis_log(verbose, "Computing ICA scores and component energy...")
     transform_started = perf_counter()
     scores = lens.transform(captured.activations, layer=layer)
@@ -469,6 +490,7 @@ def generate(
     initial_steer: tuple[int, float] | tuple[int, float, float] | Mapping[int, float] | None = None,
     steer_cap: tuple[int, float] | Mapping[int, float] | None = None,
     steering_scope: Literal["current-position", "all-positions"] = "current-position",
+    document_framing: Literal["model", "none", "recorded"] = "model",
     max_new_tokens: int = 64,
     device: str | torch.device | None = "auto",
     model: torch.nn.Module | None = None,
@@ -476,12 +498,19 @@ def generate(
     debug: bool = False,
     **generation_kwargs: Any,
 ) -> str:
-    """Generate text, optionally clamping or additively steering ICA scores.
+    """Generate text, optionally clamping and/or additively steering ICA scores.
 
     Both ``steer`` and ``initial_steer`` accept ``(component, offset, cap)``. Step zero
     uses ``initial_steer`` when supplied and otherwise falls back to ``steer``; later
     steps use ``steer``. A cap limits positive (negative) steering at an upper (lower)
     component score without reducing a score already beyond the limit.
+
+    When both interventions are supplied, clamping is applied at every position first,
+    followed by additive steering according to ``steering_scope``.
+
+    Raw-text generation uses the tokenizer's normal special-token policy by default,
+    matching direct model generation. Use ``"none"`` to suppress special tokens or
+    ``"recorded"`` to prepend the BOS/EOS policy stored during fitting.
 
     Set ``debug=True`` to print the selected components' scores immediately before and
     after each intervention. For interventions affecting multiple positions, the output
@@ -510,43 +539,27 @@ def generate(
         component, offset, cap = initial_steer
         initial_steer = (component, offset)
         shorthand_initial_cap = (component, cap)
-    if clamp is not None and steer is not None:
-        raise ValueError("clamp and steer are mutually exclusive")
     if initial_steer is not None and steer is None:
         raise ValueError("initial_steer requires steer")
     if steer_cap is not None and steer is None:
         raise ValueError("steer_cap requires steer")
-    intervention = clamp if clamp is not None else steer
-    intervention_name = "clamp" if clamp is not None else "steer"
-    if intervention is None:
+    clamp_values = _intervention_values(clamp, name="clamp")
+    steer_values = _intervention_values(steer, name="steer")
+    has_intervention = bool(clamp_values or steer_values)
+    if not has_intervention:
         if layer is not None:
             raise ValueError("layer is only used when clamp or steer is provided")
     else:
         if layer is None:
-            raise ValueError(f"layer is required when {intervention_name} is provided")
+            raise ValueError("layer is required when clamp or steer is provided")
         if lens.activation_site != "resid_post":
             raise ValueError(
                 "generation interventions currently require activation_site='resid_post'"
             )
-        values = (
-            dict(intervention.items())
-            if isinstance(intervention, Mapping)
-            else {intervention[0]: intervention[1]}
-        )
-        if not values:
-            raise ValueError(f"{intervention_name} mapping cannot be empty")
-        for component, value in values.items():
-            if isinstance(component, bool) or not isinstance(component, int) or component < 0:
-                raise ValueError(f"{intervention_name} components must be non-negative integers")
-            if (
-                isinstance(value, bool)
-                or not isinstance(value, (int, float))
-                or not torch.isfinite(torch.tensor(float(value)))
-            ):
-                noun = "targets" if clamp is not None else "offsets"
-                raise ValueError(f"{intervention_name} {noun} must be finite numbers")
     if steering_scope not in ("current-position", "all-positions"):
         raise ValueError("steering_scope must be 'current-position' or 'all-positions'")
+    if document_framing not in ("model", "none", "recorded"):
+        raise ValueError("document_framing must be 'model', 'none', or 'recorded'")
 
     steering_direction: torch.Tensor | None = None
     if steer is not None:
@@ -558,14 +571,14 @@ def generate(
             )
         if artifact.writing_matrix is None:
             raise ValueError(f"layer {layer} has no ICA writing matrix")
-        for component in values:
+        for component in steer_values:
             if component >= artifact.writing_matrix.shape[1]:
                 raise ValueError(
                     f"steer component {component} is unavailable; "
                     f"layer {layer} has {artifact.writing_matrix.shape[1]} components"
                 )
         steering_direction = torch.zeros(artifact.writing_matrix.shape[0], dtype=torch.float32)
-        for component, offset in values.items():
+        for component, offset in steer_values.items():
             steering_direction += float(offset) * torch.from_numpy(
                 artifact.writing_matrix[:, component]
             )
@@ -574,8 +587,8 @@ def generate(
         initial_cap_values = _intervention_values(
             shorthand_initial_cap, name="initial_steer cap"
         )
-        unknown_initial = set(initial_values) - set(values)
-        unknown_caps = set(cap_values) - set(values)
+        unknown_initial = set(initial_values) - set(steer_values)
+        unknown_caps = set(cap_values) - set(steer_values)
         if unknown_initial:
             raise ValueError("initial_steer components must also appear in steer")
         if unknown_caps:
@@ -599,8 +612,12 @@ def generate(
             add_generation_prompt=True,
         )
     )
-    encoded = tokenizer(rendered_prompt, add_special_tokens=False, return_tensors="pt")
-    if is_text_prompt:
+    encoded = tokenizer(
+        rendered_prompt,
+        add_special_tokens=is_text_prompt and document_framing == "model",
+        return_tensors="pt",
+    )
+    if is_text_prompt and document_framing == "recorded":
         framing_layer = layer
         if framing_layer is None:
             available_layers = tuple(lens.available_layers)
@@ -621,6 +638,19 @@ def generate(
                 )
         elif not prompt:
             raise ValueError("an empty prompt requires a recorded BOS/EOS document-framing token")
+    elif is_text_prompt and document_framing == "none" and not prompt:
+        raise ValueError(
+            "an empty prompt requires document_framing='recorded' and a recorded framing token"
+        )
+    elif (
+        is_text_prompt
+        and document_framing == "model"
+        and encoded["input_ids"].shape[1] == 0
+    ):
+        raise ValueError(
+            "the model tokenizer produced no tokens for an empty prompt; use "
+            "document_framing='recorded' with a recorded framing token"
+        )
     model_device = next(model.parameters()).device
     model_inputs = {
         name: value.to(model_device)
@@ -631,7 +661,7 @@ def generate(
     kwargs = {"do_sample": False, **generation_kwargs}
     model_generate = cast(Any, model).generate
 
-    if intervention is None:
+    if not has_intervention:
         with torch.inference_mode():
             generated = model_generate(
                 **model_inputs,
@@ -640,19 +670,14 @@ def generate(
             )
     else:
         assert layer is not None
-        values = (
-            dict(intervention.items())
-            if isinstance(intervention, Mapping)
-            else {intervention[0]: intervention[1]}
-        )
 
         def clamp_scores(hidden: torch.Tensor) -> torch.Tensor:
             original_dtype = hidden.dtype
             scores = lens.transform(hidden.float(), layer=layer)
-            for component, value in values.items():
+            for component, value in clamp_values.items():
                 if component >= scores.shape[-1]:
                     raise ValueError(
-                        f"{intervention_name} component {component} is unavailable; "
+                        f"clamp component {component} is unavailable; "
                         f"layer {layer} has {scores.shape[-1]} components"
                     )
                 scores[..., component] = float(value)
@@ -668,10 +693,9 @@ def generate(
 
         def edit(hidden: torch.Tensor) -> torch.Tensor:
             nonlocal debug_step
-            if steer is None:
-                edited = clamp_scores(hidden)
-                affected = slice(None)
-            else:
+            edited = clamp_scores(hidden) if clamp_values else hidden
+            steering_affected = slice(None)
+            if steer_values:
                 assert steering_direction is not None
                 if steering_scope == "current-position":
                     if hidden.ndim != 3:
@@ -679,20 +703,18 @@ def generate(
                             "current-position steering requires a "
                             "[batch, sequence, hidden] tensor"
                         )
-                    affected = slice(-1, None)
-                else:
-                    affected = slice(None)
+                    steering_affected = slice(-1, None)
                 use_initial = debug_step == 0 and bool(initial_values)
-                step_values = initial_values if use_initial else values
+                step_values = initial_values if use_initial else steer_values
                 step_caps = initial_cap_values if use_initial else cap_values
                 needs_dynamic_offset = bool(step_caps)
-                if not needs_dynamic_offset and step_values == values:
+                if not needs_dynamic_offset and step_values == steer_values:
                     steering = steering_direction.to(device=hidden.device, dtype=hidden.dtype)
-                    edited = hidden.clone()
-                    edited[:, affected, :] += steering
+                    edited = edited.clone()
+                    edited[:, steering_affected, :] += steering
                 else:
-                    before_scores_for_edit = lens.transform(hidden.float(), layer=layer)
-                    selected_scores = before_scores_for_edit[:, affected, :]
+                    before_scores_for_edit = lens.transform(edited.float(), layer=layer)
+                    selected_scores = before_scores_for_edit[:, steering_affected, :]
                     score_offsets = torch.zeros_like(selected_scores)
                     for component, configured_offset in step_values.items():
                         offset = float(configured_offset)
@@ -715,12 +737,17 @@ def generate(
                         device=hidden.device, dtype=torch.float32
                     )
                     residual_offsets = score_offsets @ writing.T
-                    edited = hidden.clone()
-                    edited[:, affected, :] += residual_offsets.to(hidden.dtype)
+                    edited = edited.clone()
+                    edited[:, steering_affected, :] += residual_offsets.to(hidden.dtype)
             if debug:
                 before_scores = lens.transform(hidden.float(), layer=layer)
                 after_scores = lens.transform(edited.float(), layer=layer)
-                for component in values:
+                for component in dict.fromkeys((*clamp_values, *steer_values)):
+                    affected = (
+                        slice(None)
+                        if component in clamp_values
+                        else steering_affected
+                    )
                     before = before_scores[:, affected, component].detach().cpu().reshape(-1)
                     after = after_scores[:, affected, component].detach().cpu().reshape(-1)
                     debug_records.append(
@@ -751,7 +778,7 @@ def generate(
     sequences = generated.sequences if hasattr(generated, "sequences") else generated
     if not isinstance(sequences, torch.Tensor):
         raise TypeError("model.generate() must return token IDs or an object with .sequences")
-    if debug and intervention is not None:
+    if debug and has_intervention:
         prompt_last_id = int(model_inputs["input_ids"][0, -1].item())
         for record in debug_records:
             step = int(record["step"])
