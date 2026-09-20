@@ -1,9 +1,8 @@
 # Repository integrity verifier
 
-This directory contains the independent verifier described in
-`notes/artifact-integrity.md`. It invokes or inspects production experiment paths,
-but owns reference selection, comparison, dependency reporting, and source-aware
-run isolation outside the installed `icalens` package.
+This directory contains an independent artifact verifier. It invokes production
+experiment paths while keeping reference selection, comparison, dependency
+reporting, and source-aware run isolation outside the installed package.
 
 The initial preflight validates the selected model canary's reference identities
 and artifact relations. GPT-2 Small layer 6 is the quick default:

@@ -264,13 +264,12 @@ For each model, layer, and method, report:
 - completion, evaluator failure, invalid-output, and undefined-correlation counts;
 - selected/rejected feature counts and reasons.
 
-The primary figure compares ICA and SAE within each model and layer. It follows
-`notes/plot-style-policy.md` and exports PNG, PDF, and the source-values text
-companion from completed saved result files.
+The primary figure compares ICA and SAE within each model and layer and is
+generated from completed saved results with a source-values text companion.
 
 ## Reproducibility and resume contract
 
-The implementation follows `notes/long-run-policy.md`:
+Runs validate configuration, resume from atomic checkpoints, and retain complete logs:
 
 - repeating the same command and output path validates and resumes automatically;
 - incompatible configuration or provenance fails before model/API work;
@@ -329,8 +328,7 @@ Before treating the local full runs as immutable official paper artifacts, freez
 their evaluator condition and decide where the compact manifests, summaries, and
 figures should be tracked. The large fragment pools, candidate activations, and
 per-request checkpoints should remain external or ignored reproducibility artifacts.
-If the result schema or official outputs change, also review the release integrity
-check described in `notes/artifact-integrity.md`.
+If the result schema or official outputs change, run the relevant integrity check.
 
 ## References
 
@@ -338,5 +336,3 @@ check described in `notes/artifact-integrity.md`.
   Language Models*, Section 3 and Appendix A: <https://arxiv.org/abs/2309.08600>
 - Bills et al., *Language models can explain neurons in language models*:
   <https://openaipublic.blob.core.windows.net/neuron-explainer/paper/index.html>
-- Local reference implementation:
-  `/home/liusida/research/ICA-paper/Cunningham-SAE-paper-baseline/Cunningham_2023_sparse_coding/`
