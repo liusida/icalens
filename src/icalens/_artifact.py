@@ -343,7 +343,6 @@ tags:
 - interpretability
 - independent-component-analysis
 - activations
-- arxiv:2606.11722
 ---
 
 # ICA Lens for {model}
@@ -416,19 +415,4 @@ For a token, component energy share is `score² / sum(all component scores²)`.
 
 - Component IDs are specific to a layer and fitted artifact.
 - Standard ICA scores are signed and are not probabilities.
-
-## Paper
-
-[ICA Lens: Interpreting Language Models Without Training Another Dictionary](https://arxiv.org/abs/2606.11722)
-
-## Citation
-
-```bibtex
-@article{{liu2026icalens,
-  title={{ICA Lens: Interpreting Language Models Without Training Another Dictionary}},
-  author={{Anonymous Authors}},
-  journal={{arXiv preprint arXiv:2606.11722}},
-  year={{2026}}
-}}
-```
 """

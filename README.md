@@ -4,15 +4,13 @@ ICA Lens interprets language-model activations with Independent Component
 Analysis. It is substantially more compute-efficient to fit than an SAE
 dictionary and supports base and instruction-tuned language models.
 
-**[Paper](https://arxiv.org/abs/2606.11722)**
-
-## Get started
+## Local setup
 
 ```bash
-pip install icalens
+uv sync --frozen
 ```
 
-Load a published Lens and analyze text:
+Load a Lens artifact and analyze text:
 
 ```python
 from icalens import ICALens
@@ -88,7 +86,7 @@ for the exact Lens and layer.
 Run a small GPT-2/Pile-10k example with the installed CLI:
 
 ```bash
-icalens fit text \
+uv run icalens fit text \
   --model openai-community/gpt2 \
   --dataset NeelNanda/pile-10k \
   --layers 6 \
@@ -100,7 +98,7 @@ icalens fit text \
 Fit an instruction-tuned model from UltraChat conversations:
 
 ```bash
-icalens fit chat \
+uv run icalens fit chat \
   --model Qwen/Qwen3.5-2B \
   --dataset HuggingFaceH4/ultrachat_200k \
   --layers 12 \
@@ -117,7 +115,7 @@ larger token collections while bounding memory use.
 After fitting, profile the components against a representative corpus:
 
 ```bash
-icalens profile \
+uv run icalens profile \
   --lens icalens-output/gpt2-demo \
   --layers all \
   --dataset NeelNanda/pile-10k \
@@ -128,25 +126,3 @@ icalens profile \
 Profiles add sign statistics, top-score examples, Logit Lens tokens, and
 optional R-lens readouts to the existing Lens directory. They help label and
 inspect components without changing the fitted directions.
-
-## Publish to Hugging Face
-
-Authenticate with `hf auth login`, set `HF_TOKEN`, or add a `.env` file in the
-current directory containing a write-enabled token:
-
-```dotenv
-HF_TOKEN=hf_...
-```
-
-Then publish the saved Lens as a Hugging Face model repository:
-
-```bash
-icalens publish \
-  --lens icalens-output/gpt2-demo \
-  username/icalens-gpt2-demo
-```
-
-The artifact records the analyzed model, activation site, fitted layers,
-preprocessing, component profiles, and fitting and profiling provenance.
-Individual layer and profile files are downloaded lazily when a published Lens
-is used.

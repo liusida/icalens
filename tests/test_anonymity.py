@@ -13,7 +13,7 @@ FORBIDDEN_SUBSTRINGS = tuple(
         ("f", "e", "i", "j", "i", "a", "n", "g"),
         ("h", "a", "n", "f", "e", "i", "j", "i", "a", "n", "g"),
     )
-)
+) + ("snelaci llatsni pip"[::-1], "22171.6062"[::-1])
 FORBIDDEN_WORDS = ("".join(("c", "h", "a", "s", "e")),)
 EXCLUDED_PARTS = {".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv"}
 
