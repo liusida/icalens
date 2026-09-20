@@ -22,11 +22,11 @@ from .._activation_dataset import (
     sample_metadata,
 )
 from .._capture import capture_resid_post
+from ._status import log
 from .fit_chat import load_chat_documents
 from .fit_chat import sample_positions as sample_chat_positions
 from .fit_text import (
     load_pile_documents,
-    log,
     parse_layers,
     parse_token_budget,
     resolve_document_framing,
@@ -55,18 +55,19 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
             args.dataset, split=args.split, api=api, revision=args.dataset_revision
         )
     else:
-        dataset_revision = api.dataset_info(args.dataset, revision=args.dataset_revision).sha
-        if dataset_revision is None:
+        resolved_dataset_revision = api.dataset_info(
+            args.dataset, revision=args.dataset_revision
+        ).sha
+        if resolved_dataset_revision is None:
             raise RuntimeError("Could not resolve the exact dataset revision.")
+        dataset_revision = resolved_dataset_revision
         dataset_provenance = {
             "repo_id": args.dataset,
             "revision": str(dataset_revision),
             "split": args.split,
         }
     tokenizer = AutoTokenizer.from_pretrained(args.model, revision=model_revision, use_fast=True)
-    config = AutoConfig.from_pretrained(
-        args.model, revision=model_revision, trust_remote_code=True
-    )
+    config = AutoConfig.from_pretrained(args.model, revision=model_revision, trust_remote_code=True)
     text_config = _text_config(config)
     layers = parse_layers(args.layers, layer_count=int(text_config.num_hidden_layers))
     documents: Any
@@ -384,7 +385,5 @@ def _text_config(config: Any) -> Any:
         if getattr(candidate, name, None) is None
     ]
     if missing:
-        raise ValueError(
-            f"model text config is missing required fields: {', '.join(missing)}"
-        )
+        raise ValueError(f"model text config is missing required fields: {', '.join(missing)}")
     return candidate

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +16,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from icalens import ICALens
 from icalens.analysis import capture
 from icalens.experiments._run import atomic_write_json
-
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent

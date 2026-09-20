@@ -51,22 +51,16 @@ class ERFAnalysis:
         layer = _positive_or_zero_integer("layer", layer)
         component = _positive_or_zero_integer("component", component)
         occurrences = _positive_integer("occurrences", occurrences)
-        exact_suffix_length = _positive_integer(
-            "exact_suffix_length", exact_suffix_length
-        )
+        exact_suffix_length = _positive_integer("exact_suffix_length", exact_suffix_length)
         max_batch_size = _positive_integer("max_batch_size", max_batch_size)
-        batch_token_budget = _positive_integer(
-            "batch_token_budget", batch_token_budget
-        )
+        batch_token_budget = _positive_integer("batch_token_budget", batch_token_budget)
         thresholds = _rank_thresholds(rank_thresholds)
 
         lens = self._lens
         profile = lens.component_profile(layer=layer, component=component)
         direction = profile.get("tail_direction")
         if direction not in ("positive", "negative"):
-            raise ValueError(
-                f"layer {layer} component {component} has no selected tail direction"
-            )
+            raise ValueError(f"layer {layer} component {component} has no selected tail direction")
         selected_occurrences = profile["examples"][direction]["occurrences"][:occurrences]
         if not selected_occurrences:
             raise ValueError(

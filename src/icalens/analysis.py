@@ -584,9 +584,7 @@ def generate(
             )
         initial_values = _intervention_values(initial_steer, name="initial_steer")
         cap_values = _intervention_values(steer_cap, name="steer_cap")
-        initial_cap_values = _intervention_values(
-            shorthand_initial_cap, name="initial_steer cap"
-        )
+        initial_cap_values = _intervention_values(shorthand_initial_cap, name="initial_steer cap")
         unknown_initial = set(initial_values) - set(steer_values)
         unknown_caps = set(cap_values) - set(steer_values)
         if unknown_initial:
@@ -642,11 +640,7 @@ def generate(
         raise ValueError(
             "an empty prompt requires document_framing='recorded' and a recorded framing token"
         )
-    elif (
-        is_text_prompt
-        and document_framing == "model"
-        and encoded["input_ids"].shape[1] == 0
-    ):
+    elif is_text_prompt and document_framing == "model" and encoded["input_ids"].shape[1] == 0:
         raise ValueError(
             "the model tokenizer produced no tokens for an empty prompt; use "
             "document_framing='recorded' with a recorded framing token"
@@ -700,8 +694,7 @@ def generate(
                 if steering_scope == "current-position":
                     if hidden.ndim != 3:
                         raise ValueError(
-                            "current-position steering requires a "
-                            "[batch, sequence, hidden] tensor"
+                            "current-position steering requires a [batch, sequence, hidden] tensor"
                         )
                     steering_affected = slice(-1, None)
                 use_initial = debug_step == 0 and bool(initial_values)
@@ -743,11 +736,7 @@ def generate(
                 before_scores = lens.transform(hidden.float(), layer=layer)
                 after_scores = lens.transform(edited.float(), layer=layer)
                 for component in dict.fromkeys((*clamp_values, *steer_values)):
-                    affected = (
-                        slice(None)
-                        if component in clamp_values
-                        else steering_affected
-                    )
+                    affected = slice(None) if component in clamp_values else steering_affected
                     before = before_scores[:, affected, component].detach().cpu().reshape(-1)
                     after = after_scores[:, affected, component].detach().cpu().reshape(-1)
                     debug_records.append(

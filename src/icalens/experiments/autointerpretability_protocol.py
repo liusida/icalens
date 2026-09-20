@@ -60,9 +60,7 @@ def explanation_messages(
             raise ValueError(f"expected {FRAGMENT_LENGTH} tokens per fragment")
         rows = [
             f"{index:02d}\t{json.dumps(token, ensure_ascii=False)}\t{int(value)}"
-            for index, (token, value) in enumerate(
-                zip(record_tokens, record_values, strict=True)
-            )
+            for index, (token, value) in enumerate(zip(record_tokens, record_values, strict=True))
         ]
         blocks.append(f"Fragment {number}:\nindex\ttoken\tactivation\n" + "\n".join(rows))
     return [

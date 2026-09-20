@@ -7,7 +7,9 @@ import csv
 import hashlib
 import json
 import math
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -27,7 +29,7 @@ from icalens.experiments.saebench_sparse_probing import _prepare_layer_baselines
 CHUNK = 32768
 
 
-def digest(path):
+def digest(path: str | Path) -> str:
     h = hashlib.sha256()
     with Path(path).open("rb") as handle:
         for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
@@ -38,20 +40,27 @@ def digest(path):
 class SAEReadout:
     """Adapt only score computation/provenance, without copying the ERF algorithm."""
 
-    def __init__(self, cache, encoder, layer):
+    def __init__(self, cache: ActivationDataset, encoder: SAEFeatureEncoder, layer: int) -> None:
         self.model_id = cache.model["repo_id"]
         self.model_revision = cache.model["revision"]
         self.encoder = encoder
         self.layer = layer
         self.metadata = {"layers": {str(layer): {"fitting": {"provenance": cache.provenance}}}}
 
-    def transform(self, hidden, *, layer):
+    def transform(self, hidden: torch.Tensor, *, layer: int) -> torch.Tensor:
         if layer != self.layer:
             raise ValueError("incorrect SAE layer")
         return self.encoder.encode(hidden)
 
 
-def profile(cache, encoder, ids, count, display, layer):
+def profile(
+    cache: ActivationDataset,
+    encoder: SAEFeatureEncoder,
+    ids: list[int],
+    count: int,
+    display: ExperimentDisplay,
+    layer: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Keep top positive occurrences for a deterministic candidate feature set."""
     values = torch.zeros((len(ids), count), device="cuda")
     indices = torch.full((len(ids), count), -1, dtype=torch.long, device="cuda")
@@ -76,10 +85,18 @@ def profile(cache, encoder, ids, count, display, layer):
     return values.cpu(), indices.cpu()
 
 
-def prepare_feature(feature, values, indices, cache, encoder, tokenizer, layer):
+def prepare_feature(
+    feature: int,
+    values: torch.Tensor,
+    indices: torch.Tensor,
+    cache: ActivationDataset,
+    encoder: SAEFeatureEncoder,
+    tokenizer: Any,
+    layer: int,
+) -> dict[str, Any]:
     samples = cache.samples()
     hidden = cache.layer(layer)
-    occurrences = []
+    occurrences: list[dict[str, Any]] = []
     for score, index in zip(values.tolist(), indices.tolist(), strict=True):
         if score <= 0 or index < 0:
             continue
@@ -107,7 +124,11 @@ def prepare_feature(feature, values, indices, cache, encoder, tokenizer, layer):
     return {"component": feature, "tail_direction": "positive", "occurrences": occurrences}
 
 
-def validate_result(value, expected_count, thresholds=(1, 3, 5, 10, 15)):
+def validate_result(
+    value: dict[str, Any],
+    expected_count: int,
+    thresholds: Sequence[int] = (1, 3, 5, 10, 15),
+) -> None:
     if value.get("n_occurrences") != expected_count:
         raise ValueError("incomplete feature checkpoint")
     if expected_count == 0:
@@ -139,15 +160,15 @@ FORMAT = "icalens.erf_suffix_sweep.sae"
 SCHEMA_VERSION = 2
 
 
-def _prepared_path(output, layer):
+def _prepared_path(output: Path, layer: int) -> Path:
     return output / "prepared" / f"layer_{layer:02d}.json"
 
 
-def _result_path(output, layer):
+def _result_path(output: Path, layer: int) -> Path:
     return output / "results" / f"layer_{layer:02d}.json"
 
 
-def _parse_layers(value, available):
+def _parse_layers(value: str, available: Sequence[int]) -> list[int]:
     if value == "all":
         return list(available)
     layers = sorted({int(item) for item in value.split(",") if item.strip()})
@@ -156,22 +177,24 @@ def _parse_layers(value, available):
     return layers
 
 
-def _identity_sha256(identity):
+def _identity_sha256(identity: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
 
 
-def _load_layer(path, identity, kind):
+def _load_layer(path: Path, identity: dict[str, Any], kind: str) -> dict[str, Any] | None:
     if not path.exists():
         return None
     value = json.loads(path.read_text())
+    if not isinstance(value, dict):
+        raise ValueError(f"invalid {kind} artifact: {path}")
     if value.get("identity_sha256") != _identity_sha256(identity) or value.get("kind") != kind:
         raise ValueError(f"incompatible {kind} artifact: {path}")
     return value
 
 
-def _validate_result_bundle(bundle, identity, layer):
+def _validate_result_bundle(bundle: dict[str, Any], identity: dict[str, Any], layer: int) -> None:
     results = bundle.get("results")
     features = bundle.get("features")
     if (
@@ -191,8 +214,8 @@ def _validate_result_bundle(bundle, identity, layer):
             raise ValueError(f"incorrect result identity for layer {layer}, F{feature_text}")
 
 
-def _write_summaries(output, layers, identity):
-    rows = []
+def _write_summaries(output: Path, layers: Sequence[int], identity: dict[str, Any]) -> None:
+    rows: list[dict[str, Any]] = []
     for layer in layers:
         bundle = _load_layer(_result_path(output, layer), identity, "result")
         if bundle is None:
@@ -220,7 +243,7 @@ def _write_summaries(output, layers, identity):
 
 
 @torch.no_grad()
-def main(argv=None):
+def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--label", required=True)
     parser.add_argument("--cache", type=Path, required=True)
@@ -325,7 +348,8 @@ def main(argv=None):
                     use_fast=True,
                     trust_remote_code=True,
                 )
-                datasets, token_cache = {}, {}
+                datasets: dict[str, Any] = {}
+                token_cache: dict[tuple[str, int, int], list[int]] = {}
                 try:
                     for layer in layers:
                         if layer in completed:
@@ -391,9 +415,14 @@ def main(argv=None):
                                 atomic_write_json(_prepared_path(output, layer), prepared_bundle)
                             prepared = prepared_bundle["features"]
                             adapter = SAEReadout(cache, encoder, layer)
-                            results = {}
+                            results: dict[str, dict[str, Any]] = {}
 
-                            def checkpoint(feature, result, *, _results=results):
+                            def checkpoint(
+                                feature: int,
+                                result: dict[str, Any],
+                                *,
+                                _results: dict[str, dict[str, Any]] = results,
+                            ) -> None:
                                 _results[str(feature)] = result
 
                             display.phase("Sweeping suffixes", model=args.label, layer=layer)

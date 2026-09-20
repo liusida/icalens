@@ -9,7 +9,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-
 HERE = Path(__file__).resolve().parent
 RESULTS = HERE / "results-counterfactual"
 OUTPUT = HERE / "figures" / "qwen-l16-counterfactual.png"

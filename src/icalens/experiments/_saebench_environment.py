@@ -166,14 +166,10 @@ def _create_environment(root: Path, python_version: str) -> Path:
     environment = root / ".venv"
     if environment.exists():
         shutil.rmtree(environment)
-    subprocess.run(
-        ["uv", "venv", "--python", python_version, str(environment)], check=True
-    )
+    subprocess.run(["uv", "venv", "--python", python_version, str(environment)], check=True)
     python = _existing_python(root)
     assert python is not None
-    subprocess.run(
-        ["uv", "pip", "install", "--python", str(python), "-e", str(root)], check=True
-    )
+    subprocess.run(["uv", "pip", "install", "--python", str(python), "-e", str(root)], check=True)
     return python
 
 
@@ -189,15 +185,18 @@ def _environment_ready(python: Path) -> bool:
 
 def _ensure_cuda_torch(python: Path) -> None:
     """Replace a backend's CPU-only PyTorch resolution with the CUDA build."""
-    available = subprocess.run(
-        [
-            str(python),
-            "-c",
-            "import torch; raise SystemExit(0 if torch.version.cuda else 1)",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    ).returncode == 0
+    available = (
+        subprocess.run(
+            [
+                str(python),
+                "-c",
+                "import torch; raise SystemExit(0 if torch.version.cuda else 1)",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode
+        == 0
+    )
     if available:
         return
     log(
@@ -233,11 +232,14 @@ def _ensure_cuda_torch(python: Path) -> None:
 
 
 def _ensure_gb10_loader(python: Path) -> None:
-    available = subprocess.run(
-        [str(python), "-c", "import gb10_load_llm"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    ).returncode == 0
+    available = (
+        subprocess.run(
+            [str(python), "-c", "import gb10_load_llm"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode
+        == 0
+    )
     if not available:
         subprocess.run(
             [

@@ -8,7 +8,7 @@ import re
 import tempfile
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 import torch
@@ -502,6 +502,8 @@ class ICALens:
                 f"{selected_sign} tail"
             )
         occurrence = copy.deepcopy(occurrences[index])
+        if not isinstance(occurrence, dict):
+            raise ArtifactError("stored occurrence must be an object")
         if not full:
             return occurrence
 
@@ -518,6 +520,7 @@ class ICALens:
             split=source.get("split", "train"),
             revision=source.get("revision"),
         )
+        assert isinstance(provenance, dict)
         text_field = provenance.get("text_field", "text")
         occurrence["full_text"] = str(dataset[int(occurrence["source_index"])][text_field])
         return occurrence
@@ -652,6 +655,9 @@ class ICALens:
         preprocessing_mode = preprocessing.get("icalens_preprocessing")
         if preprocessing_mode is None:
             preprocessing_mode = "l2" if normalization == "l2" else "none"
+        if preprocessing_mode not in {"none", "l2", "geometric-median-l2"}:
+            raise ArtifactError(f"unsupported icalens_preprocessing: {preprocessing_mode!r}")
+        preprocessing_mode = cast(Literal["none", "l2", "geometric-median-l2"], preprocessing_mode)
         lens = cls(
             model_id=str(model["repo_id"]),
             model_revision=str(model.get("revision") or "unknown"),

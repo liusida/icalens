@@ -82,21 +82,23 @@ def render_fitting_summary(
     columns = min(3, len(lenses))
     rows = math.ceil(len(lenses) / columns)
     colors = plt.colormaps["Blues"](np.linspace(0.18, 0.72, 5))
-    with plt.rc_context({
-        "font.family": "serif",
-        "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
-        "font.size": 8,
-        "axes.titlesize": 8,
-        "axes.labelsize": 8,
-        "xtick.labelsize": 7,
-        "ytick.labelsize": 7,
-        "legend.fontsize": 7.2,
-        "axes.linewidth": 0.7,
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "pdf.fonttype": 42,
-        "ps.fonttype": 42,
-    }):
+    with plt.rc_context(
+        {
+            "font.family": "serif",
+            "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
+            "font.size": 8,
+            "axes.titlesize": 8,
+            "axes.labelsize": 8,
+            "xtick.labelsize": 7,
+            "ytick.labelsize": 7,
+            "legend.fontsize": 7.2,
+            "axes.linewidth": 0.7,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+        }
+    ):
         figure, axes = plt.subplots(
             rows,
             columns,
@@ -120,7 +122,7 @@ def render_fitting_summary(
             )
             axis.grid(axis="y", color="0.89", linewidth=0.5)
             axis.set_axisbelow(True)
-        for axis in axes.flat[len(lenses):]:
+        for axis in axes.flat[len(lenses) :]:
             axis.remove()
 
         figure.supylabel("Logcosh contrast", x=0.015)
@@ -152,9 +154,7 @@ def render_fitting_summary(
 
 def _plot_model_summary(axis: Any, lens: ICALens, *, colors: Any) -> int:
     metadata = lens.metadata
-    fitting = [
-        metadata["layers"][str(layer)]["fitting"] for layer in lens.available_layers
-    ]
+    fitting = [metadata["layers"][str(layer)]["fitting"] for layer in lens.available_layers]
     if not fitting:
         raise ValueError(f"ICA Lens {lens.model_id!r} has no fitted layers")
     histories = [item.get("objective_history") for item in fitting]

@@ -14,7 +14,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from icalens._capture import transformer_blocks
 
-
 ROOT = Path(__file__).resolve().parent.parent
 RUN = ROOT / "runs/fixed-panel"
 TRAJECTORY = RUN / "trajectory"
@@ -53,19 +52,15 @@ CASES = [
 
 
 def normalized_token(text: str) -> str:
-    return text.strip().strip('"\'#:,.?!').lower()
+    return text.strip().strip("\"'#:,.?!").lower()
 
 
 def main() -> None:
     shared = load_file(TRAJECTORY / "shared/layer-15.safetensors")
-    checkpoint = load_file(
-        TRAJECTORY / "checkpoints/layer-15/iter-050.safetensors"
-    )
+    checkpoint = load_file(TRAJECTORY / "checkpoints/layer-15/iter-050.safetensors")
     center = shared["center"].to(device="cuda", dtype=torch.float32)
     whitening = shared["whitening"].to(device="cuda", dtype=torch.float32)
-    reading = checkpoint["unmixing"][COMPONENT].to(
-        device="cuda", dtype=torch.float32
-    ) @ whitening
+    reading = checkpoint["unmixing"][COMPONENT].to(device="cuda", dtype=torch.float32) @ whitening
 
     cohort = json.loads((RUN / "cohort.json").read_text(encoding="utf-8"))
     row_ids = list(map(int, cohort["layers"][str(LAYER)]["row_ids"]))
@@ -80,9 +75,7 @@ def main() -> None:
     selection = json.loads(
         (prepared / f"layer_{LAYER:02d}/ica/selection.json").read_text(encoding="utf-8")
     )
-    selected = next(
-        row for row in selection["accepted"] if int(row["feature"]) == COMPONENT
-    )
+    selected = next(row for row in selection["accepted"] if int(row["feature"]) == COMPONENT)
     fragment_ids = {
         int(fragment)
         for key in ("train_top", "valid_top", "valid_random")
@@ -113,8 +106,7 @@ def main() -> None:
                 }
             )
     specifications.extend(
-        {"group": group, "focus": focus, "prompt": prompt, "input_ids": None,
-         "fragment": None}
+        {"group": group, "focus": focus, "prompt": prompt, "input_ids": None, "fragment": None}
         for group, focus, prompt in CASES
     )
 
@@ -134,9 +126,7 @@ def main() -> None:
     captured: dict[str, torch.Tensor] = {}
 
     def hook(_module: Any, _args: Any, output: Any) -> None:
-        captured["hidden"] = (
-            output[0] if isinstance(output, tuple) else output
-        ).detach()
+        captured["hidden"] = (output[0] if isinstance(output, tuple) else output).detach()
 
     handle = transformer_blocks(model)[LAYER].register_forward_hook(hook)
     records = []
@@ -174,7 +164,14 @@ def main() -> None:
                     "activation": float(active),
                 }
                 for position, (token_id, token, text, raw, active) in enumerate(
-                    zip(token_ids, tokens, decoded, signed.tolist(), activation.tolist())
+                    zip(
+                        token_ids,
+                        tokens,
+                        decoded,
+                        signed.tolist(),
+                        activation.tolist(),
+                        strict=True,
+                    )
                 )
             ]
             maximum = max(token_rows, key=lambda row: row["activation"])
@@ -184,8 +181,7 @@ def main() -> None:
             else:
                 target = normalized_token(focus)
                 focus_rows = [
-                    row for row in token_rows
-                    if normalized_token(row["decoded"]) == target
+                    row for row in token_rows if normalized_token(row["decoded"]) == target
                 ]
             records.append(
                 {
@@ -226,9 +222,10 @@ def main() -> None:
     print("-" * 88)
     for record in records:
         focus_rows = record["focus_tokens"]
-        focus_summary = ", ".join(
-            f"{row['position']}:{row['activation']:.3f}" for row in focus_rows
-        ) or "not-single-token"
+        focus_summary = (
+            ", ".join(f"{row['position']}:{row['activation']:.3f}" for row in focus_rows)
+            or "not-single-token"
+        )
         maximum = record["maximum"]
         print(
             f"{record['case']:>4}  {record['group']:<16} "

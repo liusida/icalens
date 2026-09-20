@@ -191,6 +191,7 @@ def fit_fastica(
         "norm_eps": norm_eps,
     }
     if algorithm == "parallel":
+
         def emit_checkpoint(iteration: int, unmixing: torch.Tensor) -> None:
             if checkpoint_callback is not None:
                 checkpoint_callback(iteration, unmixing, whitening, center)

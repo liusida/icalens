@@ -70,30 +70,59 @@ def render(
             (title, payload.get("rows", []))
             for payload, title in zip(payloads, titles, strict=True)
         ]
-        outputs.extend(_render_grid(
-            plt, overall, metric=metric, ylabel=ylabel, style=style, output=output,
-            stem=f"reconstruction-{metric}", formats=formats, force=force,
-            caption=("Held-out token-level top-k reconstruction, averaged equally across "
-                     "selected layers and evaluation datasets."),
-            include_context_control=False,
-        ))
+        outputs.extend(
+            _render_grid(
+                plt,
+                overall,
+                metric=metric,
+                ylabel=ylabel,
+                style=style,
+                output=output,
+                stem=f"reconstruction-{metric}",
+                formats=formats,
+                force=force,
+                caption=(
+                    "Held-out token-level top-k reconstruction, averaged equally across "
+                    "selected layers and evaluation datasets."
+                ),
+                include_context_control=False,
+            )
+        )
         if len(payloads) == 1 and payloads[0].get("layer_payloads"):
             layer_panels, dataset_panels = _breakdown_panels(payloads[0])
             include_context_control = (
                 payloads[0].get("experiment", {}).get("evaluation_context_length") is None
             )
-            outputs.extend(_render_grid(
-                plt, layer_panels, metric=metric, ylabel=ylabel, style=style, output=output,
-                stem=f"reconstruction-{metric}-by-layer", formats=formats, force=force,
-                caption="One subplot per layer; each curve is averaged across datasets.",
-                include_context_control=include_context_control,
-            ))
-            outputs.extend(_render_grid(
-                plt, dataset_panels, metric=metric, ylabel=ylabel, style=style, output=output,
-                stem=f"reconstruction-{metric}-by-dataset", formats=formats, force=force,
-                caption="One subplot per dataset; each curve is averaged across layers.",
-                include_context_control=include_context_control,
-            ))
+            outputs.extend(
+                _render_grid(
+                    plt,
+                    layer_panels,
+                    metric=metric,
+                    ylabel=ylabel,
+                    style=style,
+                    output=output,
+                    stem=f"reconstruction-{metric}-by-layer",
+                    formats=formats,
+                    force=force,
+                    caption="One subplot per layer; each curve is averaged across datasets.",
+                    include_context_control=include_context_control,
+                )
+            )
+            outputs.extend(
+                _render_grid(
+                    plt,
+                    dataset_panels,
+                    metric=metric,
+                    ylabel=ylabel,
+                    style=style,
+                    output=output,
+                    stem=f"reconstruction-{metric}-by-dataset",
+                    formats=formats,
+                    force=force,
+                    caption="One subplot per dataset; each curve is averaged across layers.",
+                    include_context_control=include_context_control,
+                )
+            )
     return outputs
 
 
@@ -116,23 +145,29 @@ def _render_grid(
     paths = [output / f"{stem}.{suffix}" for suffix in formats]
     caption_path = output / f"{stem}.txt"
     has_context_control = include_context_control and any(
-        str(row.get("method", "")).startswith("sae_context_")
-        for _, rows in panels
-        for row in rows
+        str(row.get("method", "")).startswith("sae_context_") for _, rows in panels for row in rows
     )
     for path in [*paths, caption_path]:
         if path.exists() and not force:
             raise FileExistsError(f"output already exists: {path}; pass --force to replace it")
     columns = min(3, len(panels))
     row_count = math.ceil(len(panels) / columns)
-    with plt.rc_context({
-        "font.family": "serif", "font.size": 9, "axes.titlesize": 10,
-        "axes.titleweight": "bold", "axes.spines.top": False,
-        "axes.spines.right": False,
-    }):
+    with plt.rc_context(
+        {
+            "font.family": "serif",
+            "font.size": 9,
+            "axes.titlesize": 10,
+            "axes.titleweight": "bold",
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+        }
+    ):
         figure, axes = plt.subplots(
-            row_count, columns, figsize=(2.75 * columns, 2.45 * row_count),
-            sharey=True, squeeze=False,
+            row_count,
+            columns,
+            figsize=(2.75 * columns, 2.45 * row_count),
+            sharey=True,
+            squeeze=False,
         )
         handles: dict[str, Any] = {}
         for axis, (title, rows) in zip(axes.flat, panels, strict=False):
@@ -180,17 +215,20 @@ def _render_grid(
             axis.set_title(title)
             axis.set_xlabel("mean active directions per token")
             axis.grid(axis="y", alpha=0.25)
-        for axis in list(axes.flat)[len(panels):]:
+        for axis in list(axes.flat)[len(panels) :]:
             axis.set_visible(False)
         for axis in axes[:, 0]:
             axis.set_ylabel(ylabel)
         ordered = [
-            handles[name]
-            for name in _legend_order(include_context_control)
-            if name in handles
+            handles[name] for name in _legend_order(include_context_control) if name in handles
         ]
-        figure.legend(ordered, [item.get_label() for item in ordered], loc="upper center",
-                      ncol=max(1, len(ordered)), frameon=False)
+        figure.legend(
+            ordered,
+            [item.get_label() for item in ordered],
+            loc="upper center",
+            ncol=max(1, len(ordered)),
+            frameon=False,
+        )
         figure.tight_layout(rect=(0, 0, 1, 0.92))
         for path in paths:
             figure.savefig(path, dpi=240, bbox_inches="tight")
@@ -356,13 +394,10 @@ def _full_linear_endpoint(
     )
 
 
-def _same_plot_point(
-    point: tuple[float, float], endpoint: tuple[float, float]
-) -> bool:
+def _same_plot_point(point: tuple[float, float], endpoint: tuple[float, float]) -> bool:
     """Return whether two markers would be visually indistinguishable on the plot."""
-    return (
-        math.isclose(point[0], endpoint[0], rel_tol=0.03, abs_tol=1e-6)
-        and math.isclose(point[1], endpoint[1], rel_tol=0.005, abs_tol=0.005)
+    return math.isclose(point[0], endpoint[0], rel_tol=0.03, abs_tol=1e-6) and math.isclose(
+        point[1], endpoint[1], rel_tol=0.005, abs_tol=0.005
     )
 
 
@@ -386,6 +421,8 @@ def _load(path: Path) -> dict[str, Any]:
             f"--output directory used by the experiment.{suggestion}"
         )
     payload = json.loads(result.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"invalid reconstruction results in {result}: expected an object")
     payload["layer_payloads"] = [
         json.loads(layer.read_text(encoding="utf-8"))
         for layer in sorted((path / "layers").glob("layer_*.json"))

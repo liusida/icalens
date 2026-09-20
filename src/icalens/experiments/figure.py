@@ -175,7 +175,7 @@ def render_sparse_probing_panels(
         "pca": ("PCA", "#5B8C6A", "^"),
         "random": ("Random", "#777777", "D"),
     }
-    with plt.rc_context(_paper_style()):
+    with plt.rc_context(_paper_style()):  # type: ignore[arg-type]
         figure, axes = plt.subplots(
             1, len(payloads), figsize=(7.15, 2.55), sharex=True, sharey=True
         )
@@ -237,9 +237,7 @@ def render_sparse_probing_panels(
             if not tick_values:
                 tick_values = [1, 2, 5, 10, 20, 50, 100, 200, 500]
             axis.set_xticks(tick_values)
-            axis.set_xticklabels(
-                [str(value) for value in tick_values], rotation=45, ha="right"
-            )
+            axis.set_xticklabels([str(value) for value in tick_values], rotation=45, ha="right")
             axis.grid(axis="y", color="#e4e7eb", linewidth=0.45)
             axis.spines["top"].set_visible(False)
             axis.spines["right"].set_visible(False)
@@ -277,6 +275,8 @@ def _load_payload(experiment: Path) -> dict[str, Any]:
     results_path = experiment / "results.json"
     if results_path.is_file():
         payload = json.loads(results_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError(f"invalid results payload in {results_path}: expected an object")
     else:
         run_path = experiment / "run.json"
         if not run_path.is_file():

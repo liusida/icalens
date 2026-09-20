@@ -8,9 +8,8 @@ import json
 from pathlib import Path
 
 import torch
-from safetensors.torch import load_file
-
 from prepare import EVALUATED_CHECKPOINTS, LAYERS
+from safetensors.torch import load_file
 from select_cohort import checkpoint_path
 
 ROOT = Path(__file__).resolve().parent

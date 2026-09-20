@@ -16,7 +16,6 @@ from typing import Any
 
 import numpy as np
 from matplotlib.ticker import MaxNLocator
-
 from prepare import EVALUATED_CHECKPOINTS, LAYERS
 from trajectory import parse_layers
 
@@ -77,9 +76,7 @@ def selected_features(preparation: Path) -> tuple[dict[int, dict[int, int]], int
     return result, counts.pop()
 
 
-def read_rows(
-    input_root: Path, preparation: Path
-) -> tuple[list[dict[str, Any]], int, set[int]]:
+def read_rows(input_root: Path, preparation: Path) -> tuple[list[dict[str, Any]], int, set[int]]:
     feature_positions, n_features = selected_features(preparation)
     rows: list[dict[str, Any]] = []
     seen: set[tuple[int, int, int]] = set()
@@ -124,10 +121,7 @@ def read_rows(
                 )
     if not rows:
         raise ValueError(f"no completed feature results found under {input_root}")
-    complete_keys = {
-        (row["iteration"], row["layer"], row["cohort_position"])
-        for row in rows
-    }
+    complete_keys = {(row["iteration"], row["layer"], row["cohort_position"]) for row in rows}
     matched_positions = {
         position
         for position in range(n_features)
@@ -143,15 +137,20 @@ def read_rows(
 
 def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     fields = [
-        "iteration", "layer", "cohort_position", "feature",
-        "combined_score", "top_score", "random_score",
+        "iteration",
+        "layer",
+        "cohort_position",
+        "feature",
+        "combined_score",
+        "top_score",
+        "random_score",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
-        writer.writerows(sorted(rows, key=lambda row: (
-            row["layer"], row["cohort_position"], row["iteration"]
-        )))
+        writer.writerows(
+            sorted(rows, key=lambda row: (row["layer"], row["cohort_position"], row["iteration"]))
+        )
 
 
 def rc_params() -> dict[str, Any]:
@@ -184,16 +183,16 @@ def style_axis(axis: Any) -> None:
 
 
 def trajectory_matrix(
-    rows: list[dict[str, Any]], layer: int, n_features: int,
+    rows: list[dict[str, Any]],
+    layer: int,
+    n_features: int,
     score_name: str = "top_score",
 ) -> np.ndarray:
     matrix = np.full((n_features, len(EVALUATED_CHECKPOINTS)), np.nan)
     iteration_index = {value: index for index, value in enumerate(EVALUATED_CHECKPOINTS)}
     for row in rows:
         if row["layer"] == layer:
-            matrix[row["cohort_position"], iteration_index[row["iteration"]]] = row[
-                score_name
-            ]
+            matrix[row["cohort_position"], iteration_index[row["iteration"]]] = row[score_name]
     # A disabled or unfinished checkpoint removes the whole component trajectory
     # from longitudinal summaries rather than changing N across iterations.
     matrix[~np.all(np.isfinite(matrix), axis=1)] = np.nan
@@ -219,12 +218,10 @@ def subplot_grid(plt: Any) -> tuple[Any, np.ndarray]:
     return figure, axes.ravel()
 
 
-def plot_detailed(
-    plt: Any, rows: list[dict[str, Any]], n_features: int, stem: Path
-) -> None:
+def plot_detailed(plt: Any, rows: list[dict[str, Any]], n_features: int, stem: Path) -> None:
     with plt.rc_context(rc_params()):
         figure, axes = subplot_grid(plt)
-        for panel, (axis, layer) in enumerate(zip(axes, LAYERS)):
+        for panel, (axis, layer) in enumerate(zip(axes, LAYERS, strict=True)):
             matrix = trajectory_matrix(rows, layer, n_features)
             for values in matrix:
                 axis.plot(
@@ -240,7 +237,7 @@ def plot_detailed(
                 loc="left",
             )
             axis.set_xlabel("FastICA iteration")
-        for axis in axes[len(LAYERS):]:
+        for axis in axes[len(LAYERS) :]:
             axis.set_visible(False)
         for axis in axes[::2]:
             axis.set_ylabel("Autointerpretability score")
@@ -252,13 +249,16 @@ def plot_detailed(
 
 
 def plot_aggregate(
-    plt: Any, rows: list[dict[str, Any]], n_features: int, analysis_count: int,
+    plt: Any,
+    rows: list[dict[str, Any]],
+    n_features: int,
+    analysis_count: int,
     stem: Path,
 ) -> dict[int, list[int]]:
     counts: dict[int, list[int]] = {}
     with plt.rc_context(rc_params()):
         figure, axes = subplot_grid(plt)
-        for panel, (axis, layer) in enumerate(zip(axes, LAYERS)):
+        for panel, (axis, layer) in enumerate(zip(axes, LAYERS, strict=True)):
             matrix = trajectory_matrix(rows, layer, n_features)
             n = np.sum(np.isfinite(matrix), axis=0)
             counts[layer] = n.tolist()
@@ -300,7 +300,7 @@ def plot_aggregate(
                 loc="left",
             )
             axis.set_xlabel("FastICA iteration")
-        for axis in axes[len(LAYERS):]:
+        for axis in axes[len(LAYERS) :]:
             axis.set_visible(False)
         for axis in axes[::2]:
             axis.set_ylabel("Mean autointerpretability score")
@@ -313,13 +313,13 @@ def plot_aggregate(
 
 
 def plot_all_layers(
-    plt: Any, rows: list[dict[str, Any]], n_features: int,
-    fit_statistics: dict[str, Any] | None, stem: Path,
+    plt: Any,
+    rows: list[dict[str, Any]],
+    n_features: int,
+    fit_statistics: dict[str, Any] | None,
+    stem: Path,
 ) -> list[int]:
-    matrix = np.vstack([
-        trajectory_matrix(rows, layer, n_features)
-        for layer in LAYERS
-    ])
+    matrix = np.vstack([trajectory_matrix(rows, layer, n_features) for layer in LAYERS])
     counts = np.sum(np.isfinite(matrix), axis=0)
     mean = np.full(matrix.shape[1], np.nan)
     low = np.full(matrix.shape[1], np.nan)
@@ -362,22 +362,30 @@ def plot_all_layers(
                 ("excess_kurtosis", "Excess kurtosis", "#A65D57"),
             )
             for metric_index, (name, ylabel, color) in enumerate(metrics):
-                values = np.concatenate([
-                    np.asarray(records[layer][name], dtype=np.float64)
-                    for layer in LAYERS
-                ], axis=1)
+                values = np.concatenate(
+                    [np.asarray(records[layer][name], dtype=np.float64) for layer in LAYERS], axis=1
+                )
                 mean_values = values.mean(axis=1)
                 median_values = np.median(values, axis=1)
                 metric_axis = axis.twinx()
                 if metric_index == 1:
                     metric_axis.spines["right"].set_position(("axes", 1.16))
-                mean_artist, = metric_axis.plot(
-                    EVALUATED_CHECKPOINTS, mean_values, color=color,
-                    linewidth=1.4, marker="o", markersize=3.0,
+                (mean_artist,) = metric_axis.plot(
+                    EVALUATED_CHECKPOINTS,
+                    mean_values,
+                    color=color,
+                    linewidth=1.4,
+                    marker="o",
+                    markersize=3.0,
                 )
-                median_artist, = metric_axis.plot(
-                    EVALUATED_CHECKPOINTS, median_values, color=color,
-                    linewidth=1.2, linestyle="--", marker="s", markersize=2.8,
+                (median_artist,) = metric_axis.plot(
+                    EVALUATED_CHECKPOINTS,
+                    median_values,
+                    color=color,
+                    linewidth=1.2,
+                    linestyle="--",
+                    marker="s",
+                    markersize=2.8,
                 )
                 lower = float(min(mean_values.min(), median_values.min()))
                 upper = float(max(mean_values.max(), median_values.max()))
@@ -392,12 +400,20 @@ def plot_all_layers(
                 labels.extend([f"{ylabel} mean", f"{ylabel} median"])
         axis.set_xlabel("FastICA iteration")
         axis.legend(
-            handles, labels, frameon=False, ncol=2, loc="lower center",
-            bbox_to_anchor=(0.5, 1.005), columnspacing=1.1, handlelength=2.0,
+            handles,
+            labels,
+            frameon=False,
+            ncol=2,
+            loc="lower center",
+            bbox_to_anchor=(0.5, 1.005),
+            columnspacing=1.1,
+            handlelength=2.0,
         )
         figure.subplots_adjust(
-            left=0.13, right=0.73 if fit_statistics is not None else 0.98,
-            bottom=0.20, top=0.72,
+            left=0.13,
+            right=0.73 if fit_statistics is not None else 0.98,
+            bottom=0.20,
+            top=0.72,
         )
         save_figure(figure, stem)
         plt.close(figure)
@@ -441,21 +457,16 @@ def main() -> None:
     detailed = output / "autointerpretability-trajectories"
     aggregate = output / "autointerpretability-convergence"
     all_layers = output / "autointerpretability-convergence-all-layers"
-    targets = [
-        detailed.with_suffix(suffix)
-        for suffix in (".png", ".pdf", ".txt")
-    ] + [
-        aggregate.with_suffix(suffix)
-        for suffix in (".png", ".pdf", ".txt")
-    ] + [
-        all_layers.with_suffix(suffix)
-        for suffix in (".png", ".pdf", ".txt")
-    ] + [output / "autointerpretability-convergence-data.csv"]
+    targets = (
+        [detailed.with_suffix(suffix) for suffix in (".png", ".pdf", ".txt")]
+        + [aggregate.with_suffix(suffix) for suffix in (".png", ".pdf", ".txt")]
+        + [all_layers.with_suffix(suffix) for suffix in (".png", ".pdf", ".txt")]
+        + [output / "autointerpretability-convergence-data.csv"]
+    )
     existing = [path for path in targets if path.exists()]
     if existing and not args.force:
         raise FileExistsError(
-            "refusing to replace existing outputs without --force: "
-            + ", ".join(map(str, existing))
+            "refusing to replace existing outputs without --force: " + ", ".join(map(str, existing))
         )
     rows, n_features, matched_positions = read_rows(input_root, preparation)
     if args.n_components is not None:
@@ -467,7 +478,7 @@ def main() -> None:
                 f"requested {args.n_components} components, but only "
                 f"{len(available)} usable matched positions are available"
             )
-        matched_positions = set(available[:args.n_components])
+        matched_positions = set(available[: args.n_components])
     rows = [row for row in rows if row["cohort_position"] in matched_positions]
     write_csv(output / "autointerpretability-convergence-data.csv", rows)
     with tempfile.TemporaryDirectory(prefix="icalens-mpl-") as cache:
@@ -475,12 +486,8 @@ def main() -> None:
         import matplotlib.pyplot as plt
 
         plot_detailed(plt, rows, n_features, detailed)
-        counts = plot_aggregate(
-            plt, rows, n_features, len(matched_positions), aggregate
-        )
-        all_layer_counts = plot_all_layers(
-            plt, rows, n_features, fit_statistics, all_layers
-        )
+        counts = plot_aggregate(plt, rows, n_features, len(matched_positions), aggregate)
+        all_layer_counts = plot_all_layers(plt, rows, n_features, fit_statistics, all_layers)
     complete_positions = len(matched_positions)
     detailed.with_suffix(".txt").write_text(
         f"Individual top-fragment autointerpretability scores for "
@@ -496,7 +503,8 @@ def main() -> None:
         encoding="utf-8",
     )
     count_text = "; ".join(
-        f"L{layer}: " + ", ".join(
+        f"L{layer}: "
+        + ", ".join(
             f"{iteration}={count}"
             for iteration, count in zip(EVALUATED_CHECKPOINTS, counts[layer], strict=True)
         )
@@ -522,9 +530,7 @@ def main() -> None:
         "deviation and excess kurtosis. Counts by iteration: "
         + ", ".join(
             f"{iteration}={count}"
-            for iteration, count in zip(
-                EVALUATED_CHECKPOINTS, all_layer_counts, strict=True
-            )
+            for iteration, count in zip(EVALUATED_CHECKPOINTS, all_layer_counts, strict=True)
         )
         + ".\n",
         encoding="utf-8",

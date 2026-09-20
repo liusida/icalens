@@ -69,11 +69,7 @@ def read_summary(path: Path) -> dict[str, Any]:
 
 
 def common_configuration(summary: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in summary.items()
-        if key not in {"layers", "layer_results"}
-    }
+    return {key: value for key, value in summary.items() if key not in {"layers", "layer_results"}}
 
 
 def import_file(source: Path, destination: Path) -> str:
@@ -117,20 +113,22 @@ def merge_trajectories(caches: tuple[Path, ...], destination: Path) -> dict[str,
             layer_record = cache / "layers" / f"layer-{layer:02d}.json"
             if not shared.is_file() or not layer_record.is_file():
                 raise FileNotFoundError(f"trajectory cache is missing layer {layer} artifacts")
-            import_methods.add(import_file(
-                shared, destination / "shared" / shared.name
-            ))
-            import_methods.add(import_file(
-                layer_record, destination / "layers" / layer_record.name
-            ))
-            checkpoints = sorted((cache / "checkpoints" / f"layer-{layer:02d}").glob("*.safetensors"))
+            import_methods.add(import_file(shared, destination / "shared" / shared.name))
+            import_methods.add(
+                import_file(layer_record, destination / "layers" / layer_record.name)
+            )
+            checkpoints = sorted(
+                (cache / "checkpoints" / f"layer-{layer:02d}").glob("*.safetensors")
+            )
             if len(checkpoints) != len(summary["checkpoints"]):
                 raise ValueError(f"trajectory cache has incomplete checkpoints for layer {layer}")
             for checkpoint in checkpoints:
-                import_methods.add(import_file(
-                    checkpoint,
-                    destination / "checkpoints" / f"layer-{layer:02d}" / checkpoint.name,
-                ))
+                import_methods.add(
+                    import_file(
+                        checkpoint,
+                        destination / "checkpoints" / f"layer-{layer:02d}" / checkpoint.name,
+                    )
+                )
     if set(layers_seen) != set(LAYERS):
         raise ValueError(f"trajectory caches cover {sorted(layers_seen)}, expected {list(LAYERS)}")
     merged = {
@@ -201,29 +199,36 @@ def main() -> None:
         existing_resolved.pop("trajectory_caches", None)
         if existing_resolved != configuration:
             raise ValueError(f"incompatible existing fixed-panel run: {run_path}")
-    atomic_write_json(output / "fixed-panel-run.json", {
-        "status": "running", "resolved": configuration
-    })
+    atomic_write_json(
+        output / "fixed-panel-run.json", {"status": "running", "resolved": configuration}
+    )
     try:
         if (trajectory / "summary.json").is_file():
             summary = read_summary(trajectory)
             if summary.get("layers") != list(LAYERS):
-                raise ValueError(f"existing trajectory does not contain all four layers: {trajectory}")
+                raise ValueError(
+                    f"existing trajectory does not contain all four layers: {trajectory}"
+                )
             print(f"PASS unified trajectory already exists: {trajectory}")
         elif caches:
             print("START importing four-layer trajectory", flush=True)
             merge_trajectories(caches, trajectory)
             print(f"PASS unified trajectory: {trajectory}")
         else:
-            run([
-                sys.executable, str(ROOT / "trajectory.py"),
-                "--layers", ",".join(map(str, LAYERS)),
-                "--output", str(trajectory),
-            ])
+            run(
+                [
+                    sys.executable,
+                    str(ROOT / "trajectory.py"),
+                    "--layers",
+                    ",".join(map(str, LAYERS)),
+                    "--output",
+                    str(trajectory),
+                ]
+            )
         if args.stop_after == "trajectory":
-            atomic_write_json(run_path, {
-                "status": "trajectory-complete", "resolved": configuration
-            })
+            atomic_write_json(
+                run_path, {"status": "trajectory-complete", "resolved": configuration}
+            )
             return
 
         if cohort.is_file():
@@ -237,51 +242,74 @@ def main() -> None:
                 )
             print(f"PASS unified cohort already exists: {cohort}")
         else:
-            run([
-                sys.executable, str(ROOT / "select_cohort.py"),
-                "--layers", ",".join(map(str, LAYERS)),
-                "--trajectory", str(trajectory),
-                "--output", str(cohort),
-                "--n-components", str(args.n_components),
-                "--device", args.device,
-            ])
+            run(
+                [
+                    sys.executable,
+                    str(ROOT / "select_cohort.py"),
+                    "--layers",
+                    ",".join(map(str, LAYERS)),
+                    "--trajectory",
+                    str(trajectory),
+                    "--output",
+                    str(cohort),
+                    "--n-components",
+                    str(args.n_components),
+                    "--device",
+                    args.device,
+                ]
+            )
         if args.stop_after == "cohort":
-            atomic_write_json(run_path, {
-                "status": "cohort-complete", "resolved": configuration
-            })
+            atomic_write_json(run_path, {"status": "cohort-complete", "resolved": configuration})
             return
 
-        run([
-            sys.executable, str(ROOT / "prepare.py"),
-            "--layers", ",".join(map(str, LAYERS)),
-            "--trajectory", str(trajectory),
-            "--cohort", str(cohort),
-            "--output", str(checkpoint_prepared),
-            "--archive", str(archive),
-            "--batch-size", str(args.batch_size),
-            "--statistics-batch-size", str(args.statistics_batch_size),
-            "--device", args.device,
-        ])
+        run(
+            [
+                sys.executable,
+                str(ROOT / "prepare.py"),
+                "--layers",
+                ",".join(map(str, LAYERS)),
+                "--trajectory",
+                str(trajectory),
+                "--cohort",
+                str(cohort),
+                "--output",
+                str(checkpoint_prepared),
+                "--archive",
+                str(archive),
+                "--batch-size",
+                str(args.batch_size),
+                "--statistics-batch-size",
+                str(args.statistics_batch_size),
+                "--device",
+                args.device,
+            ]
+        )
         if args.stop_after == "activations":
-            atomic_write_json(run_path, {
-                "status": "activations-complete", "resolved": configuration
-            })
+            atomic_write_json(
+                run_path, {"status": "activations-complete", "resolved": configuration}
+            )
             return
 
-        run([
-            sys.executable, str(ROOT / "prepare_intrinsic_panel.py"),
-            "--layers", ",".join(map(str, LAYERS)),
-            "--input", str(checkpoint_prepared),
-            "--output", str(fixed_prepared),
-        ])
-        atomic_write_json(output / "fixed-panel-run.json", {
-            "status": "complete", "resolved": configuration
-        })
+        run(
+            [
+                sys.executable,
+                str(ROOT / "prepare_intrinsic_panel.py"),
+                "--layers",
+                ",".join(map(str, LAYERS)),
+                "--input",
+                str(checkpoint_prepared),
+                "--output",
+                str(fixed_prepared),
+            ]
+        )
+        atomic_write_json(
+            output / "fixed-panel-run.json", {"status": "complete", "resolved": configuration}
+        )
         print(f"PASS four-layer intrinsic preparation: {fixed_prepared}")
     except BaseException:
-        atomic_write_json(output / "fixed-panel-run.json", {
-            "status": "interrupted", "resolved": configuration
-        })
+        atomic_write_json(
+            output / "fixed-panel-run.json", {"status": "interrupted", "resolved": configuration}
+        )
         raise
 
 

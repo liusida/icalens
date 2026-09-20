@@ -11,11 +11,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from prepare import EVALUATED_CHECKPOINTS, N_FRAGMENTS
+from trajectory import parse_layers
 
 from icalens.experiments._run import atomic_write_json
-
-from prepare import EVALUATED_CHECKPOINTS, LAYERS, N_FRAGMENTS
-from trajectory import parse_layers
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_INPUT = ROOT / "runs/fixed-panel/checkpoint-prepared"
@@ -97,7 +96,9 @@ def main() -> None:
     source = args.input.expanduser().resolve()
     output = args.output.expanduser().resolve()
     fragments_path = (source / "iter-000/fragments.jsonl").resolve()
-    fragments = [json.loads(line) for line in fragments_path.read_text(encoding="utf-8").splitlines()]
+    fragments = [
+        json.loads(line) for line in fragments_path.read_text(encoding="utf-8").splitlines()
+    ]
     if len(fragments) != N_FRAGMENTS:
         raise ValueError(f"expected {N_FRAGMENTS} fragments: {fragments_path}")
     document_ids = np.asarray([int(row["document_index"]) for row in fragments])
@@ -149,31 +150,43 @@ def main() -> None:
                 feature = int(row["feature"])
                 position = int(row["candidate_position"])
                 train, top, random = intrinsic_indices(
-                    maxima[:, position], document_ids,
+                    maxima[:, position],
+                    document_ids,
                     seed=np.random.SeedSequence([layer, feature, iteration]),
                 )
-                accepted.append({
-                    "feature": feature,
-                    "candidate_position": position,
-                    "train_top": train,
-                    "valid_top": top,
-                    "valid_random": random,
-                })
-            atomic_write_json(destination_layer / "selection.json", {
-                "candidate_ids": original["candidate_ids"],
-                "accepted": accepted,
-                "rejected": [],
-            })
+                accepted.append(
+                    {
+                        "feature": feature,
+                        "candidate_position": position,
+                        "train_top": train,
+                        "valid_top": top,
+                        "valid_random": random,
+                    }
+                )
+            atomic_write_json(
+                destination_layer / "selection.json",
+                {
+                    "candidate_ids": original["candidate_ids"],
+                    "accepted": accepted,
+                    "rejected": [],
+                },
+            )
             atomic_write_json(
                 destination_iteration / f"layer_{layer:02d}" / "prepared.json",
-                {"format": "icalens.autointerpretability-prepared-layer",
-                 "schema_version": 1, "layer": layer, "methods": ["ica"],
-                 "n_fragments": N_FRAGMENTS, "n_features": n_features,
-                 "selection_protocol": "checkpoint-specific-intrinsic-5-train-20-valid"},
+                {
+                    "format": "icalens.autointerpretability-prepared-layer",
+                    "schema_version": 1,
+                    "layer": layer,
+                    "methods": ["ica"],
+                    "n_fragments": N_FRAGMENTS,
+                    "n_features": n_features,
+                    "selection_protocol": "checkpoint-specific-intrinsic-5-train-20-valid",
+                },
             )
-        atomic_write_json(destination_iteration / "run.json", {
-            "status": "prepared", "resolved": {**resolved, "iteration": iteration}
-        })
+        atomic_write_json(
+            destination_iteration / "run.json",
+            {"status": "prepared", "resolved": {**resolved, "iteration": iteration}},
+        )
         print(f"PASS intrinsic selections at iteration {iteration}")
     atomic_write_json(manifest, {"status": "complete", "resolved": resolved})
     print(f"PASS four-layer intrinsic preparation: {output}")

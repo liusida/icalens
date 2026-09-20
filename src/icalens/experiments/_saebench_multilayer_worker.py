@@ -10,7 +10,7 @@ import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import torch
 import transformers
@@ -123,7 +123,7 @@ def main() -> None:
         SparseProbingEvalConfig,
     )
     from sae_bench.sae_bench_utils import (  # type: ignore[import-not-found]
-        activation_collection,  # type: ignore[import-not-found]
+        activation_collection,
         dataset_info,
         dataset_utils,
     )
@@ -176,8 +176,7 @@ def main() -> None:
             raise ValueError(f"requested methods are unavailable at layer {layer}: {unknown}")
         encoders[layer] = layer_encoders
         feature_configs[layer] = {
-            name: asdict(encoder.cfg)
-            for name, encoder in layer_encoders.items()  # type: ignore[attr-defined]
+            name: asdict(cast(Any, encoder).cfg) for name, encoder in layer_encoders.items()
         }
         config = SparseProbingEvalConfig(model_name=snapshot["saebench_model_name"])
         config.dataset_names = list(settings["datasets"])
@@ -461,12 +460,12 @@ def _capture_layers(
 ) -> dict[int, dict[str, torch.Tensor]]:
     from tqdm import tqdm
 
-    result = {layer: {} for layer in layers}
+    result: dict[int, dict[str, torch.Tensor]] = {layer: {} for layer in layers}
     blocks = _blocks(model)
     final_layer = max(layers)
     for class_name, encoded in tokenized.items():
         tokens = encoded["input_ids"]
-        chunks = {layer: [] for layer in layers}
+        chunks: dict[int, list[torch.Tensor]] = {layer: [] for layer in layers}
         for start in tqdm(range(0, len(tokens), batch_size), desc="Collecting shared activations"):
             batch = tokens[start : start + batch_size].to(next(model.parameters()).device)
             model_batch, attention_mask, strip_prefix = _prepare_model_inputs(
@@ -552,7 +551,9 @@ def _canonical_cache_path(artifacts: Path, snapshot: dict[str, Any], dataset: st
 
 def _cache_path(artifacts: Path, snapshot: dict[str, Any], dataset: str, hook_name: str) -> Path:
     filename = f"{dataset}_activations.pt".replace("/", "_")
-    return artifacts / "sparse_probing" / snapshot["saebench_model_name"] / hook_name / filename
+    return (
+        artifacts / "sparse_probing" / str(snapshot["saebench_model_name"]) / hook_name / filename
+    )
 
 
 def _hook_aliases(snapshot: dict[str, Any]) -> set[str]:

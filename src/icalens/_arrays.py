@@ -29,9 +29,7 @@ def transform_array(
             raise ValueError("input must contain only finite values")
         work = values
         if pre_offset is not None:
-            work = work - torch.as_tensor(
-                pre_offset, dtype=work.dtype, device=work.device
-            )
+            work = work - torch.as_tensor(pre_offset, dtype=work.dtype, device=work.device)
         if normalize:
             norms = torch.linalg.vector_norm(work, dim=-1, keepdim=True).clamp_min(norm_eps)
             work = work / norms

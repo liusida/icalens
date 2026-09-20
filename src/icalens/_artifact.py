@@ -58,8 +58,7 @@ def parse_manifest(data: Any) -> dict[str, Any]:
     expected_minimum = "0.3.2" if format_version == 3 else MINIMUM_PACKAGE_VERSION
     if format_version >= 3 and data.get("minimum_package_version") != expected_minimum:
         raise ArtifactError(
-            "format version 3 requires "
-            f"minimum_package_version={expected_minimum!r}"
+            f"format version 3 requires minimum_package_version={expected_minimum!r}"
         )
     model_key = "base_model" if format_version == 1 else "model"
     required = (model_key, "activation_site", "hidden_size", "input_preprocessing", "layers")
@@ -198,9 +197,7 @@ def save_directory(path: Path, manifest: dict[str, Any], layers: dict[int, Layer
         raise
 
 
-def save_profile_checkpoint(
-    path: Path, manifest: dict[str, Any], artifact: LayerArtifact
-) -> None:
+def save_profile_checkpoint(path: Path, manifest: dict[str, Any], artifact: LayerArtifact) -> None:
     """Atomically add or replace one profile in an existing artifact directory."""
     path = path.expanduser().resolve()
     if not (path / MANIFEST_FILENAME).is_file():
@@ -217,9 +214,7 @@ def save_profile_checkpoint(
 def _atomic_write_json(path: Path, value: dict[str, Any]) -> None:
     temporary = path.with_name(f".{path.name}.tmp")
     try:
-        temporary.write_text(
-            json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
@@ -234,17 +229,13 @@ def _atomic_write_profile(path: Path, value: dict[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _write_profile(
-    path: Path, value: dict[str, Any], *, compressed: bool | None = None
-) -> None:
+def _write_profile(path: Path, value: dict[str, Any], *, compressed: bool | None = None) -> None:
     use_gzip = path.suffix == ".gz" if compressed is None else compressed
     if use_gzip:
         with gzip.open(path, "wt", encoding="utf-8", compresslevel=6) as handle:
             json.dump(value, handle, separators=(",", ":"), sort_keys=True)
     else:
-        path.write_text(
-            json.dumps(value, separators=(",", ":"), sort_keys=True), encoding="utf-8"
-        )
+        path.write_text(json.dumps(value, separators=(",", ":"), sort_keys=True), encoding="utf-8")
 
 
 def _tensor(
@@ -273,11 +264,15 @@ def _model_card(manifest: dict[str, Any]) -> str:
     preprocessing = manifest.get("input_preprocessing", {})
     normalization = preprocessing.get("row_normalization", "unknown")
     r_lens_profiles = manifest.get("r_lens_profiles", {})
-    transfer_entries = [
-        (layer, provenance)
-        for layer, provenance in r_lens_profiles.items()
-        if isinstance(provenance, dict) and isinstance(provenance.get("transfer"), dict)
-    ] if isinstance(r_lens_profiles, dict) else []
+    transfer_entries = (
+        [
+            (layer, provenance)
+            for layer, provenance in r_lens_profiles.items()
+            if isinstance(provenance, dict) and isinstance(provenance.get("transfer"), dict)
+        ]
+        if isinstance(r_lens_profiles, dict)
+        else []
+    )
     if transfer_entries:
         first_provenance = transfer_entries[0][1]
         transfer_layers = ", ".join(
@@ -287,7 +282,7 @@ def _model_card(manifest: dict[str, Any]) -> str:
 ## R-lens readouts
 
 R-lens component-token readouts for layers {transfer_layers} reuse the R-lens
-fitted for base model `{first_provenance.get('model_id', 'unknown')}`. They were
+fitted for base model `{first_provenance.get("model_id", "unknown")}`. They were
 transferred to this instruction-tuned model to reduce fitting compute. The
 transfer was explicitly requested and passed hidden-size, activation-site, and
 layer-map compatibility checks; its complete provenance is stored in

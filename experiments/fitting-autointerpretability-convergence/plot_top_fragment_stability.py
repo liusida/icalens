@@ -10,7 +10,6 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-
 from prepare import EVALUATED_CHECKPOINTS, LAYERS
 from trajectory import parse_layers
 
@@ -60,15 +59,24 @@ def measure(preparation: Path, layers: tuple[int, ...], top_k: int) -> list[dict
             if checkpoint_position:
                 previous = sets[EVALUATED_CHECKPOINTS[checkpoint_position - 1]]
                 adjacent = np.asarray(
-                    [len(left & right) / top_k for left, right in zip(previous, sets[iteration], strict=True)]
+                    [
+                        len(left & right) / top_k
+                        for left, right in zip(previous, sets[iteration], strict=True)
+                    ]
                 )
             else:
                 adjacent = np.full(len(final), np.nan)
             to_final = np.asarray(
-                [len(left & right) / top_k for left, right in zip(sets[iteration], final, strict=True)]
+                [
+                    len(left & right) / top_k
+                    for left, right in zip(sets[iteration], final, strict=True)
+                ]
             )
             to_100 = np.asarray(
-                [len(left & right) / top_k for left, right in zip(sets[iteration], late_100, strict=True)]
+                [
+                    len(left & right) / top_k
+                    for left, right in zip(sets[iteration], late_100, strict=True)
+                ]
             )
             for component_position, (local, overlap_100, overlap_200) in enumerate(
                 zip(adjacent, to_100, to_final, strict=True)
@@ -94,12 +102,21 @@ def write_csv(path: Path, rows: list[dict[str, float | int]]) -> None:
 
 
 def plot(path: Path, rows: list[dict[str, float | int]], layers: tuple[int, ...]) -> None:
-    plt.rcParams.update({
-        "font.family": "serif", "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
-        "font.size": 8, "axes.titlesize": 8, "axes.titleweight": "bold",
-        "axes.labelsize": 8, "xtick.labelsize": 7, "ytick.labelsize": 7,
-        "legend.fontsize": 7, "axes.linewidth": 0.7, "pdf.fonttype": 42,
-    })
+    plt.rcParams.update(
+        {
+            "font.family": "serif",
+            "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
+            "font.size": 8,
+            "axes.titlesize": 8,
+            "axes.titleweight": "bold",
+            "axes.labelsize": 8,
+            "xtick.labelsize": 7,
+            "ytick.labelsize": 7,
+            "legend.fontsize": 7,
+            "axes.linewidth": 0.7,
+            "pdf.fonttype": 42,
+        }
+    )
     figure, axes = plt.subplots(1, len(layers), figsize=(3.45 * len(layers), 2.55), sharey=True)
     axes = np.atleast_1d(axes)
     for panel, (axis, layer) in enumerate(zip(axes, layers, strict=True)):
@@ -111,13 +128,15 @@ def plot(path: Path, rows: list[dict[str, float | int]], layers: tuple[int, ...]
         ):
             means, lower, upper = [], [], []
             for iteration in EVALUATED_CHECKPOINTS:
-                values = np.asarray([
-                    row[field] for row in layer_rows if row["iteration"] == iteration
-                ], dtype=float)
+                values = np.asarray(
+                    [row[field] for row in layer_rows if row["iteration"] == iteration], dtype=float
+                )
                 values = values[np.isfinite(values)]
                 if values.size:
                     rng = np.random.default_rng(layer * 100_000 + iteration * 10 + len(label))
-                    bootstrap = rng.choice(values, size=(10_000, values.size), replace=True).mean(axis=1)
+                    bootstrap = rng.choice(values, size=(10_000, values.size), replace=True).mean(
+                        axis=1
+                    )
                     means.append(float(values.mean()))
                     lower.append(float(np.quantile(bootstrap, 0.025)))
                     upper.append(float(np.quantile(bootstrap, 0.975)))
@@ -127,10 +146,16 @@ def plot(path: Path, rows: list[dict[str, float | int]], layers: tuple[int, ...]
                     upper.append(np.nan)
             means_array = np.asarray(means)
             axis.errorbar(
-                EVALUATED_CHECKPOINTS, means_array,
+                EVALUATED_CHECKPOINTS,
+                means_array,
                 yerr=np.vstack((means_array - lower, np.asarray(upper) - means_array)),
-                color=color, marker=marker, markersize=3.0, linewidth=1.2,
-                elinewidth=0.65, capsize=1.8, label=label,
+                color=color,
+                marker=marker,
+                markersize=3.0,
+                linewidth=1.2,
+                elinewidth=0.65,
+                capsize=1.8,
+                label=label,
             )
         axis.set_title(f"{chr(65 + panel)} · Qwen 3.5 9B Base · L{layer}", loc="left")
         axis.set_xscale("symlog", linthresh=2, linscale=1)

@@ -7,8 +7,9 @@ import argparse
 import gc
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import torch
@@ -23,7 +24,6 @@ from icalens.experiments.saebench_sparse_probing import (
     _prepare_layer_baselines,
     _resolve_baselines,
 )
-
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
@@ -155,7 +155,7 @@ def benchmark_codec(
         torch.cuda.synchronize()
     operations = {
         "encode": lambda: codec.encode(inputs),
-        "decode": lambda: codec.decode(codes, reference=inputs),
+        "decode": lambda codes=codes: codec.decode(codes, reference=inputs),
         "forward": lambda: codec.decode(codec.encode(inputs), reference=inputs),
     }
     timings = {
@@ -203,7 +203,9 @@ def result_is_valid(path: Path, identity: dict[str, Any]) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--models", nargs="+", choices=tuple(MODEL_SPECS), default=tuple(MODEL_SPECS))
+    parser.add_argument(
+        "--models", nargs="+", choices=tuple(MODEL_SPECS), default=tuple(MODEL_SPECS)
+    )
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--repeats", type=int, default=100)
@@ -228,9 +230,9 @@ def main() -> None:
         manifest_path = lens_path / "icalens.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         artifact_path = lens_path / manifest["layers"][str(layer)]["file"]
-        baseline = _prepare_layer_baselines(
-            _resolve_baselines(lens.model_id, "sae"), layer=layer
-        )["sae"]
+        baseline = _prepare_layer_baselines(_resolve_baselines(lens.model_id, "sae"), layer=layer)[
+            "sae"
+        ]
         prepared_baselines[label] = baseline
         resolved_models[label] = {
             "title": MODEL_TITLES[label],
@@ -244,8 +246,15 @@ def main() -> None:
             "sae": {
                 key: baseline.get(key)
                 for key in (
-                    "name", "repo_id", "revision", "checkpoint", "checkpoint_format",
-                    "width", "activation", "top_k", "normalize_activations",
+                    "name",
+                    "repo_id",
+                    "revision",
+                    "checkpoint",
+                    "checkpoint_format",
+                    "width",
+                    "activation",
+                    "top_k",
+                    "normalize_activations",
                     "apply_b_dec_to_input",
                 )
             },
@@ -329,7 +338,8 @@ def main() -> None:
                         f"{label} {method}: {methods[method]['parameter_bytes'] / 2**20:.2f} MiB; "
                         f"encode {methods[method]['latency']['encode']['median']:.3f}, "
                         f"decode {methods[method]['latency']['decode']['median']:.3f}, "
-                        f"forward {methods[method]['latency']['forward']['median']:.3f} us/activation."
+                        "forward "
+                        f"{methods[method]['latency']['forward']['median']:.3f} us/activation."
                     )
                     del codec
                     gc.collect()

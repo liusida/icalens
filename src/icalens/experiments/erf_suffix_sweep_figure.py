@@ -112,7 +112,7 @@ def render(
 
     basis_sizes = _basis_sizes(labels, run)
     panel_widths = [len(run["resolved"]["lenses"][label]["layers"]) for label in labels]
-    with plt.rc_context(_paper_style()):
+    with plt.rc_context(_paper_style()):  # type: ignore[arg-type]
         figure, axes = plt.subplots(
             1,
             len(labels),
@@ -125,9 +125,7 @@ def render(
             zip(axes.ravel(), labels, titles, strict=True)
         ):
             model_rows = [
-                row
-                for row in rows
-                if row["model"] == label and int(row["top_k"]) == top_k
+                row for row in rows if row["model"] == label and int(row["top_k"]) == top_k
             ]
             layers = [int(layer) for layer in run["resolved"]["lenses"][label]["layers"]]
             fractions = np.zeros((len(BIN_LABELS), len(layers)), dtype=float)
@@ -213,7 +211,7 @@ def _result_rows(experiment: Path, *, complete: bool) -> list[dict[str, Any]]:
     summary = experiment / "summary.csv"
     if complete and summary.is_file():
         return list(csv.DictReader(summary.open(encoding="utf-8")))
-    rows = []
+    rows: list[dict[str, Any]] = []
     for path in sorted((experiment / "components").glob("*/layer_*/C*.json")):
         try:
             value = json.loads(path.read_text(encoding="utf-8"))

@@ -31,8 +31,13 @@ def enter_isolated_tinker_environment(argv: list[str]) -> None:
         root.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(
             [
-                "uv", "venv", "--clear", "--system-site-packages",
-                "--python", sys.executable, str(root),
+                "uv",
+                "venv",
+                "--clear",
+                "--system-site-packages",
+                "--python",
+                sys.executable,
+                str(root),
             ],
             check=True,
         )

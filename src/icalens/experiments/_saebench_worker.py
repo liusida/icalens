@@ -15,7 +15,7 @@ from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import torch
 import transformers
@@ -46,7 +46,7 @@ _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)
 
 
 class _CapturedBenchmarkOutput(io.TextIOBase):
-    def __init__(self, display: _BenchmarkDisplay) -> None:
+    def __init__(self, display: Any) -> None:
         self.display = display
 
     def writable(self) -> bool:
@@ -63,7 +63,7 @@ class _CapturedBenchmarkOutput(io.TextIOBase):
         return False
 
 
-class _BenchmarkDisplay:
+class _LegacyBenchmarkDisplay:
     """Keep SAEBench chatter in a small live panel and a complete detail log."""
 
     def __init__(
@@ -110,7 +110,7 @@ class _BenchmarkDisplay:
         self.live: Live | None = None
         self.thread: threading.Thread | None = None
 
-    def __enter__(self) -> _BenchmarkDisplay:
+    def __enter__(self) -> _LegacyBenchmarkDisplay:
         self.detail.write(
             "# ICA Lens experiment run\n"
             f"started_at: {datetime.now().astimezone().isoformat(timespec='seconds')}\n"
@@ -216,7 +216,7 @@ class _BenchmarkDisplay:
         while not self.stop_event.wait(1.0):
             self.refresh()
 
-    def render(self) -> Panel:
+    def render(self) -> Any:
         with self.lock:
             completed = self.completed
             total = self.total
@@ -498,6 +498,8 @@ class ICAFeatureEncoder(torch.nn.Module):
 
     center: torch.Tensor
     reading: torch.Tensor
+    tail_signs: torch.Tensor
+    decoder_norms: torch.Tensor
 
     def __init__(self, snapshot: dict[str, Any], *, device: str, dtype: torch.dtype) -> None:
         super().__init__()
@@ -913,7 +915,7 @@ def _merge_dataset_results(payloads: list[dict[str, Any]], datasets: list[str]) 
             for metric in metric_names
         }
     merged["eval_result_metrics"] = merged_metrics
-    return merged
+    return cast(dict[str, Any], merged)
 
 
 def _average_optional_metric(values: list[Any]) -> float | None:

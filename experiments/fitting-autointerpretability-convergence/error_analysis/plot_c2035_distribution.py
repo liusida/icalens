@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-import json
 import argparse
+import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -13,7 +13,6 @@ import torch
 from safetensors.torch import load_file
 
 from icalens._activation_dataset import ActivationDataset
-
 
 ROOT = Path(__file__).resolve().parent.parent
 RUN = ROOT / "runs/fixed-panel"

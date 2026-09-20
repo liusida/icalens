@@ -73,8 +73,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         choices=("none", "l2", "geometric-median-l2"),
         default="none",
         help=(
-            "Activation transform before standard FastICA centering and whitening "
-            "(default: none)."
+            "Activation transform before standard FastICA centering and whitening (default: none)."
         ),
     )
     parser.add_argument(

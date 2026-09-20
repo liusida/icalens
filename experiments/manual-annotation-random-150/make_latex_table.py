@@ -53,7 +53,11 @@ def validate(annotations: object) -> None:
             if not isinstance(row.get("label"), str) or not row["label"].strip():
                 raise ValueError(f"{model} annotation has an empty label")
             confidence = row.get("confidence")
-            if isinstance(confidence, bool) or not isinstance(confidence, int) or confidence not in range(6):
+            if (
+                isinstance(confidence, bool)
+                or not isinstance(confidence, int)
+                or confidence not in range(6)
+            ):
                 raise ValueError(f"{model} annotation has an invalid confidence")
 
 
@@ -75,7 +79,7 @@ def render(annotations: list[dict[str, object]]) -> str:
 
 
 def latex_escape(value: str) -> str:
-    value = value.translate(str.maketrans({"’": "'", "“": '``', "”": "''", "–": "--"}))
+    value = value.translate(str.maketrans({"’": "'", "“": "``", "”": "''", "–": "--"}))
     replacements = {
         "\\": r"\textbackslash{}",
         "&": r"\&",

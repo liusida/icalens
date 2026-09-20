@@ -36,9 +36,7 @@ from ._saebench_environment import (
 )
 from ._source_provenance import source_provenance, warn_if_dirty
 
-DEFAULT_ACTIVATION_CACHE_ROOT = Path(
-    "~/Expansion/research/ICA-data/sparse-probing"
-).expanduser()
+DEFAULT_ACTIVATION_CACHE_ROOT = Path("~/Expansion/research/ICA-data/sparse-probing").expanduser()
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -90,6 +88,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     source = source_provenance()
     warn_if_dirty(source)
     lens = ICALens.from_pretrained(args.lens)
+    hidden_size = lens.hidden_size
+    if hidden_size is None:
+        raise ValueError("lens manifest does not record hidden_size")
     layers = _parse_layers(args.layers, lens.available_layers)
     backend = resolve_backend(lens.model_id)
     settings = _load_preset(args.preset)
@@ -97,7 +98,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         settings["k_values"] = _parse_k_values(args.k_values)
     baselines = _resolve_baselines(lens.model_id, args.baselines)
     input_protocol = _evaluation_input_protocol(lens._get_profile(lens._get_layer(layers[0])))
-    cache_estimate = _estimate_activation_cache_bytes(settings, lens.hidden_size)
+    cache_estimate = _estimate_activation_cache_bytes(settings, hidden_size)
     resolved: dict[str, Any] = {
         "experiment": "saebench-sparse-probing",
         "experiment_schema_version": 4,
@@ -177,7 +178,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         _check_activation_cache_space(
             activation_cache_dir,
             settings=settings,
-            hidden_size=lens.hidden_size,
+            hidden_size=hidden_size,
             layers_at_once=len(pending_layers),
             allow_low_disk=bool(args.allow_low_disk),
         )

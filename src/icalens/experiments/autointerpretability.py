@@ -584,9 +584,7 @@ def _evaluate_parser() -> argparse.ArgumentParser:
         default=None,
         help="Evaluate one zero-based position in each layer's accepted feature cohort.",
     )
-    parser.add_argument(
-        "--provider", choices=("tinker", "openai"), default="tinker"
-    )
+    parser.add_argument("--provider", choices=("tinker", "openai"), default="tinker")
     parser.add_argument("--model", default=None)
     parser.add_argument("--explainer-model", default=None)
     parser.add_argument("--simulator-model", default=None)
@@ -652,6 +650,8 @@ def _read_json_object(path: Path) -> dict[str, Any] | None:
 
 def _selected_records(selection: dict[str, Any], args: argparse.Namespace) -> list[dict[str, Any]]:
     accepted = selection["accepted"]
+    if not isinstance(accepted, list) or not all(isinstance(row, dict) for row in accepted):
+        raise ValueError("selection accepted records must be a list of objects")
     if args.feature_position is not None:
         position = int(args.feature_position)
         if position >= len(accepted):
@@ -660,7 +660,7 @@ def _selected_records(selection: dict[str, Any], args: argparse.Namespace) -> li
                 f"the cohort contains {len(accepted)} features"
             )
         return [accepted[position]]
-    return accepted[: args.n_features] if args.n_features else accepted
+    return cast(list[dict[str, Any]], accepted[: args.n_features] if args.n_features else accepted)
 
 
 def _modern_simulator_messages(explanation: str, tokens: Sequence[str]) -> list[dict[str, str]]:
@@ -788,8 +788,7 @@ async def _evaluate_openai_main(args: argparse.Namespace) -> None:
             selected = _selected_records(selection, args)
             tasks.extend((layer, method, record) for record in selected)
     simulation_count = sum(
-        len(record["valid_top"]) + len(record["valid_random"])
-        for _, _, record in tasks
+        len(record["valid_top"]) + len(record["valid_random"]) for _, _, record in tasks
     )
     print(f"{len(tasks)} features; {len(tasks)} explanations; {simulation_count} simulations")
     if args.dry_run:
@@ -1140,10 +1139,7 @@ def _tinker_label_spans(raw: str) -> list[tuple[int, int]]:
             if len(numbers) == 2 * FRAGMENT_LENGTH:
                 indices = [int(item.group()) for item in numbers[::2]]
                 if indices == list(range(FRAGMENT_LENGTH)):
-                    return [
-                        (start + item.start(), start + item.end())
-                        for item in numbers[1::2]
-                    ]
+                    return [(start + item.start(), start + item.end()) for item in numbers[1::2]]
     detail = ", ".join(details) if details else "no activations object or array found"
     raise ValueError(f"expected labels 0..63 or an exact 64-value array; got {detail}")
 
@@ -1246,8 +1242,7 @@ def _evaluate_tinker_main(args: argparse.Namespace) -> None:
             selected = _selected_records(selection, args)
             tasks.extend((layer, method, record) for record in selected)
     simulation_count = sum(
-        len(record["valid_top"]) + len(record["valid_random"])
-        for _, _, record in tasks
+        len(record["valid_top"]) + len(record["valid_random"]) for _, _, record in tasks
     )
     print(
         f"{len(tasks)} features; {len(tasks)} explanations; "
@@ -1268,9 +1263,7 @@ def _evaluate_tinker_main(args: argparse.Namespace) -> None:
     run = ResumableRun.open(output=output, resolved=resolved, source=source, status="evaluating")
     prompt_identity = {
         "version": (
-            "cunningham-tinker-v1"
-            if args.sampling_seed is None
-            else "cunningham-tinker-seeded-v1"
+            "cunningham-tinker-v1" if args.sampling_seed is None else "cunningham-tinker-seeded-v1"
         ),
         "explanation": explanation_messages(
             [["x"] * FRAGMENT_LENGTH] * EXAMPLES_PER_SPLIT,
@@ -1280,9 +1273,7 @@ def _evaluate_tinker_main(args: argparse.Namespace) -> None:
     }
     if args.sampling_seed is not None:
         prompt_identity["sampling_seed"] = args.sampling_seed
-    prompt_hash = hashlib.sha256(
-        json.dumps(prompt_identity, sort_keys=True).encode()
-    ).hexdigest()
+    prompt_hash = hashlib.sha256(json.dumps(prompt_identity, sort_keys=True).encode()).hexdigest()
     evaluation = {
         "provider": "tinker",
         "explainer_model": args.explainer_model,
@@ -1496,7 +1487,7 @@ def _evaluate_tinker_feature(
             },
         )
         display.advance(refresh=True)
-        return predicted
+        return cast(np.ndarray[Any, Any], predicted)
 
     with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
         predicted = np.stack(list(executor.map(simulate, enumerate(validation))))

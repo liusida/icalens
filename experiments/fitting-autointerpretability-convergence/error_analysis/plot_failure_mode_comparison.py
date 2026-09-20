@@ -14,7 +14,6 @@ from safetensors.torch import load_file
 
 from icalens._activation_dataset import ActivationDataset
 
-
 ROOT = Path(__file__).resolve().parent.parent
 RUN = ROOT / "runs/fixed-panel"
 RESULTS = ROOT / "results"

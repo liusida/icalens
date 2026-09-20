@@ -12,7 +12,8 @@ import torch
 from icalens import ICALens
 from icalens._activation_dataset import ActivationDataset
 
-from .fit_text import log, peak_rss_gib, set_cuda_memory_limit
+from ._status import log
+from .fit_text import peak_rss_gib, set_cuda_memory_limit
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

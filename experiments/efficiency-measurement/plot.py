@@ -10,7 +10,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-
 HERE = Path(__file__).resolve().parent
 MODELS = ("gpt2", "gemma2", "qwen9b")
 METHODS = ("ica", "sae")

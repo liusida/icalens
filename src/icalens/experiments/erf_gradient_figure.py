@@ -81,7 +81,7 @@ def render(
 
     basis_sizes = _basis_sizes(labels, run)
     panel_widths = [len(run["resolved"]["lenses"][label]["layers"]) for label in labels]
-    with plt.rc_context(_paper_style()):
+    with plt.rc_context(_paper_style()):  # type: ignore[arg-type]
         figure, axes = plt.subplots(
             1,
             len(labels),
@@ -215,7 +215,7 @@ def _basis_sizes(labels: list[str], run: dict[str, Any]) -> list[int]:
     }
     sizes = [known.get(run["resolved"]["lenses"][label]["model"]["repo_id"]) for label in labels]
     if all(size is not None for size in sizes):
-        return [int(size) for size in sizes]
+        return [int(size) for size in sizes if size is not None]
     return [1] * len(labels)
 
 

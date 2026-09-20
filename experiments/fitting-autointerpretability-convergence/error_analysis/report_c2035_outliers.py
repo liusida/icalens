@@ -14,7 +14,6 @@ from transformers import AutoTokenizer
 
 from icalens._activation_dataset import ActivationDataset
 
-
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS = ROOT / "results"
 ACTIVATIONS = Path(

@@ -19,8 +19,7 @@ def plot_fitting_curves(
         import matplotlib.pyplot as plt
     except ImportError as error:  # pragma: no cover - protected by the package dependency
         raise ImportError(
-            "plot_fitting_curve() requires matplotlib; install it with "
-            "'pip install matplotlib'"
+            "plot_fitting_curve() requires matplotlib; install it with 'pip install matplotlib'"
         ) from error
 
     column_count = min(columns if columns is not None else 2, len(layers))

@@ -374,9 +374,7 @@ def _load_prepared_run(
     return resolved, selections, prepared_inputs
 
 
-def _validate_lens_fingerprints(
-    resolved: dict[str, Any], lens_specs: dict[str, Path]
-) -> None:
+def _validate_lens_fingerprints(resolved: dict[str, Any], lens_specs: dict[str, Path]) -> None:
     """Reject prepared inputs whose Lens manifest or profiles have changed."""
     identities = resolved.get("lenses")
     if not isinstance(identities, dict):
@@ -496,7 +494,7 @@ def _component_checkpoint_valid(
     )
 
 
-def _load_model(lens: ICALens, *, device: str) -> torch.nn.Module:
+def _load_model(lens: Any, *, device: str) -> torch.nn.Module:
     if device.startswith("cuda"):
         model = load_model_to_cuda(
             AutoModelForCausalLM,
@@ -508,9 +506,11 @@ def _load_model(lens: ICALens, *, device: str) -> torch.nn.Module:
             low_cpu_mem_usage=True,
         )
     else:
-        model = AutoModelForCausalLM.from_pretrained(
-            lens.model_id, revision=lens.model_revision, trust_remote_code=True
-        ).to(device)
+        model = (
+            cast(Any, AutoModelForCausalLM)
+            .from_pretrained(lens.model_id, revision=lens.model_revision, trust_remote_code=True)
+            .to(device)
+        )
     model.eval()
     return cast(torch.nn.Module, model)
 
@@ -646,7 +646,10 @@ def _measure_batch(
     for row, ids in enumerate(sequences):
         input_ids[row, : len(ids)] = torch.tensor(ids, dtype=torch.long, device=device)
         attention_mask[row, : len(ids)] = 1
-    embeddings = model.get_input_embeddings()(input_ids).detach().requires_grad_(True)
+    embedding_layer = cast(torch.nn.Module, cast(Any, model).get_input_embeddings())
+    embeddings = (
+        cast(torch.Tensor, embedding_layer.forward(input_ids)).detach().requires_grad_(True)
+    )
     captured: dict[str, torch.Tensor] = {}
 
     def hook(_: torch.nn.Module, __: tuple[Any, ...], output: Any) -> None:

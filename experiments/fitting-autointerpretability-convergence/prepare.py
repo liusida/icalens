@@ -15,6 +15,8 @@ import numpy as np
 import torch
 from gb10_load_llm import load_model_to_cuda  # type: ignore[import-untyped]
 from safetensors.torch import load_file
+from select_cohort import LAYERS, checkpoint_path, validate_trajectory
+from trajectory import parse_layers
 from transformers import AutoModelForCausalLM
 
 from icalens._activation_dataset import ActivationDataset
@@ -24,9 +26,6 @@ from icalens.experiments._display import ExperimentDisplay
 from icalens.experiments._run import ResumableRun, atomic_write_json
 from icalens.experiments._source_provenance import source_provenance, warn_if_dirty
 from icalens.experiments.autointerpretability_protocol import FRAGMENT_LENGTH, select_record_indices
-
-from select_cohort import LAYERS, checkpoint_path, validate_trajectory
-from trajectory import parse_layers
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_TRAJECTORY = ROOT / "runs/trajectory"

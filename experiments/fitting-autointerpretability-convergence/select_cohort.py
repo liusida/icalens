@@ -10,9 +10,9 @@ from pathlib import Path
 import numpy as np
 import torch
 from safetensors.torch import load_file
+from trajectory import parse_layers
 
 from icalens.experiments._run import atomic_write_json
-from trajectory import parse_layers
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_TRAJECTORY = ROOT / "runs/trajectory"

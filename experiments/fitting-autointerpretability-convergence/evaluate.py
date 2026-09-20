@@ -9,13 +9,13 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from prepare import DEFAULT_OUTPUT, EVALUATED_CHECKPOINTS, LAYERS
+from trajectory import parse_layers
+
 from icalens.cli._status import log
 from icalens.experiments._display import ExperimentDisplay
 from icalens.experiments._run import ResumableRun
 from icalens.experiments._source_provenance import source_provenance, warn_if_dirty
-
-from prepare import DEFAULT_OUTPUT, EVALUATED_CHECKPOINTS, LAYERS
-from trajectory import parse_layers
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_EVALUATIONS = ROOT / "runs/evaluated"

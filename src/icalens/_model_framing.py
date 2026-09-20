@@ -13,9 +13,7 @@ from pathlib import Path
 from typing import Any
 
 REGISTRY_FILENAME = "model_framing.json"
-REGISTRY_URL = (
-    "https://raw.githubusercontent.com/liusida/icalens/main/model_framing.json"
-)
+REGISTRY_URL = "https://raw.githubusercontent.com/liusida/icalens/main/model_framing.json"
 MAX_REGISTRY_BYTES = 1_000_000
 
 
@@ -49,17 +47,13 @@ def resolve_framing_policy(
 
     bundled, bundled_raw, bundled_source = _load_bundled_registry()
     if model_id in bundled["models"]:
-        return _policy_from_registry(
-            model_id, bundled, bundled_raw, bundled_source
-        )
+        return _policy_from_registry(model_id, bundled, bundled_raw, bundled_source)
 
     cached = _read_registry_file(cache_path)
     if cached is not None:
         registry, raw = cached
         if model_id in registry["models"]:
-            return _policy_from_registry(
-                model_id, registry, raw, f"cache:{REGISTRY_FILENAME}"
-            )
+            return _policy_from_registry(model_id, registry, raw, f"cache:{REGISTRY_FILENAME}")
 
     try:
         registry, raw = _download_registry()
@@ -113,9 +107,7 @@ def _read_registry_file(path: Path) -> tuple[dict[str, Any], bytes] | None:
 
 def _write_cache(path: Path, raw: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    file_descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", dir=path.parent
-    )
+    file_descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(temporary_name)
     try:
         with os.fdopen(file_descriptor, "wb") as handle:

@@ -32,9 +32,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("experiment", nargs="+", help="Evaluation result directories.")
     parser.add_argument("--output", type=Path, default=None)
-    parser.add_argument(
-        "--format", default="png,pdf", help="Comma-separated formats: png,pdf."
-    )
+    parser.add_argument("--format", default="png,pdf", help="Comma-separated formats: png,pdf.")
     parser.add_argument("--panel-titles", default=None)
     parser.add_argument("--force", action="store_true")
     return parser.parse_args(argv)
@@ -87,7 +85,7 @@ def render(
     lower, upper = _shared_limits(all_scores) if single_layer else (0.0, 1.0)
     width = 3.35 if len(panels) == 1 else 6.9
     height = 2.65 if single_layer else 2.85
-    with plt.rc_context(_paper_style()):
+    with plt.rc_context(_paper_style()):  # type: ignore[arg-type]
         figure, axes = plt.subplots(
             1, len(panels), figsize=(width, height), sharey=True, squeeze=False
         )
@@ -123,9 +121,7 @@ def render(
             )
             for method in METHODS
             if any(
-                row["method"] == method and row["scores"].size
-                for panel in panels
-                for row in panel
+                row["method"] == method and row["scores"].size for panel in panels for row in panel
             )
         ]
         if handles:
@@ -320,9 +316,7 @@ def _merge_model_payloads(payloads: Sequence[dict[str, Any]]) -> list[dict[str, 
     """Combine compatible layer runs into one panel per underlying language model."""
     grouped: dict[str, list[dict[str, Any]]] = {}
     for payload in payloads:
-        model = str(
-            payload["run"]["resolved"]["preparation_resolved"]["model"]["repo_id"]
-        )
+        model = str(payload["run"]["resolved"]["preparation_resolved"]["model"]["repo_id"])
         grouped.setdefault(model, []).append(payload)
 
     merged: list[dict[str, Any]] = []
@@ -407,9 +401,7 @@ def _companion(
     ]
     if single_layer:
         lines.insert(4, "Faint markers show individual features in this single-layer view.")
-    for index, (payload, title, rows) in enumerate(
-        zip(payloads, titles, panels, strict=True)
-    ):
+    for index, (payload, title, rows) in enumerate(zip(payloads, titles, panels, strict=True)):
         evaluation = payload["run"].get("evaluation", {})
         lines.append(
             f"# {title}: {evaluation.get('provider', 'unknown')} · "

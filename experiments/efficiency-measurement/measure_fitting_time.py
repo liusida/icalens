@@ -17,7 +17,6 @@ from icalens.experiments._display import ExperimentDisplay
 from icalens.experiments._run import ResumableRun, atomic_write_json
 from icalens.experiments._source_provenance import source_provenance, warn_if_dirty
 
-
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 ACTIVATION_ROOT = Path("/home/liusida/Expansion/research/ICA-data/icalens-activations")
@@ -100,8 +99,14 @@ def main() -> None:
     completed: set[str] = set()
     for model, layer in units:
         unit = f"{model}-layer{layer}"
-        identity = {"model": model, "layer": layer, **resolved_models[model],
-                    "preprocessing": "none", "max_iter": args.max_iter, "seed": args.seed}
+        identity = {
+            "model": model,
+            "layer": layer,
+            **resolved_models[model],
+            "preprocessing": "none",
+            "max_iter": args.max_iter,
+            "seed": args.seed,
+        }
         if valid_result(output / f"{unit}.json", identity):
             completed.add(unit)
 
@@ -124,37 +129,59 @@ def main() -> None:
             spec = resolved_models[model]
             lens_output = output / "lenses" / unit
             command = [
-                executable, "fit", "activations",
-                "--input", spec["input"],
-                "--layers", str(layer),
-                "--output", str(lens_output),
-                "--icalens-preprocessing", "none",
-                "--max-iter", str(args.max_iter),
-                "--fit-batch-size", str(spec["fit_batch_size"]),
-                "--seed", str(args.seed),
+                executable,
+                "fit",
+                "activations",
+                "--input",
+                spec["input"],
+                "--layers",
+                str(layer),
+                "--output",
+                str(lens_output),
+                "--icalens-preprocessing",
+                "none",
+                "--max-iter",
+                str(args.max_iter),
+                "--fit-batch-size",
+                str(spec["fit_batch_size"]),
+                "--seed",
+                str(args.seed),
             ]
             display.phase("Fitting one complete ICA layer", model=model, layer=layer)
             unit_log = output / "logs" / f"{unit}.log"
             started = time.perf_counter()
             with unit_log.open("w", encoding="utf-8") as handle:
-                process = subprocess.run(command, stdout=handle, stderr=subprocess.STDOUT, text=True)
+                process = subprocess.run(
+                    command, stdout=handle, stderr=subprocess.STDOUT, text=True
+                )
             elapsed = time.perf_counter() - started
             if process.returncode != 0:
                 raise RuntimeError(f"{unit} failed; see {unit_log}")
             lens = ICALens.from_pretrained(lens_output)
             if tuple(lens.available_layers) != (layer,):
-                raise ValueError(f"unexpected fitted layers in {lens_output}: {lens.available_layers}")
-            identity = {"model": model, "layer": layer, **spec,
-                        "preprocessing": "none", "max_iter": args.max_iter, "seed": args.seed}
+                raise ValueError(
+                    f"unexpected fitted layers in {lens_output}: {lens.available_layers}"
+                )
+            identity = {
+                "model": model,
+                "layer": layer,
+                **spec,
+                "preprocessing": "none",
+                "max_iter": args.max_iter,
+                "seed": args.seed,
+            }
             result_path = output / f"{unit}.json"
-            atomic_write_json(result_path, {
-                "identity": identity,
-                "status": "complete",
-                "elapsed_seconds": elapsed,
-                "lens_output": str(lens_output),
-                "command": command,
-                "log": str(unit_log),
-            })
+            atomic_write_json(
+                result_path,
+                {
+                    "identity": identity,
+                    "status": "complete",
+                    "elapsed_seconds": elapsed,
+                    "lens_output": str(lens_output),
+                    "command": command,
+                    "log": str(unit_log),
+                },
+            )
             if not valid_result(result_path, identity):
                 raise ValueError(f"new timing failed validation: {result_path}")
             log(f"{unit}: {elapsed / 60:.2f} minutes.")

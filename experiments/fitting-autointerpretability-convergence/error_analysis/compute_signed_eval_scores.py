@@ -23,7 +23,6 @@ from icalens.experiments._source_provenance import source_provenance, warn_if_di
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from prepare import MODEL_ID, MODEL_REVISION, aligned_directions, read_fragments
 
-
 ROOT = Path(__file__).resolve().parent.parent
 RUN = ROOT / "runs/fixed-panel"
 FRAGMENTS = ROOT.parent / "autointerpretability/runs/qwen3.5-9b/fragments.jsonl"
@@ -64,7 +63,9 @@ def main() -> None:
         aligned, center = aligned_directions(RUN / "trajectory", layer, row_ids, args.device)
         signs = torch.tensor(tails["layers"][str(layer)]["tail_sign"], device=args.device)
         requested = [component for candidate_layer, component in CASES if candidate_layer == layer]
-        positions = torch.tensor([row_ids.index(component) for component in requested], device=args.device)
+        positions = torch.tensor(
+            [row_ids.index(component) for component in requested], device=args.device
+        )
         directions[layer] = (aligned[ITERATION] * signs[:, None]).index_select(0, positions)
         centers[layer] = center
 
@@ -122,6 +123,7 @@ def main() -> None:
         handles: list[Any] = []
         blocks = transformer_blocks(model)
         for layer in directions:
+
             def hook(_module: Any, _inputs: Any, value: Any, layer: int = layer) -> None:
                 captured[layer] = (value[0] if isinstance(value, tuple) else value).detach()
 
@@ -137,7 +139,11 @@ def main() -> None:
                 )
                 captured.clear()
                 with torch.inference_mode():
-                    model(input_ids=input_ids, attention_mask=torch.ones_like(input_ids), use_cache=False)
+                    model(
+                        input_ids=input_ids,
+                        attention_mask=torch.ones_like(input_ids),
+                        use_cache=False,
+                    )
                 column = 0
                 for layer in sorted(directions):
                     hidden = captured[layer].to(torch.float32) - centers[layer]

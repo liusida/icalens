@@ -15,7 +15,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from icalens._capture import transformer_blocks
 
-
 ROOT = Path(__file__).resolve().parent.parent
 RUN = ROOT / "runs/fixed-panel"
 TRAJECTORY = RUN / "trajectory"
@@ -45,14 +44,10 @@ PROMPTS = [
 
 def main() -> None:
     shared = load_file(TRAJECTORY / "shared/layer-31.safetensors")
-    checkpoint = load_file(
-        TRAJECTORY / "checkpoints/layer-31/iter-000.safetensors"
-    )
+    checkpoint = load_file(TRAJECTORY / "checkpoints/layer-31/iter-000.safetensors")
     center = shared["center"].to(device="cuda", dtype=torch.float32)
     whitening = shared["whitening"].to(device="cuda", dtype=torch.float32)
-    unmixing = checkpoint["unmixing"][COMPONENT].to(
-        device="cuda", dtype=torch.float32
-    )
+    unmixing = checkpoint["unmixing"][COMPONENT].to(device="cuda", dtype=torch.float32)
     reading = unmixing @ whitening
 
     cohort = json.loads((RUN / "cohort.json").read_text(encoding="utf-8"))
@@ -79,9 +74,7 @@ def main() -> None:
     captured: dict[str, torch.Tensor] = {}
 
     def hook(_module: Any, _args: Any, output: Any) -> None:
-        captured["hidden"] = (
-            output[0] if isinstance(output, tuple) else output
-        ).detach()
+        captured["hidden"] = (output[0] if isinstance(output, tuple) else output).detach()
 
     handle = transformer_blocks(model)[LAYER].register_forward_hook(hook)
     records = []
@@ -113,7 +106,14 @@ def main() -> None:
                     "activation": float(active),
                 }
                 for position, (token_id, token, text, raw, active) in enumerate(
-                    zip(token_ids, tokens, decoded, signed.tolist(), activation.tolist())
+                    zip(
+                        token_ids,
+                        tokens,
+                        decoded,
+                        signed.tolist(),
+                        activation.tolist(),
+                        strict=True,
+                    )
                 )
             ]
             records.append({"case": case, "prompt": prompt, "tokens": token_rows})

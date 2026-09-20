@@ -660,6 +660,7 @@ def _recover_cached_records(
     dataset_id, dataset_revision = _replay_dataset_source(source)
     candidate_tokens = int(provenance["candidate_tokens"])
     context_length = int(provenance["context_length"])
+    documents: Any
     if lens.model_type == "instruct":
         documents = load_chat_documents(
             tokenizer,

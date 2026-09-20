@@ -67,7 +67,9 @@ class _TopScoreOccurrences:
         self, record_for_row: Any, rank_for: Any | None = None
     ) -> list[dict[str, list[tuple[float, int, dict[str, Any]]]]]:
         n_components = int(self.priority.shape[1])
-        examples = [{"positive": [], "negative": []} for _ in range(n_components)]
+        examples: list[dict[str, list[tuple[float, int, dict[str, Any]]]]] = [
+            {"positive": [], "negative": []} for _ in range(n_components)
+        ]
         serial = 0
         for component in range(n_components):
             sign = self.directions[component]
@@ -242,7 +244,9 @@ def profile_components(
         source_count += 1
         iterator.set_postfix(tokens=token_count)
 
-    empty_examples = [{"positive": [], "negative": []} for _ in range(n_components)]
+    empty_examples: list[dict[str, list[Any]]] = [
+        {"positive": [], "negative": []} for _ in range(n_components)
+    ]
     profile = _finish_profile(
         lens,
         artifact,
@@ -337,7 +341,9 @@ def profile_components_from_activations(
     from .analysis import _resolve_model_and_tokenizer
 
     _resolve_model_and_tokenizer(lens, None, None, device)
-    empty_examples = [{"positive": [], "negative": []} for _ in range(n_components)]
+    empty_examples: list[dict[str, list[Any]]] = [
+        {"positive": [], "negative": []} for _ in range(n_components)
+    ]
     _finish_profile(
         lens,
         artifact,
@@ -563,7 +569,7 @@ def _apply_selected_examples(
     selection["example_absolute_score_rank"] = "competition_rank_by_absolute_score"
     profile["example_provenance"] = provenance
     artifact.profile = profile
-    return cast(dict[str, Any], profile)
+    return profile
 
 
 def refresh_profile_example_ranks_from_activations(

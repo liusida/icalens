@@ -92,8 +92,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         choices=("none", "l2", "geometric-median-l2"),
         default="none",
         help=(
-            "Activation transform before standard FastICA centering and whitening "
-            "(default: none)."
+            "Activation transform before standard FastICA centering and whitening (default: none)."
         ),
     )
     parser.add_argument(
@@ -323,8 +322,7 @@ def load_pile_documents(
             loader = "parquet"
         else:
             raise ValueError(
-                "local text datasets must be JSONL, JSON, or Parquet files: "
-                f"{local_path}"
+                f"local text datasets must be JSONL, JSON, or Parquet files: {local_path}"
             )
         dataset = load_dataset(
             loader,
@@ -335,9 +333,7 @@ def load_pile_documents(
     else:
         dataset = load_dataset(dataset_id, split=split, revision=dataset_revision, streaming=True)
     framing = document_framing or {"strategy": "none", "token_id": None}
-    prefix_ids = (
-        [] if framing["strategy"] == "none" else [int(framing["token_id"])]
-    )
+    prefix_ids = [] if framing["strategy"] == "none" else [int(framing["token_id"])]
     content_limit = context_length - len(prefix_ids)
     if content_limit <= 0:
         raise ValueError("--context-length must leave room for document framing")
@@ -509,9 +505,7 @@ def resolve_document_framing(
     token = getattr(tokenizer, f"{token_kind}_token", None)
     token_id = getattr(tokenizer, f"{token_kind}_token_id", None)
     if token is None or token_id is None:
-        raise ValueError(
-            f"--document-framing {strategy} requires tokenizer.{token_kind}_token"
-        )
+        raise ValueError(f"--document-framing {strategy} requires tokenizer.{token_kind}_token")
     if policy is not None and str(token) != policy.entry["expected_token"]:
         raise ValueError(
             f"The registry expects {policy.entry['expected_token']!r} for {model_id}, "

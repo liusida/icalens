@@ -16,7 +16,7 @@ from typing import Any, cast
 import numpy as np
 import torch
 import torch.nn.functional as F
-from datasets import load_dataset
+from datasets import load_dataset  # type: ignore[import-untyped]
 from gb10_load_llm import load_model_to_cuda  # type: ignore[import-untyped]
 from huggingface_hub import HfApi, hf_hub_download
 from safetensors.torch import load_file, save_file
@@ -50,14 +50,10 @@ passed directly. Run a subcommand with --help for its options.
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="icalens experiment reconstruction", description=__doc__
-    )
+    parser = argparse.ArgumentParser(prog="icalens experiment reconstruction", description=__doc__)
     parser.add_argument("--lens", required=True, help="Local ICA Lens path or Hugging Face repo.")
     parser.add_argument("--layers", required=True, help="Comma-separated layers, or 'all'.")
-    parser.add_argument(
-        "--preset", choices=("smoke", "paper", "pile10k"), default="smoke"
-    )
+    parser.add_argument("--preset", choices=("smoke", "paper", "pile10k"), default="smoke")
     parser.add_argument(
         "--baselines", default="all", help="Comparison baselines: sae,pca,random,all."
     )
@@ -244,11 +240,13 @@ def _load_model(lens: ICALens, *, device: str) -> torch.nn.Module:
             low_cpu_mem_usage=True,
         )
     else:
-        model = AutoModelForCausalLM.from_pretrained(
-            lens.model_id, revision=lens.model_revision
-        ).to(device)
+        model = (
+            cast(Any, AutoModelForCausalLM)
+            .from_pretrained(lens.model_id, revision=lens.model_revision)
+            .to(device)
+        )
     model.eval()
-    return model
+    return cast(torch.nn.Module, model)
 
 
 CAPTURE_SUITE_MANIFEST = "reconstruction-activations.json"
@@ -280,8 +278,11 @@ def capture_main(argv: Sequence[str] | None = None) -> None:
         "icalens_version": __version__,
         "icalens_source": source,
         "lens": str(args.lens),
-        "model": {"repo_id": lens.model_id, "revision": lens.model_revision,
-                  "type": lens.model_type},
+        "model": {
+            "repo_id": lens.model_id,
+            "revision": lens.model_revision,
+            "type": lens.model_type,
+        },
         "activation_site": lens.activation_site,
         "layer_indexing": lens.layer_indexing,
         "layers": layers,
@@ -307,9 +308,7 @@ def capture_main(argv: Sequence[str] | None = None) -> None:
         item_label="Layer",
         items_label="Layers",
         recent_label="Recent capture output",
-        detail_filename=(
-            time.strftime("%Y%m%d-%H%M%S") + "-reconstruction-activation-capture.log"
-        ),
+        detail_filename=(time.strftime("%Y%m%d-%H%M%S") + "-reconstruction-activation-capture.log"),
         source_dirty=bool(source.get("dirty")),
     )
     with display:
@@ -322,15 +321,20 @@ def capture_main(argv: Sequence[str] | None = None) -> None:
             for dataset_path in stored["dataset_directories"]:
                 if not _complete_activation_dataset(output / dataset_path, layers):
                     raise ValueError(
-                        "completed capture suite contains an incomplete dataset: "
-                        f"{dataset_path}"
+                        f"completed capture suite contains an incomplete dataset: {dataset_path}"
                     )
             log(f"Reconstruction activation suite already complete: {output}")
         else:
             _capture_pending_datasets(
-                args=args, lens=lens, layers=layers, settings=settings,
-                group_size=group_size, datasets=datasets, resolved=resolved,
-                output=output, display=display,
+                args=args,
+                lens=lens,
+                layers=layers,
+                settings=settings,
+                group_size=group_size,
+                datasets=datasets,
+                resolved=resolved,
+                output=output,
+                display=display,
             )
     if stored.get("status") == "complete":
         return
@@ -340,8 +344,15 @@ def capture_main(argv: Sequence[str] | None = None) -> None:
 
 
 def _capture_pending_datasets(
-    *, args: argparse.Namespace, lens: ICALens, layers: list[int], settings: dict[str, Any],
-    group_size: int, datasets: list[dict[str, Any]], resolved: dict[str, Any], output: Path,
+    *,
+    args: argparse.Namespace,
+    lens: ICALens,
+    layers: list[int],
+    settings: dict[str, Any],
+    group_size: int,
+    datasets: list[dict[str, Any]],
+    resolved: dict[str, Any],
+    output: Path,
     display: _BenchmarkDisplay,
 ) -> None:
     tokenizer = AutoTokenizer.from_pretrained(
@@ -530,7 +541,8 @@ def measure_main(argv: Sequence[str] | None = None) -> None:
                     result_path = _dataset_result_path(output, layer, dataset_index)
                     labels = [f"L{layer}/{method}" for method in method_names]
                     completed_labels = {
-                        f"L{layer}/{method}" for method in method_names
+                        f"L{layer}/{method}"
+                        for method in method_names
                         if result_path.is_file()
                         or _method_result_path(output, layer, dataset_index, method).is_file()
                     }
@@ -548,9 +560,7 @@ def measure_main(argv: Sequence[str] | None = None) -> None:
                         continue
                     activations = activation_dataset.layer(layer)
                     evaluated_activations = (
-                        activations
-                        if evaluation_mask is None
-                        else activations[evaluation_mask]
+                        activations if evaluation_mask is None else activations[evaluation_mask]
                     )
                     evaluated_positions = (
                         positions if evaluation_mask is None else positions[evaluation_mask]
@@ -574,20 +584,26 @@ def measure_main(argv: Sequence[str] | None = None) -> None:
                         )
                         _write_json_atomic(method_path, result)
                         log(
-                            f"Checkpointed dataset {dataset_index}, layer {layer}, "
-                            f"method {method}."
+                            f"Checkpointed dataset {dataset_index}, layer {layer}, method {method}."
                         )
                         del result
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
                     result = _merge_method_results(
-                        output, layer=layer, dataset_index=dataset_index,
-                        methods=method_names, dataset=datasets[dataset_index],
+                        output,
+                        layer=layer,
+                        dataset_index=dataset_index,
+                        methods=method_names,
+                        dataset=datasets[dataset_index],
                     )
                     _write_json_atomic(result_path, result)
                     _finalize_layer_if_complete(
-                        output=output, layer=layer, datasets=datasets, resolved=resolved,
-                        run=run, run_path=run_path,
+                        output=output,
+                        layer=layer,
+                        datasets=datasets,
+                        resolved=resolved,
+                        run=run,
+                        run_path=run_path,
                     )
         _finish(output, run_path, run, resolved, layers)
         log(f"Reconstruction measurement complete: {output}")
@@ -611,9 +627,7 @@ def _capture_suite_identity(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if key not in {"status", "icalens_source"}}
 
 
-def _validate_or_create_capture_suite(
-    path: Path, requested: dict[str, Any]
-) -> dict[str, Any]:
+def _validate_or_create_capture_suite(path: Path, requested: dict[str, Any]) -> dict[str, Any]:
     if path.is_file():
         existing = json.loads(path.read_text(encoding="utf-8"))
         differences = _configuration_differences(
@@ -660,15 +674,14 @@ def _completed_capture_labels(path: Path, layers: Sequence[int]) -> set[str]:
     except (KeyError, TypeError, ValueError, OSError):
         return set()
     return {
-        f"L{layer}" for layer in layers
+        f"L{layer}"
+        for layer in layers
         if isinstance(entries.get(str(layer)), dict)
         and entries[str(layer)].get("status") == "complete"
     }
 
 
-def _completed_capture_units(
-    output: Path, *, dataset_count: int, layers: Sequence[int]
-) -> int:
+def _completed_capture_units(output: Path, *, dataset_count: int, layers: Sequence[int]) -> int:
     return sum(
         len(_completed_capture_labels(output / f"datasets/dataset_{index:02d}", layers))
         for index in range(dataset_count)
@@ -787,9 +800,7 @@ def _run_dataset_first(
                     )
                     _save_activation_cache(cache_dir, activations, samples["position"])
                     del activations, samples
-                for _, layer in display.track_methods(
-                    [(f"L{layer}", layer) for layer in group]
-                ):
+                for _, layer in display.track_methods([(f"L{layer}", layer) for layer in group]):
                     activation_file = _activation_path(cache_dir, layer)
                     tensors = load_file(activation_file)
                     result = _evaluate_layer(
@@ -831,8 +842,12 @@ def _dataset_result_path(output: Path, layer: int, dataset_index: int) -> Path:
 
 def _method_result_path(output: Path, layer: int, dataset_index: int, method: str) -> Path:
     return (
-        output / "checkpoints" / "methods" / f"dataset_{dataset_index:02d}"
-        / f"layer_{layer:02d}" / f"{method}.json"
+        output
+        / "checkpoints"
+        / "methods"
+        / f"dataset_{dataset_index:02d}"
+        / f"layer_{layer:02d}"
+        / f"{method}.json"
     )
 
 
@@ -853,7 +868,11 @@ def _completed_measurement_units(
 
 
 def _merge_method_results(
-    output: Path, *, layer: int, dataset_index: int, methods: Sequence[str],
+    output: Path,
+    *,
+    layer: int,
+    dataset_index: int,
+    methods: Sequence[str],
     dataset: dict[str, Any],
 ) -> dict[str, Any]:
     merged: dict[str, Any] = {"n_tokens": None, "methods": {}, "dataset": dataset}
@@ -929,8 +948,10 @@ def _finalize_layer_if_complete(
 
 def _dataset_texts(config: dict[str, Any]) -> Iterable[str]:
     data_files = config.get("data_files")
-    if config.get("loader") == "parquet" and isinstance(data_files, str) and data_files.startswith(
-        "hf://datasets/"
+    if (
+        config.get("loader") == "parquet"
+        and isinstance(data_files, str)
+        and data_files.startswith("hf://datasets/")
     ):
         # datasets' remote Parquet streaming reader can leave its background
         # range-fetch workers alive after an early stop. Materialize this one
@@ -946,7 +967,7 @@ def _dataset_texts(config: dict[str, Any]) -> Iterable[str]:
             repo_type="dataset",
             revision=config.get("revision"),
         )
-        import pyarrow.parquet as pq
+        import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
         column = str(config.get("text_column", "text"))
         parquet = pq.ParquetFile(local)
@@ -1009,7 +1030,9 @@ def _capture_dataset(
     content_length = context_length - int(prefix_id is not None)
     buffers: dict[int, list[torch.Tensor]] = {layer: [] for layer in layers}
     sample_parts: dict[str, list[torch.Tensor]] = {
-        "document_index": [], "position": [], "token_id": []
+        "document_index": [],
+        "position": [],
+        "token_id": [],
     }
     total = 0
     document_offset = 0
@@ -1114,6 +1137,7 @@ def _capture_batch(
             # evaluator promotes one layer at a time to float32, so storing bf16
             # activations from bf16 models avoids a needless 2x cache/RAM cost.
             captured[layer] = hidden[batch_indices, token_indices].detach()
+
         return hook
 
     blocks = transformer_blocks(model)
@@ -1125,7 +1149,9 @@ def _capture_batch(
                 input_ids=ids.to(device),
                 attention_mask=torch.cat(
                     (torch.ones((mask.shape[0], 1), dtype=torch.bool), mask[:, 1:]), dim=1
-                ).to(device) if prefix_id is not None else mask.to(device),
+                ).to(device)
+                if prefix_id is not None
+                else mask.to(device),
                 use_cache=False,
             )
     finally:
@@ -1151,15 +1177,11 @@ def _evaluate_layer(
     assert artifact.writing_matrix is not None
     target = activations.to(device=device, dtype=torch.float32)
     preprocessing_center = (
-        torch.as_tensor(
-            artifact.preprocessing_center, device=device, dtype=torch.float32
-        )
+        torch.as_tensor(artifact.preprocessing_center, device=device, dtype=torch.float32)
         if artifact.preprocessing_center is not None
         else None
     )
-    centered_target = (
-        target - preprocessing_center if preprocessing_center is not None else target
-    )
+    centered_target = target - preprocessing_center if preprocessing_center is not None else target
     norm = centered_target.norm(dim=-1, keepdim=True)
     work = (
         F.normalize(centered_target, dim=-1, eps=lens.norm_eps)
@@ -1173,16 +1195,30 @@ def _evaluate_layer(
     selected = requested_methods or {"ica", *baselines}
     if "ica" in selected:
         methods["ica"] = _linear_dictionary_metrics_batched(
-            target, work, norm, center, reading, writing.T, k_values,
-            restore_norm=lens.row_normalize, restore_center=preprocessing_center,
+            target,
+            work,
+            norm,
+            center,
+            reading,
+            writing.T,
+            k_values,
+            restore_norm=lens.row_normalize,
+            restore_center=preprocessing_center,
         )
     if "pca" in baselines and "pca" in selected:
         covariance = writing.double() @ writing.double().T
         _, vectors = torch.linalg.eigh(covariance)
         basis = vectors.flip(1).T.float()
         methods["pca"] = _linear_dictionary_metrics_batched(
-            target, work, norm, center, basis, basis, k_values,
-            restore_norm=lens.row_normalize, restore_center=preprocessing_center,
+            target,
+            work,
+            norm,
+            center,
+            basis,
+            basis,
+            k_values,
+            restore_norm=lens.row_normalize,
+            restore_center=preprocessing_center,
         )
     if "random" in baselines and "random" in selected:
         generator = torch.Generator(device=device).manual_seed(
@@ -1193,8 +1229,15 @@ def _evaluate_layer(
         )
         basis = torch.linalg.qr(matrix).Q.T
         methods["random"] = _linear_dictionary_metrics_batched(
-            target, work, norm, center, basis, basis, k_values,
-            restore_norm=lens.row_normalize, restore_center=preprocessing_center,
+            target,
+            work,
+            norm,
+            center,
+            basis,
+            basis,
+            k_values,
+            restore_norm=lens.row_normalize,
+            restore_center=preprocessing_center,
         )
     if "sae" in baselines and "sae" in selected:
         prepared = _prepare_layer_baselines({"sae": baselines["sae"]}, layer=layer)
@@ -1285,10 +1328,7 @@ def _linear_dictionary_metrics_batched(
             entry["cosine"].append(cosine.cpu())
     return {
         "curve": {
-            key: {
-                metric: _summary(torch.cat(parts))
-                for metric, parts in values.items()
-            }
+            key: {metric: _summary(torch.cat(parts)) for metric, parts in values.items()}
             for key, values in collected.items()
         },
         "full_k": int(encoder.shape[0]),
@@ -1341,12 +1381,8 @@ def _sae_metrics_batched(
             actual = min(k, int(codes.shape[-1]))
             indices = contribution.topk(actual, dim=-1).indices
             selected = torch.zeros_like(codes).scatter(1, indices, codes.gather(1, indices))
-            effective_parts.setdefault(str(k), []).append(
-                (selected != 0).sum(dim=-1).float().cpu()
-            )
-            error, cosine = _metric_values(
-                chunk, sae.decode(selected, reference=chunk)
-            )
+            effective_parts.setdefault(str(k), []).append((selected != 0).sum(dim=-1).float().cpu())
+            error, cosine = _metric_values(chunk, sae.decode(selected, reference=chunk))
             entry = collected.setdefault(str(k), {"nmse": [], "cosine": []})
             entry["nmse"].append(error.cpu())
             entry["cosine"].append(cosine.cpu())
@@ -1356,15 +1392,11 @@ def _sae_metrics_batched(
         native["cosine"].append(cosine.cpu())
     return {
         "curve": {
-            key: {
-                metric: _summary(torch.cat(parts))
-                for metric, parts in values.items()
-            }
+            key: {metric: _summary(torch.cat(parts)) for metric, parts in values.items()}
             for key, values in collected.items()
         },
         "effective_k": {
-            key: float(torch.cat(parts).mean().item())
-            for key, parts in effective_parts.items()
+            key: float(torch.cat(parts).mean().item()) for key, parts in effective_parts.items()
         },
         "native_mean_active": float(torch.cat(active_parts).mean().item()),
         "width": int(sae.W_dec.shape[0]),
@@ -1379,9 +1411,9 @@ def _metrics(target: torch.Tensor, reconstructed: torch.Tensor) -> dict[str, Any
 def _metric_values(
     target: torch.Tensor, reconstructed: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    error = (target - reconstructed).square().sum(dim=-1) / target.square().sum(
-        dim=-1
-    ).clamp_min(1e-12)
+    error = (target - reconstructed).square().sum(dim=-1) / target.square().sum(dim=-1).clamp_min(
+        1e-12
+    )
     cosine = F.cosine_similarity(target, reconstructed, dim=-1)
     return error, cosine
 
@@ -1409,18 +1441,22 @@ def _aggregate_layer(layer: int, datasets: list[dict[str, Any]]) -> list[dict[st
             row: dict[str, Any] = {"layer": layer, "method": method, "k": key}
             for metric in ("nmse", "cosine"):
                 for statistic in ("mean", "p10", "median", "p90"):
-                    row[f"{metric}_{statistic}"] = float(np.mean([
-                        item["methods"][method]["curve"][key][metric][statistic]
-                        for item in datasets
-                    ]))
+                    row[f"{metric}_{statistic}"] = float(
+                        np.mean(
+                            [
+                                item["methods"][method]["curve"][key][metric][statistic]
+                                for item in datasets
+                            ]
+                        )
+                    )
             if key == "native":
-                row["effective_k"] = float(np.mean([
-                    item["methods"][method]["native_mean_active"] for item in datasets
-                ]))
+                row["effective_k"] = float(
+                    np.mean([item["methods"][method]["native_mean_active"] for item in datasets])
+                )
             elif method.startswith("sae"):
-                row["effective_k"] = float(np.mean([
-                    item["methods"][method]["effective_k"][key] for item in datasets
-                ]))
+                row["effective_k"] = float(
+                    np.mean([item["methods"][method]["effective_k"][key] for item in datasets])
+                )
             else:
                 row["effective_k"] = int(key)
             rows.append(row)
@@ -1482,9 +1518,7 @@ def _configuration_differences(existing: Any, requested: Any, prefix: str = "") 
             elif key not in requested:
                 differences.append(f"{name}: {existing[key]!r} != missing")
             else:
-                differences.extend(
-                    _configuration_differences(existing[key], requested[key], name)
-                )
+                differences.extend(_configuration_differences(existing[key], requested[key], name))
         return differences
     if existing != requested:
         return [f"{prefix or 'configuration'}: {existing!r} != {requested!r}"]
@@ -1502,9 +1536,7 @@ def _write_json(path: Path, value: Any) -> None:
 def _write_json_atomic(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     os.replace(temporary, path)
 
 
@@ -1525,9 +1557,7 @@ def _parse_capture_layers_at_once(value: str | int, *, selected_layer_count: int
     try:
         count = int(text)
     except ValueError as error:
-        raise ValueError(
-            "--capture-layers-at-once must be a positive integer or 'all'"
-        ) from error
+        raise ValueError("--capture-layers-at-once must be a positive integer or 'all'") from error
     if count < 1:
         raise ValueError("--capture-layers-at-once must be a positive integer or 'all'")
     return count

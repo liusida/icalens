@@ -12,14 +12,13 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from prepare import EVALUATED_CHECKPOINTS
 from safetensors.torch import load_file
+from select_cohort import checkpoint_path
+from trajectory import parse_layers
 
 from icalens._activation_dataset import ActivationDataset
 from icalens.experiments._run import atomic_write_json
-
-from prepare import EVALUATED_CHECKPOINTS
-from select_cohort import checkpoint_path
-from trajectory import parse_layers
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_RUN = ROOT / "runs/fixed-panel"
@@ -54,7 +53,9 @@ def disabled_positions(evaluation: Path, layers: tuple[int, ...]) -> set[int]:
     for iteration in EVALUATED_CHECKPOINTS:
         for layer in layers:
             selection_path = (
-                evaluation.parent / "prepared" / f"iter-{iteration:03d}"
+                evaluation.parent
+                / "prepared"
+                / f"iter-{iteration:03d}"
                 / f"layer_{layer:02d}/ica/selection.json"
             )
             if not selection_path.is_file():
@@ -156,7 +157,9 @@ def main() -> None:
         "disabled_cohort_positions_zero_based": sorted(disabled),
         "n_components_per_layer": args.n_components,
         "statistics": {
-            "logcosh": "absolute deviation of population E[log(cosh(score))] from Gaussian baseline",
+            "logcosh": (
+                "absolute deviation of population E[log(cosh(score))] from Gaussian baseline"
+            ),
             "gaussian_logcosh": GAUSSIAN_LOGCOSH,
             "kurtosis": "population excess kurtosis of signed component scores",
         },
@@ -183,17 +186,23 @@ def main() -> None:
             batch_size=args.batch_size,
             device=args.device,
         )
-        atomic_write_json(output, {
-            "status": "running",
-            "resolved": resolved,
-            "layers": [records[str(value)] for value in layers if str(value) in records],
-        })
+        atomic_write_json(
+            output,
+            {
+                "status": "running",
+                "resolved": resolved,
+                "layers": [records[str(value)] for value in layers if str(value) in records],
+            },
+        )
         print(f"PASS L{layer} population statistics ({timestamp()})", flush=True)
-    atomic_write_json(output, {
-        "status": "complete",
-        "resolved": resolved,
-        "layers": [records[str(layer)] for layer in layers],
-    })
+    atomic_write_json(
+        output,
+        {
+            "status": "complete",
+            "resolved": resolved,
+            "layers": [records[str(layer)] for layer in layers],
+        },
+    )
     print(f"PASS fit statistics: {output}")
 
 

@@ -272,7 +272,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 def _measure_layer(
     *,
-    lens: ICALens,
+    lens: Any,
     model: torch.nn.Module,
     tokenizer: Any,
     datasets: dict[str, Any],
@@ -572,7 +572,10 @@ def _suffix_scores(
         handle.remove()
     if "target" not in captured:
         raise RuntimeError("requested residual stream was not captured")
-    return lens.transform(captured["target"], layer=layer).detach()
+    transformed = lens.transform(captured["target"], layer=layer)
+    if not isinstance(transformed, torch.Tensor):
+        raise TypeError("lens transform must return a tensor")
+    return transformed.detach()
 
 
 def _finish_component_result(

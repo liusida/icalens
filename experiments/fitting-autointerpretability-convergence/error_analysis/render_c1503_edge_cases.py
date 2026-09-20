@@ -7,7 +7,6 @@ import html
 import json
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 INPUT = ROOT / "results/c1503-edge-case-results.json"
 OUTPUT = ROOT / "results/c1503-edge-case-results.html"
