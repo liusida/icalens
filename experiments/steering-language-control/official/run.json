@@ -18,7 +18,7 @@
     "layers": [
       20
     ],
-    "lens": "sida/icalens-gemma-2-2b-pile10k",
+    "lens": "anonymous/icalens-gemma-2-2b-pile10k",
     "max_new_tokens": 50,
     "methods": [
       "sae",

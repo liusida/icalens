@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 REGISTRY_FILENAME = "model_framing.json"
-REGISTRY_URL = "https://raw.githubusercontent.com/liusida/icalens/main/model_framing.json"
+REGISTRY_URL = "https://raw.githubusercontent.com/anonymous/icalens/main/model_framing.json"
 MAX_REGISTRY_BYTES = 1_000_000
 
 

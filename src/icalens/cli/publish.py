@@ -17,7 +17,7 @@ DEFAULT_ENV_FILE = Path(".env")
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="icalens publish", description=__doc__)
     parser.add_argument(
-        "repo_id", help="Destination Model repository, for example sida/icalens-gpt2-small."
+        "repo_id", help="Destination Model repository, for example anonymous/icalens-gpt2-small."
     )
     parser.add_argument("--lens", type=Path, required=True, help="Local ICA Lens directory.")
     parser.add_argument(

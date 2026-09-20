@@ -141,7 +141,7 @@ uv run python experiments/fitting-autointerpretability-convergence/prepare.py \
   --trajectory experiments/fitting-autointerpretability-convergence/runs/qwen-layers-07-23/trajectory \
   --cohort experiments/fitting-autointerpretability-convergence/runs/qwen-layers-07-23/cohort.json \
   --output experiments/fitting-autointerpretability-convergence/runs/qwen-layers-07-23/prepared \
-  --archive /media/liusida/Expansion/research/ICA-data/fitting-autointerpretability-convergence/qwen-layers-07-23
+  --archive /path/to/ICA-data/fitting-autointerpretability-convergence/qwen-layers-07-23
 ```
 
 Evaluate only those layers:

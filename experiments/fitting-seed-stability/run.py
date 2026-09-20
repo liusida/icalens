@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_ACTIVATIONS = Path(
-    "/home/liusida/Expansion/research/ICA-data/icalens-activations/gpt2-pile10k-1m"
+    "/path/to/ICA-data/icalens-activations/gpt2-pile10k-1m"
 )
 DEFAULT_REFERENCE_LENS = Path(
     "local-icalens-models/official/icalens-gpt2-small-pile10k"

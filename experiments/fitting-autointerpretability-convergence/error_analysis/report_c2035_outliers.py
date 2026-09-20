@@ -17,7 +17,7 @@ from icalens._activation_dataset import ActivationDataset
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS = ROOT / "results"
 ACTIVATIONS = Path(
-    "/media/liusida/Expansion/research/ICA-data/icalens-activations/"
+    "/path/to/ICA-data/icalens-activations/"
     "qwen3.5-9b-base-pile10k-1m"
 )
 DATA = RESULTS / "c2035-distribution-data.npz"

@@ -54,7 +54,7 @@ def main():
     parser.add_argument(
         "--cache-root",
         type=Path,
-        default=Path("/home/liusida/Expansion/research/ICA-data/icalens-activations"),
+        default=Path("/path/to/ICA-data/icalens-activations"),
     )
     parser.add_argument("--output", type=Path, default=ROOT / "runs/sae-suffix-sweep-v2")
     parser.add_argument("--rank-thresholds", type=_parse_rank_thresholds, default=(1, 3, 5, 10, 15))

@@ -24,13 +24,13 @@ class SmokeCase:
 
 DEFAULT_TEXT_CASE = SmokeCase(
     name="text",
-    lens_id="sida/icalens-gpt2-small-pile10k",
+    lens_id="anonymous/icalens-gpt2-small-pile10k",
     layer=6,
     text="She deposited the check at the bank.",
 )
 DEFAULT_CHAT_CASE = SmokeCase(
     name="chat",
-    lens_id="sida/icalens-qwen3.5-2b-ultrachat-1m",
+    lens_id="anonymous/icalens-qwen3.5-2b-ultrachat-1m",
     layer=16,
     text="What is the most interesting science? One phrase.",
     response="Quantum entanglement.",

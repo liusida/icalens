@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
-authors = [{ name = "Sida Liu" }, { name = "Feijiang Han" }]
+authors = [{ name = "Anonymous Authors" }]
 keywords = ["interpretability", "ICA", "language-models", "activations"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -39,11 +39,6 @@ autointerpretability = [
 
 [project.scripts]
 icalens = "icalens.cli:main"
-
-[project.urls]
-Homepage = "https://liusida.github.io/ica-lens-paper/"
-Documentation = "https://icalens.readthedocs.io/"
-Repository = "https://github.com/liusida/icalens"
 
 [dependency-groups]
 dev = [

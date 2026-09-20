@@ -4,7 +4,7 @@ set -euo pipefail
 ACTIVATIONS="$HOME/Expansion/research/ICA-data/icalens-reconstruction-activations/qwen35-9b"
 
 uv run icalens experiment reconstruction measure \
-  --lens sida/icalens-qwen3.5-9b-base-pile10k \
+  --lens anonymous/icalens-qwen3.5-9b-base-pile10k \
   --activations "$ACTIVATIONS" \
   --layers all \
   --baselines all \

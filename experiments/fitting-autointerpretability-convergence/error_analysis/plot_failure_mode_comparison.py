@@ -19,11 +19,11 @@ RUN = ROOT / "runs/fixed-panel"
 RESULTS = ROOT / "results"
 ITERATION = 50
 ACTIVATIONS = Path(
-    "/media/liusida/Expansion/research/ICA-data/icalens-activations/"
+    "/path/to/ICA-data/icalens-activations/"
     "qwen3.5-9b-base-pile10k-1m"
 )
 TAILS = Path(
-    "/media/liusida/Expansion/research/ICA-data/"
+    "/path/to/ICA-data/"
     "fitting-autointerpretability-convergence/fixed-panel/tails.json"
 )
 SIGNED_EVAL_SAMPLE = RESULTS / "signed-eval-token-scores-100k.npy"

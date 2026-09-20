@@ -30,9 +30,7 @@ HERE = Path(__file__).resolve().parent
 FORMAT = "icalens.steering_showcase.component_search"
 SCHEMA_VERSION = 1
 CORPUS_BASE_URL = "https://www.manythings.org/anki"
-DOWNLOAD_USER_AGENT = (
-    "Mozilla/5.0 (compatible; ICA-Lens-research/0.3; +https://github.com/liusida/icalens)"
-)
+DOWNLOAD_USER_AGENT = "Mozilla/5.0 (compatible; ICA-Lens-research/0.3)"
 
 MODEL_SPECS = {
     "gpt2": {

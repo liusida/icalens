@@ -52,7 +52,7 @@ def main() -> None:
     cohort = json.loads((RUN / "cohort.json").read_text(encoding="utf-8"))
     tails = json.loads(
         Path(
-            "/media/liusida/Expansion/research/ICA-data/"
+            "/path/to/ICA-data/"
             "fitting-autointerpretability-convergence/fixed-panel/tails.json"
         ).read_text(encoding="utf-8")
     )

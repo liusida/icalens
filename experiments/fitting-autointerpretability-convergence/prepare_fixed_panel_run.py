@@ -17,7 +17,7 @@ from icalens.experiments._run import atomic_write_json
 ROOT = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = ROOT / "runs/fixed-panel"
 DEFAULT_ARCHIVE = Path(
-    "/media/liusida/Expansion/research/ICA-data/"
+    "/path/to/ICA-data/"
     "fitting-autointerpretability-convergence/fixed-panel"
 )
 DEFAULT_CACHES = (

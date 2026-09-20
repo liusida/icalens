@@ -33,7 +33,7 @@ DEFAULT_COHORT = ROOT / "runs/cohort.json"
 DEFAULT_FRAGMENTS = ROOT.parent / "autointerpretability/runs/qwen3.5-9b/fragments.jsonl"
 DEFAULT_OUTPUT = ROOT / "runs/prepared"
 DEFAULT_ARCHIVE = Path(
-    "/home/liusida/Expansion/research/ICA-data/"
+    "/path/to/ICA-data/"
     "fitting-autointerpretability-convergence"
 )
 EVALUATED_CHECKPOINTS = (0, 1, 2, 3, 5, 7, 10, 20, 50, 100, 200)

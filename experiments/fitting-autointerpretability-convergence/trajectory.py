@@ -20,7 +20,7 @@ from icalens.experiments._source_provenance import source_provenance, warn_if_di
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_ACTIVATIONS = Path(
-    "/home/liusida/Expansion/research/ICA-data/icalens-activations/"
+    "/path/to/ICA-data/icalens-activations/"
     "qwen3.5-9b-base-pile10k-1m"
 )
 DEFAULT_OUTPUT = ROOT / "runs/trajectory"

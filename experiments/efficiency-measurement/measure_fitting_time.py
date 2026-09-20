@@ -19,7 +19,7 @@ from icalens.experiments._source_provenance import source_provenance, warn_if_di
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
-ACTIVATION_ROOT = Path("/home/liusida/Expansion/research/ICA-data/icalens-activations")
+ACTIVATION_ROOT = Path("/path/to/ICA-data/icalens-activations")
 SPECS = {
     "gpt2": {
         "input": ACTIVATION_ROOT / "gpt2-pile10k-1m",

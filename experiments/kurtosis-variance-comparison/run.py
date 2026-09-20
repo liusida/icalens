@@ -35,14 +35,14 @@ MODEL_SPECS = {
         "title": "GPT-2 Small",
         "lens": ROOT / "local-icalens-models/official/icalens-gpt2-small-pile10k",
         "activations": Path(
-            "/home/liusida/Expansion/research/ICA-data/icalens-activations/gpt2-pile10k-1m"
+            "/path/to/ICA-data/icalens-activations/gpt2-pile10k-1m"
         ),
     },
     "gemma2": {
         "title": "Gemma 2 2B",
         "lens": ROOT / "local-icalens-models/official/icalens-gemma-2-2b-pile10k",
         "activations": Path(
-            "/home/liusida/Expansion/research/ICA-data/icalens-activations/"
+            "/path/to/ICA-data/icalens-activations/"
             "gemma-2-2b-pile10k-1m"
         ),
     },
@@ -50,7 +50,7 @@ MODEL_SPECS = {
         "title": "Qwen 3.5 9B Base",
         "lens": ROOT / "local-icalens-models/official/icalens-qwen3.5-9b-base-pile10k",
         "activations": Path(
-            "/home/liusida/Expansion/research/ICA-data/icalens-activations/"
+            "/path/to/ICA-data/icalens-activations/"
             "qwen3.5-9b-base-pile10k-1m"
         ),
     },

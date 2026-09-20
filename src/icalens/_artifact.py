@@ -426,7 +426,7 @@ For a token, component energy share is `score² / sum(all component scores²)`.
 ```bibtex
 @article{{liu2026icalens,
   title={{ICA Lens: Interpreting Language Models Without Training Another Dictionary}},
-  author={{Liu, Sida and Han, Feijiang}},
+  author={{Anonymous Authors}},
   journal={{arXiv preprint arXiv:2606.11722}},
   year={{2026}}
 }}

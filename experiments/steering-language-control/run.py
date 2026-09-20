@@ -35,7 +35,7 @@ from icalens.experiments.saebench_sparse_probing import (
     _resolve_baselines,
 )
 
-LENS_ID = "sida/icalens-gemma-2-2b-pile10k"
+LENS_ID = "anonymous/icalens-gemma-2-2b-pile10k"
 CORPUS_BASE_URL = "https://www.manythings.org/anki"
 TARGET_LANGUAGES = {
     "chinese": {"display": "Chinese", "corpus_code": "cmn"},
@@ -43,9 +43,7 @@ TARGET_LANGUAGES = {
     "japanese": {"display": "Japanese", "corpus_code": "jpn"},
     "spanish": {"display": "Spanish", "corpus_code": "spa"},
 }
-DOWNLOAD_USER_AGENT = (
-    "Mozilla/5.0 (compatible; ICA-Lens-research/0.3; +https://github.com/liusida/icalens)"
-)
+DOWNLOAD_USER_AGENT = "Mozilla/5.0 (compatible; ICA-Lens-research/0.3)"
 PAPER_PROMPT = "Leaves change color in autumn because"
 DEFAULT_PROMPTS = (
     "Artificial intelligence is important because",

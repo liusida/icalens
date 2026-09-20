@@ -21,7 +21,7 @@
     "final_token_mode": "text",
     "format_version": 1,
     "layer": 20,
-    "lens": "sida/icalens-gemma-2-2b-pile10k",
+    "lens": "anonymous/icalens-gemma-2-2b-pile10k",
     "max_new_tokens": 50,
     "method": "ica",
     "model_id": "google/gemma-2-2b",
@@ -147,12 +147,12 @@
     }
   ],
   "protocol": {
-    "calibration_cache": "/home/liusida/research/ICA-paper/icalens_pypi/experiments/steering-language-control/calibration-cache/ica-english-to-french-layer20-64781c038e0faaaf.json",
+    "calibration_cache": "/path/to/icalens/experiments/steering-language-control/calibration-cache/ica-english-to-french-layer20-64781c038e0faaaf.json",
     "calibration_cache_hit": true,
     "final_token_mode": "text",
     "intervention": "x_prime = x + score_offset * ICA_writing_direction",
     "layer": 20,
-    "lens": "sida/icalens-gemma-2-2b-pile10k",
+    "lens": "anonymous/icalens-gemma-2-2b-pile10k",
     "max_new_tokens": 50,
     "method": "ica",
     "model": "google/gemma-2-2b@c5ebcd40d208330abc697524c919956e692655cf",

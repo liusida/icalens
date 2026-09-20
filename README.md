@@ -4,10 +4,7 @@ ICA Lens interprets language-model activations with Independent Component
 Analysis. It is substantially more compute-efficient to fit than an SAE
 dictionary and supports base and instruction-tuned language models.
 
-**[Documentation](https://icalens.readthedocs.io/en/latest/)** ·
-**[中文文档](https://icalens.readthedocs.io/zh_CN/latest/)** ·
-**[Paper](https://arxiv.org/abs/2606.11722)** ·
-**[Model collection](https://huggingface.co/collections/sida/ica-lens)**
+**[Paper](https://arxiv.org/abs/2606.11722)**
 
 ## Get started
 
@@ -20,18 +17,13 @@ Load a published Lens and analyze text:
 ```python
 from icalens import ICALens
 
-lens = ICALens.from_pretrained("sida/icalens-gpt2-small-pile10k")
+lens = ICALens.from_pretrained("anonymous/icalens-gpt2-small-pile10k")
 result = lens.analyze("She deposited the check at the bank.", layer=6)
 result
 ```
 
-Browse the [ICA Lens model collection](https://huggingface.co/collections/sida/ica-lens)
-for other published lenses.
-
 In Jupyter or Colab, the final `result` expression displays an interactive
 token-level analysis:
-
-![ICA Lens token-level analysis in Jupyter](https://raw.githubusercontent.com/liusida/icalens/main/docs/assets/text-analysis-notebook.png)
 
 Use signed ICA scores or switch the explorer to per-token component energy.
 Save the same view as a standalone HTML file with:
@@ -50,7 +42,7 @@ Instruction-tuned models accept completed conversations using the standard
 `{role, content}` format:
 
 ```python
-lens = ICALens.from_pretrained("sida/icalens-qwen3.5-2b-ultrachat-1m")
+lens = ICALens.from_pretrained("anonymous/icalens-qwen3.5-2b-ultrachat-1m")
 result = lens.analyze(
     [
         {"role": "user", "content": "What is the most interesting science?"},
@@ -89,9 +81,7 @@ Use `steering_scope="all-positions"` to edit the entire prompt during prefill as
 well. Absolute `clamp=(component, target_score)` interventions remain available.
 
 Component labels, signs, and suitable targets must be established empirically
-for the exact Lens and layer. See the
-**[steering tutorial](https://icalens.readthedocs.io/en/latest/steering/)** for
-the reproducible inspection and calibration workflow.
+for the exact Lens and layer.
 
 ## Fit a Lens
 
@@ -160,16 +150,3 @@ The artifact records the analyzed model, activation site, fitted layers,
 preprocessing, component profiles, and fitting and profiling provenance.
 Individual layer and profile files are downloaded lazily when a published Lens
 is used.
-
-## Learn more
-
-The documentation covers:
-
-- [Getting started](https://icalens.readthedocs.io/en/latest/getting-started/)
-- [Text and chat](https://icalens.readthedocs.io/en/latest/text-and-chat/)
-- [Component profiles](https://icalens.readthedocs.io/en/latest/component-profiles/)
-- [Scores and energy](https://icalens.readthedocs.io/en/latest/scores-and-energy/)
-- [Steering](https://icalens.readthedocs.io/en/latest/steering/)
-- [Reconstruction](https://icalens.readthedocs.io/en/latest/reconstruction/)
-- [Fitting and publishing](https://icalens.readthedocs.io/en/latest/fit-and-publish/)
-- [Python API](https://icalens.readthedocs.io/en/latest/api/)

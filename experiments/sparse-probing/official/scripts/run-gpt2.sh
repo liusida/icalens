@@ -2,7 +2,7 @@
 set -euo pipefail
 
 uv run icalens experiment saebench-sparse-probing \
-  --lens sida/icalens-gpt2-small-pile10k \
+  --lens anonymous/icalens-gpt2-small-pile10k \
   --layers 6,10 \
   --preset paper \
   --baselines all \

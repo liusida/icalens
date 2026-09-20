@@ -1,8 +1,7 @@
 # Third-party notices
 
 The internal FastICA implementation in `src/icalens/_fastica.py` is adapted
-from [FastICA_torch](https://github.com/liusida/FastICA_torch), copyright 2024
-Richard Hakim, under the MIT License:
+from FastICA_torch, copyright 2024 Richard Hakim, under the MIT License:
 
 > Permission is hereby granted, free of charge, to any person obtaining a copy
 > of this software and associated documentation files (the "Software"), to deal

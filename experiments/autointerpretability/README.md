@@ -22,7 +22,7 @@ shared pool of 50,000 OpenWebText fragments:
 
 ```bash
 uv run icalens experiment autointerpretability prepare \
-  --lens sida/icalens-gpt2-small-pile10k \
+  --lens anonymous/icalens-gpt2-small-pile10k \
   --layers 5 \
   --n-features 10 \
   --output experiments/autointerpretability/pilot-runs/gpt2-layer5
@@ -134,9 +134,9 @@ The completed full comparison covers:
 
 | Model | ICA Lens | Pretrained SAE | Layers |
 | --- | --- | --- | --- |
-| GPT-2 small | `sida/icalens-gpt2-small-pile10k` | GPT2-Small OAI v5 32k | 2, 5, 8, 11 |
-| Gemma 2 2B | `sida/icalens-gemma-2-2b-pile10k` | Gemma Scope 2B residual 16k | 5, 12, 18, 25 |
-| Qwen 3.5 9B Base | `sida/icalens-qwen3.5-9b-base-pile10k` | Qwen Scope residual 64k TopK-50 | 7, 15, 23, 31 |
+| GPT-2 small | `anonymous/icalens-gpt2-small-pile10k` | GPT2-Small OAI v5 32k | 2, 5, 8, 11 |
+| Gemma 2 2B | `anonymous/icalens-gemma-2-2b-pile10k` | Gemma Scope 2B residual 16k | 5, 12, 18, 25 |
+| Qwen 3.5 9B Base | `anonymous/icalens-qwen3.5-9b-base-pile10k` | Qwen Scope residual 64k TopK-50 | 7, 15, 23, 31 |
 
 These are the layers nearest the 25%, 50%, 75%, and 100% depth marks under the
 project's zero-based post-block layer convention. Model, Lens, SAE, and dataset

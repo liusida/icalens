@@ -21,7 +21,7 @@
     "final_token_mode": "text",
     "format_version": 1,
     "layer": 20,
-    "lens": "sida/icalens-gemma-2-2b-pile10k",
+    "lens": "anonymous/icalens-gemma-2-2b-pile10k",
     "max_new_tokens": 50,
     "method": "sae",
     "model_id": "google/gemma-2-2b",
@@ -147,12 +147,12 @@
     }
   ],
   "protocol": {
-    "calibration_cache": "/home/liusida/research/ICA-paper/icalens_pypi/experiments/steering-language-control/calibration-cache/sae-english-to-french-layer20-5bbf3dcfc3e149d6.json",
+    "calibration_cache": "/path/to/icalens/experiments/steering-language-control/calibration-cache/sae-english-to-french-layer20-5bbf3dcfc3e149d6.json",
     "calibration_cache_hit": false,
     "final_token_mode": "text",
     "intervention": "x_prime = x + offset * unit_decoder_direction",
     "layer": 20,
-    "lens": "sida/icalens-gemma-2-2b-pile10k",
+    "lens": "anonymous/icalens-gemma-2-2b-pile10k",
     "max_new_tokens": 50,
     "method": "sae",
     "model": "google/gemma-2-2b@c5ebcd40d208330abc697524c919956e692655cf",
@@ -204,7 +204,7 @@
       "name": "Gemma Scope 2B residual width 16k",
       "repo_id": "google/gemma-scope-2b-pt-res",
       "revision": "fd571b47c1c64851e9b1989792367b9babb4af63",
-      "weights_file": "/home/liusida/hf_cache/hub/models--google--gemma-scope-2b-pt-res/snapshots/fd571b47c1c64851e9b1989792367b9babb4af63/layer_20/width_16k/average_l0_71/params.npz",
+      "weights_file": "/path/to/huggingface-cache/hub/models--google--gemma-scope-2b-pt-res/snapshots/fd571b47c1c64851e9b1989792367b9babb4af63/layer_20/width_16k/average_l0_71/params.npz",
       "width": 16384
     },
     "seed": 0,

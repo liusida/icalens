@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 RUN = ROOT / "runs/fixed-panel"
 TRAJECTORY = RUN / "trajectory"
 TAILS = Path(
-    "/media/liusida/Expansion/research/ICA-data/"
+    "/path/to/ICA-data/"
     "fitting-autointerpretability-convergence/fixed-panel/tails.json"
 )
 MODEL_ID = "Qwen/Qwen3.5-9B-Base"

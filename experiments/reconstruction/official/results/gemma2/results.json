@@ -93,7 +93,7 @@
       24,
       25
     ],
-    "lens": "sida/icalens-gemma-2-2b-pile10k",
+    "lens": "anonymous/icalens-gemma-2-2b-pile10k",
     "model_id": "google/gemma-2-2b",
     "model_revision": "c5ebcd40d208330abc697524c919956e692655cf",
     "preset": {

@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cache-root",
         type=Path,
-        default=Path("/home/liusida/Expansion/research/ICA-data/icalens-activations"),
+        default=Path("/path/to/ICA-data/icalens-activations"),
     )
     parser.add_argument(
         "--output",
