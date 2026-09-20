@@ -59,14 +59,12 @@ command reuses completed units.
 
 ## Run the matched steering demonstrations
 
-The demonstration script mirrors the final hand-made notebook examples:
+The demonstration script reproduces the three final examples directly:
 
-- `misc/language-steering-gpt.ipynb`: GPT-2 L7 C317, using a strong initial
-  intervention to change “go to a local bar” into “play with the kids.”
-- `demo/language-steering.ipynb`: Gemma L20 C105, English–Chinese steering and
-  ablation.
-- `misc/language-steering-qwen.ipynb`: Qwen L26 C9, English–French steering and
-  ablation.
+- GPT-2 L7 C317, using a strong initial intervention to change “go to a local
+  bar” into “play with the kids.”
+- Gemma L20 C105, with English–Chinese steering and ablation.
+- Qwen L26 C9, with English–French steering and ablation.
 
 Models are loaded sequentially. Use `--models gpt2`, `gemma2`, or `qwen9b` to run
 one model, and `--debug` to print token-aligned component scores. All generations

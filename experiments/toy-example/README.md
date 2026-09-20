@@ -1,7 +1,5 @@
 # A Toy Example · What Makes a Non-Gaussian Projection Interesting?
 
-![Raw five-direction projections](figures/directions-row-raw.png)
-
 We use individual tokens at Layer 0 of GPT-2 (the output of the first
 transformer block) for this toy example because their representations are
 relatively easy to inspect. Specifically, we collect the Layer-0 activations of

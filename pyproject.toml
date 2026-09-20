@@ -46,9 +46,6 @@ Documentation = "https://icalens.readthedocs.io/"
 Repository = "https://github.com/liusida/icalens"
 
 [dependency-groups]
-docs = [
-    "mkdocs-material>=9,<10",
-]
 dev = [
     "build>=1.2",
     "datasets>=4.0",
