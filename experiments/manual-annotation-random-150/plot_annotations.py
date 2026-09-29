@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import math
 import random
@@ -13,6 +14,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import font_manager
+from matplotlib.colors import BoundaryNorm
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent
@@ -21,12 +23,21 @@ RESULTS = ROOT / "results"
 FIGURES = ROOT / "figures"
 FIGURE_PNG = FIGURES / "annotation-confidence.png"
 FIGURE_PDF = FIGURES / "annotation-confidence.pdf"
+KURTOSIS_FIGURE_PNG = FIGURES / "manual-confidence-vs-kurtosis.png"
+KURTOSIS_FIGURE_PDF = FIGURES / "manual-confidence-vs-kurtosis.pdf"
 WORD_CLOUD = FIGURES / "annotation-word-cloud.png"
 SUMMARY = RESULTS / "annotation-summary.json"
 MODEL_TITLES = {
     "gpt2": "GPT-2",
     "gemma-2-2b": "Gemma 2 2B",
     "qwen3.5-9b": "Qwen3.5 9B",
+}
+PROFILE_ROOTS = {
+    "gpt2": ROOT.parent.parent / "local-icalens-models/official/icalens-gpt2-small-pile10k",
+    "gemma-2-2b": ROOT.parent.parent
+    / "local-icalens-models/official/icalens-gemma-2-2b-pile10k",
+    "qwen3.5-9b": ROOT.parent.parent
+    / "local-icalens-models/official/icalens-qwen3.5-9b-base-pile10k",
 }
 CONFIDENCE_COLORS = (
     "#E5E7EB",
@@ -98,6 +109,114 @@ def summarize(
             "unknown_fraction": float(np.mean(values == 0)),
         }
     return summary
+
+
+def average_ranks(values: np.ndarray) -> np.ndarray:
+    """Return one-based ranks with tied values assigned their average rank."""
+    order = np.argsort(values, kind="stable")
+    ranks = np.empty(values.size, dtype=np.float64)
+    start = 0
+    while start < values.size:
+        end = start + 1
+        while end < values.size and values[order[end]] == values[order[start]]:
+            end += 1
+        ranks[order[start:end]] = (start + end - 1) / 2 + 1
+        start = end
+    return ranks
+
+
+def spearman_correlation(x: np.ndarray, y: np.ndarray) -> float:
+    return float(np.corrcoef(average_ranks(x), average_ranks(y))[0, 1])
+
+
+def load_kurtosis_rows(
+    annotations: dict[str, list[dict[str, object]]],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for model, model_annotations in annotations.items():
+        layers: dict[int, list[dict[str, object]]] = {}
+        for annotation in model_annotations:
+            layer = int(annotation["layer"])
+            if layer not in layers:
+                path = (
+                    PROFILE_ROOTS[model]
+                    / "component_profiles"
+                    / "resid_post"
+                    / f"layer_{layer:02d}.json.gz"
+                )
+                with gzip.open(path, "rt", encoding="utf-8") as handle:
+                    layers[layer] = json.load(handle)["components"]
+            component = int(annotation["component"])
+            profile = layers[layer][component]
+            if int(profile["component"]) != component:
+                raise ValueError(f"component ordering mismatch in {model} layer {layer}")
+            rows.append(
+                {
+                    "model": model,
+                    "layer": layer,
+                    "component": component,
+                    "confidence": int(annotation["confidence"]),
+                    "excess_kurtosis": float(
+                        profile["score_statistics"]["excess_kurtosis"]
+                    ),
+                }
+            )
+    return rows
+
+
+def render_confidence_vs_kurtosis(rows: list[dict[str, object]]) -> dict[str, float]:
+    kurtosis = np.asarray([row["excess_kurtosis"] for row in rows], dtype=np.float64)
+    confidence = np.asarray([row["confidence"] for row in rows], dtype=np.float64)
+    if np.any(kurtosis <= 0):
+        raise ValueError("log-scaled kurtosis plot requires strictly positive values")
+
+    x_edges = np.geomspace(0.5, 2000, 22)
+    y_edges = np.arange(-0.5, 6.5, 1.0)
+    counts, _, _ = np.histogram2d(kurtosis, confidence, bins=(x_edges, y_edges))
+    maximum = int(counts.max())
+    colors = plt.get_cmap("Blues", maximum + 1)
+    norm = BoundaryNorm(np.arange(-0.5, maximum + 1.5), colors.N)
+    rho = spearman_correlation(kurtosis, confidence)
+
+    style = {
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
+        "font.size": 9,
+        "axes.labelsize": 10,
+        "xtick.labelsize": 8,
+        "ytick.labelsize": 8,
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+        "axes.linewidth": 0.8,
+    }
+    with plt.rc_context(style):
+        figure, axis = plt.subplots(figsize=(3.55, 2.75))
+        mesh = axis.pcolormesh(x_edges, y_edges, counts.T, cmap=colors, norm=norm)
+        axis.set_xscale("log")
+        axis.set_xlim(x_edges[0], x_edges[-1])
+        axis.set_ylim(y_edges[0], y_edges[-1])
+        axis.set_yticks(range(6))
+        axis.set_xlabel(r"Excess kurtosis $K$")
+        axis.set_ylabel("Manual confidence")
+        axis.grid(color="0.87", linewidth=0.45)
+        axis.set_axisbelow(True)
+        axis.spines["top"].set_visible(False)
+        axis.spines["right"].set_visible(False)
+        axis.text(
+            0.02,
+            0.98,
+            rf"$n={len(rows)},\ \rho_s={rho:.2f}$",
+            transform=axis.transAxes,
+            ha="left",
+            va="top",
+        )
+        colorbar = figure.colorbar(mesh, ax=axis, pad=0.035, ticks=range(maximum + 1))
+        colorbar.set_label("Components / bin")
+        figure.subplots_adjust(left=0.18, right=0.87, bottom=0.20, top=0.96)
+        figure.savefig(KURTOSIS_FIGURE_PNG, dpi=300)
+        figure.savefig(KURTOSIS_FIGURE_PDF)
+        plt.close(figure)
+    return {"n": len(rows), "spearman_rho": rho}
 
 
 def render(summary: dict[str, object]) -> None:
@@ -238,7 +357,16 @@ def render_word_cloud(annotations: dict[str, list[dict[str, object]]]) -> None:
 def main() -> None:
     args = parse_args()
     existing = [
-        path for path in (FIGURE_PNG, FIGURE_PDF, WORD_CLOUD, SUMMARY) if path.exists()
+        path
+        for path in (
+            FIGURE_PNG,
+            FIGURE_PDF,
+            KURTOSIS_FIGURE_PNG,
+            KURTOSIS_FIGURE_PDF,
+            WORD_CLOUD,
+            SUMMARY,
+        )
+        if path.exists()
     ]
     if existing and not args.force:
         joined = ", ".join(str(path) for path in existing)
@@ -247,11 +375,18 @@ def main() -> None:
     FIGURES.mkdir(parents=True, exist_ok=True)
     annotations = load_annotations()
     summary = summarize(annotations)
+    kurtosis_rows = load_kurtosis_rows(annotations)
+    summary["confidence_vs_kurtosis"] = {
+        **render_confidence_vs_kurtosis(kurtosis_rows),
+        "components": kurtosis_rows,
+    }
     SUMMARY.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     render(summary)
     render_word_cloud(annotations)
     print(f"Wrote {FIGURE_PNG}")
     print(f"Wrote {FIGURE_PDF}")
+    print(f"Wrote {KURTOSIS_FIGURE_PNG}")
+    print(f"Wrote {KURTOSIS_FIGURE_PDF}")
     print(f"Wrote {WORD_CLOUD}")
     print(f"Wrote {SUMMARY}")
 

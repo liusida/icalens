@@ -60,7 +60,11 @@ uv run python experiments/manual-annotation-random-150/plot_annotations.py
 
 This writes `figures/annotation-confidence.png`,
 `figures/annotation-confidence.pdf`, `figures/annotation-word-cloud.png`, and
-`results/annotation-summary.json`.
+`results/annotation-summary.json`. It also writes the pooled 150-component
+manual-confidence versus excess-kurtosis count plot to
+`figures/manual-confidence-vs-kurtosis.{png,pdf}`. Kurtosis values are read
+directly from the sampled components' saved base-model profiles and recorded
+per component in the summary JSON.
 Word-cloud token weights are the sums of annotation confidence scores; unknown
 labels are excluded. Existing outputs require `--force` to replace.
 
