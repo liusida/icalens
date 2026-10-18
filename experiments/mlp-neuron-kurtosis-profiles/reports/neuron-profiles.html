@@ -28,6 +28,11 @@
   .metrics div { background:#f7f9fc; border:1px solid #e5e9f0; border-radius:8px; padding:11px 13px; }
   .metrics span { display:block; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
   .metrics strong { display:block; margin-top:2px; font:700 19px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .readouts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:-4px 0 22px; }
+  .readouts > div { min-width:0; border:1px solid #e1e6ee; border-radius:8px; padding:11px 13px; background:#fcfdff; }
+  .readouts h3 { margin:0 0 8px; font-size:12px; color:var(--muted); }
+  .token-chips { display:flex; flex-wrap:wrap; gap:5px; }
+  .token-chip { border:1px solid #cfd8e6; border-radius:999px; background:#f4f7fb; padding:3px 8px; font:12px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre; }
   h3 { margin:0 0 12px; font-size:16px; }
   .occurrence-title { display:flex; justify-content:space-between; align-items:baseline; gap:16px; }
   .color-key { color:var(--muted); font-size:10px; white-space:nowrap; }
@@ -42,7 +47,7 @@
   .scored-token.target { text-decoration:underline 1.5px; text-underline-offset:3px; }
   .token-meta { margin-top:7px; color:var(--muted); font-size:10px; } code { color:#344054; }
   [hidden] { display:none !important; }
-  @media (max-width:900px) { .tabs { grid-template-columns:repeat(3,1fr); } .occurrences { grid-template-columns:1fr; } .occurrence-title { display:block; } .color-key { margin:-5px 0 12px; white-space:normal; } }
+  @media (max-width:900px) { .tabs { grid-template-columns:repeat(3,1fr); } .readouts,.occurrences { grid-template-columns:1fr; } .occurrence-title { display:block; } .color-key { margin:-5px 0 12px; white-space:normal; } }
   @media (max-width:560px) { main { padding:18px 10px 40px; } .metrics { grid-template-columns:repeat(2,1fr); } .profile-header { display:block; } .tail-badge { display:inline-block; margin-top:10px; } }
 </style>
 </head>
@@ -66,6 +71,10 @@
         <div><span>Skewness</span><strong>-0.321</strong></div>
         <div><span>Variance</span><strong>0.02786</strong></div>
         <div><span>Mean</span><strong>-0.08189</strong></div>
+      </div>
+      <div class="readouts">
+        <div><h3>Logit Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 43481 · logit +9.750">dma</span><span class="token-chip" title="token 95066 · logit +8.625">emachine</span><span class="token-chip" title="token 52655 · logit +8.500">iid</span><span class="token-chip" title="token 164279 · logit +8.375">พาน</span><span class="token-chip" title="token 96888 · logit +8.312">操</span><span class="token-chip" title="token 59061 · logit +8.250">ynom</span><span class="token-chip" title="token 147822 · logit +8.062">秋的</span><span class="token-chip" title="token 41394 · logit +7.969">.Fields</span><span class="token-chip" title="token 79154 · logit +7.875">psc</span><span class="token-chip" title="token 37590 · logit +7.750">rega</span></div></div>
+        <div><h3>R-Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 627 · logit +8.062">ie</span><span class="token-chip" title="token 515 · logit +7.688">’</span><span class="token-chip" title="token 3451 · logit +7.094"> ${</span><span class="token-chip" title="token 1524 · logit +6.656">ik</span><span class="token-chip" title="token 1019 · logit +6.625">du</span><span class="token-chip" title="token 15742 · logit +6.531">iy</span><span class="token-chip" title="token 3260 · logit +6.469"> ‘</span><span class="token-chip" title="token 307 · logit +6.438"> n</span><span class="token-chip" title="token 2612 · logit +6.406"> bit</span><span class="token-chip" title="token 86 · logit +6.375">w</span></div></div>
       </div>
       <div class="occurrence-title">
         <h3>Top 20 dominant-tail occurrences</h3>
@@ -318,6 +327,10 @@
         <div><span>Skewness</span><strong>-0.328</strong></div>
         <div><span>Variance</span><strong>0.1388</strong></div>
         <div><span>Mean</span><strong>-0.02181</strong></div>
+      </div>
+      <div class="readouts">
+        <div><h3>Logit Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 96963 · logit +8.438">自然</span><span class="token-chip" title="token 98226 · logit +8.312">胆</span><span class="token-chip" title="token 11844 · logit +7.406">pile</span><span class="token-chip" title="token 14089 · logit +7.375">enders</span><span class="token-chip" title="token 97147 · logit +7.125">迷</span><span class="token-chip" title="token 107803 · logit +6.969">芸</span><span class="token-chip" title="token 97965 · logit +6.875">浮</span><span class="token-chip" title="token 160153 · logit +6.719">ופ</span><span class="token-chip" title="token 96275 · logit +6.688">集</span><span class="token-chip" title="token 161876 · logit +6.656">ető</span></div></div>
+        <div><h3>R-Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 155011 · logit +12.938">��</span><span class="token-chip" title="token 151353 · logit +11.375">��</span><span class="token-chip" title="token 151373 · logit +11.375">��</span><span class="token-chip" title="token 149726 · logit +11.375">ณฑ</span><span class="token-chip" title="token 158949 · logit +11.312">��</span><span class="token-chip" title="token 73004 · logit +10.688">SupportedContent</span><span class="token-chip" title="token 30201 · logit +10.500"> Leban</span><span class="token-chip" title="token 29724 · logit +10.438">{EIF</span><span class="token-chip" title="token 85137 · logit +10.375">GuidId</span><span class="token-chip" title="token 61100 · logit +10.312">OptionsResolver</span></div></div>
       </div>
       <div class="occurrence-title">
         <h3>Top 20 dominant-tail occurrences</h3>
@@ -584,6 +597,10 @@
         <div><span>Variance</span><strong>0.02244</strong></div>
         <div><span>Mean</span><strong>+0.01407</strong></div>
       </div>
+      <div class="readouts">
+        <div><h3>Logit Lens · dominant positive direction</h3><div class="token-chips"><span class="token-chip" title="token 96965 · logit +10.812">般</span><span class="token-chip" title="token 81248 · logit +10.438"> Palo</span><span class="token-chip" title="token 175970 · logit +10.062">eces</span><span class="token-chip" title="token 100248 · logit +9.625">臂</span><span class="token-chip" title="token 52753 · logit +9.000">_SERIAL</span><span class="token-chip" title="token 110642 · logit +8.938">不说</span><span class="token-chip" title="token 93847 · logit +8.875">ecal</span><span class="token-chip" title="token 99277 · logit +8.875">宅</span><span class="token-chip" title="token 142348 · logit +8.875">那两个</span><span class="token-chip" title="token 158036 · logit +8.812">fasst</span></div></div>
+        <div><h3>R-Lens · dominant positive direction</h3><div class="token-chips"><span class="token-chip" title="token 96686 · logit +9.812">室</span><span class="token-chip" title="token 60259 · logit +9.250">_recent</span><span class="token-chip" title="token 67115 · logit +9.125">#/</span><span class="token-chip" title="token 10205 · logit +8.875">opts</span><span class="token-chip" title="token 43672 · logit +8.750">exual</span><span class="token-chip" title="token 51196 · logit +8.750">=#{</span><span class="token-chip" title="token 96965 · logit +8.625">般</span><span class="token-chip" title="token 95840 · logit +8.500">个</span><span class="token-chip" title="token 24858 · logit +8.500">aims</span><span class="token-chip" title="token 7600 · logit +8.438">conds</span></div></div>
+      </div>
       <div class="occurrence-title">
         <h3>Top 20 dominant-tail occurrences</h3>
         <div class="color-key"><span class="negative-swatch"></span> negative <span class="positive-swatch"></span> positive · fixed linear intensity · target is underlined</div>
@@ -836,6 +853,10 @@
         <div><span>Skewness</span><strong>+3.286</strong></div>
         <div><span>Variance</span><strong>0.007957</strong></div>
         <div><span>Mean</span><strong>+0.003597</strong></div>
+      </div>
+      <div class="readouts">
+        <div><h3>Logit Lens · dominant positive direction</h3><div class="token-chips"><span class="token-chip" title="token 214548 · logit +11.250"> préalable</span><span class="token-chip" title="token 2601 · logit +10.250"> Ass</span><span class="token-chip" title="token 1299 · logit +9.688">unc</span><span class="token-chip" title="token 199959 · logit +9.438">reif</span><span class="token-chip" title="token 14499 · logit +9.438">unn</span><span class="token-chip" title="token 97654 · logit +9.250">凡</span><span class="token-chip" title="token 119711 · logit +9.250">漆黑</span><span class="token-chip" title="token 100171 · logit +9.125">度假</span><span class="token-chip" title="token 11091 · logit +9.000">FE</span><span class="token-chip" title="token 101026 · logit +8.750">前提</span></div></div>
+        <div><h3>R-Lens · dominant positive direction</h3><div class="token-chips"><span class="token-chip" title="token 214548 · logit +13.562"> préalable</span><span class="token-chip" title="token 101026 · logit +11.875">前提</span><span class="token-chip" title="token 142272 · logit +11.750">故此</span><span class="token-chip" title="token 18533 · logit +11.562"> assumed</span><span class="token-chip" title="token 4711 · logit +11.438"> prior</span><span class="token-chip" title="token 142276 · logit +11.375">为前提</span><span class="token-chip" title="token 124680 · logit +10.500">前提下</span><span class="token-chip" title="token 49340 · logit +10.438"> beforehand</span><span class="token-chip" title="token 111292 · logit +10.188">的前提下</span><span class="token-chip" title="token 229032 · logit +10.062"> Voraussetzung</span></div></div>
       </div>
       <div class="occurrence-title">
         <h3>Top 20 dominant-tail occurrences</h3>
@@ -1139,6 +1160,10 @@
         <div><span>Variance</span><strong>0.01547</strong></div>
         <div><span>Mean</span><strong>-0.0008087</strong></div>
       </div>
+      <div class="readouts">
+        <div><h3>Logit Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 131010 · logit +10.938">是和</span><span class="token-chip" title="token 215810 · logit +10.875">kości</span><span class="token-chip" title="token 209314 · logit +10.875"> RELA</span><span class="token-chip" title="token 191314 · logit +10.375"> parlam</span><span class="token-chip" title="token 148744 · logit +10.188">ід</span><span class="token-chip" title="token 206672 · logit +10.125">oule</span><span class="token-chip" title="token 47184 · logit +10.125">&#x27;);?&gt;</span><span class="token-chip" title="token 236934 · logit +10.062">boll</span><span class="token-chip" title="token 149926 · logit +10.062">рани</span><span class="token-chip" title="token 155364 · logit +10.000">лко</span></div></div>
+        <div><h3>R-Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 27055 · logit +10.438">ollo</span><span class="token-chip" title="token 143743 · logit +10.125">总结和</span><span class="token-chip" title="token 22967 · logit +10.062">eness</span><span class="token-chip" title="token 134559 · logit +9.438">该技术</span><span class="token-chip" title="token 99098 · logit +9.375">皱</span><span class="token-chip" title="token 128941 · logit +9.250">是经</span><span class="token-chip" title="token 135612 · logit +9.188">以及各种</span><span class="token-chip" title="token 197634 · logit +9.125">gol</span><span class="token-chip" title="token 141255 · logit +9.125">的工作态度</span><span class="token-chip" title="token 108665 · logit +9.062">那样</span></div></div>
+      </div>
       <div class="occurrence-title">
         <h3>Top 20 dominant-tail occurrences</h3>
         <div class="color-key"><span class="negative-swatch"></span> negative <span class="positive-swatch"></span> positive · fixed linear intensity · target is underlined</div>
@@ -1365,6 +1390,10 @@
         <div><span>Skewness</span><strong>-3.871</strong></div>
         <div><span>Variance</span><strong>0.0104</strong></div>
         <div><span>Mean</span><strong>-0.01192</strong></div>
+      </div>
+      <div class="readouts">
+        <div><h3>Logit Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 19943 · logit +10.000">ainers</span><span class="token-chip" title="token 16880 · logit +9.562">orr</span><span class="token-chip" title="token 163963 · logit +9.312">umpang</span><span class="token-chip" title="token 4930 · logit +9.312">strap</span><span class="token-chip" title="token 111023 · logit +9.062">不堪</span><span class="token-chip" title="token 5026 · logit +9.062">ester</span><span class="token-chip" title="token 106524 · logit +9.062">求精</span><span class="token-chip" title="token 128493 · logit +8.812">短短的</span><span class="token-chip" title="token 154263 · logit +8.812">ämp</span><span class="token-chip" title="token 155465 · logit +8.562">исти</span></div></div>
+        <div><h3>R-Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 33982 · logit +9.562">��</span><span class="token-chip" title="token 69055 · logit +9.375">��</span><span class="token-chip" title="token 1568 · logit +9.375">oun</span><span class="token-chip" title="token 70381 · logit +9.188">(exc</span><span class="token-chip" title="token 19943 · logit +8.938">ainers</span><span class="token-chip" title="token 159504 · logit +8.812">จัก</span><span class="token-chip" title="token 156899 · logit +8.688"> подой</span><span class="token-chip" title="token 69248 · logit +8.625">ectomy</span><span class="token-chip" title="token 5026 · logit +8.562">ester</span><span class="token-chip" title="token 91702 · logit +8.500">Ctrls</span></div></div>
       </div>
       <div class="occurrence-title">
         <h3>Top 20 dominant-tail occurrences</h3>
@@ -1608,6 +1637,10 @@
         <div><span>Skewness</span><strong>-29.231</strong></div>
         <div><span>Variance</span><strong>0.02275</strong></div>
         <div><span>Mean</span><strong>+0.00768</strong></div>
+      </div>
+      <div class="readouts">
+        <div><h3>Logit Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 97849 · logit +10.688">抱</span><span class="token-chip" title="token 72581 · logit +10.625">�</span><span class="token-chip" title="token 49420 · logit +9.688">␠↵⇥↵</span><span class="token-chip" title="token 166943 · logit +9.625">ッコ</span><span class="token-chip" title="token 123256 · logit +9.625">家有</span><span class="token-chip" title="token 166234 · logit +9.062">amik</span><span class="token-chip" title="token 66240 · logit +9.062"> MATRIX</span><span class="token-chip" title="token 148153 · logit +8.938">天外</span><span class="token-chip" title="token 15104 · logit +8.875">istro</span><span class="token-chip" title="token 123265 · logit +8.812">表现得</span></div></div>
+        <div><h3>R-Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 3966 · logit +16.875">⍽</span><span class="token-chip" title="token 16588 · logit +11.750">␠⍽</span><span class="token-chip" title="token 1116 · logit +11.312"> ,</span><span class="token-chip" title="token 30989 · logit +10.500">␠⍽␠⍽</span><span class="token-chip" title="token 3121 · logit +10.375">﻿</span><span class="token-chip" title="token 8965 · logit +10.188">⍽⍽</span><span class="token-chip" title="token 84867 · logit +9.000">​​</span><span class="token-chip" title="token 43878 · logit +8.812">⍽⍽⍽</span><span class="token-chip" title="token 8334 · logit +8.562"> previously</span><span class="token-chip" title="token 15231 · logit +8.375">​</span></div></div>
       </div>
       <div class="occurrence-title">
         <h3>Top 20 dominant-tail occurrences</h3>
@@ -1892,6 +1925,10 @@
         <div><span>Variance</span><strong>0.01623</strong></div>
         <div><span>Mean</span><strong>-0.002466</strong></div>
       </div>
+      <div class="readouts">
+        <div><h3>Logit Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 180995 · logit +10.125">illen</span><span class="token-chip" title="token 5166 · logit +9.812">foot</span><span class="token-chip" title="token 120 · logit +9.438">�</span><span class="token-chip" title="token 143740 · logit +9.312">人以下</span><span class="token-chip" title="token 202405 · logit +9.125"> Forte</span><span class="token-chip" title="token 143333 · logit +8.812">生水</span><span class="token-chip" title="token 153675 · logit +8.625">üş</span><span class="token-chip" title="token 448 · logit +8.562">ile</span><span class="token-chip" title="token 32177 · logit +8.438">Fort</span><span class="token-chip" title="token 139491 · logit +8.312">产的</span></div></div>
+        <div><h3>R-Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 5166 · logit +10.750">foot</span><span class="token-chip" title="token 143333 · logit +9.812">生水</span><span class="token-chip" title="token 82270 · logit +8.625"> Dude</span><span class="token-chip" title="token 147710 · logit +8.438">若有所思</span><span class="token-chip" title="token 176357 · logit +8.438">эр</span><span class="token-chip" title="token 59948 · logit +8.375"> Ade</span><span class="token-chip" title="token 40441 · logit +8.312">Foot</span><span class="token-chip" title="token 15001 · logit +8.250"> Foot</span><span class="token-chip" title="token 66075 · logit +8.250"> Plenty</span><span class="token-chip" title="token 79877 · logit +8.250"> Remark</span></div></div>
+      </div>
       <div class="occurrence-title">
         <h3>Top 20 dominant-tail occurrences</h3>
         <div class="color-key"><span class="negative-swatch"></span> negative <span class="positive-swatch"></span> positive · fixed linear intensity · target is underlined</div>
@@ -2150,6 +2187,10 @@
         <div><span>Skewness</span><strong>-27.821</strong></div>
         <div><span>Variance</span><strong>0.02803</strong></div>
         <div><span>Mean</span><strong>+0.00104</strong></div>
+      </div>
+      <div class="readouts">
+        <div><h3>Logit Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 158663 · logit +10.750">ительство</span><span class="token-chip" title="token 25474 · logit +10.375">_TASK</span><span class="token-chip" title="token 99914 · logit +10.312">漓</span><span class="token-chip" title="token 153255 · logit +10.250">eksi</span><span class="token-chip" title="token 73508 · logit +10.250">IDX</span><span class="token-chip" title="token 47647 · logit +10.000">omnia</span><span class="token-chip" title="token 122958 · logit +9.938">关门</span><span class="token-chip" title="token 176405 · logit +9.875">kej</span><span class="token-chip" title="token 221115 · logit +9.625">ukas</span><span class="token-chip" title="token 9659 · logit +9.625">iteral</span></div></div>
+        <div><h3>R-Lens · dominant negative direction</h3><div class="token-chips"><span class="token-chip" title="token 64659 · logit +11.750">-Trump</span><span class="token-chip" title="token 27921 · logit +10.688">asso</span><span class="token-chip" title="token 3230 · logit +10.562"> Trump</span><span class="token-chip" title="token 70907 · logit +10.438">realDonaldTrump</span><span class="token-chip" title="token 33821 · logit +10.438"> Comey</span><span class="token-chip" title="token 41146 · logit +10.375"> terrific</span><span class="token-chip" title="token 139561 · logit +10.188">极富</span><span class="token-chip" title="token 117769 · logit +10.125">非常好的</span><span class="token-chip" title="token 96691 · logit +10.062">阅</span><span class="token-chip" title="token 45503 · logit +9.875"> VERY</span></div></div>
       </div>
       <div class="occurrence-title">
         <h3>Top 20 dominant-tail occurrences</h3>

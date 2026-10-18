@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_INPUT = HERE / "runs/main/selected-neuron-profiles-context.json"
+DEFAULT_INPUT = HERE / "runs/main/selected-neuron-profiles-readouts.json"
 DEFAULT_OUTPUT = HERE / "reports/neuron-profiles.html"
 GROUP_LABELS = {
     "lowest": "Lowest",
@@ -97,6 +97,26 @@ def occurrence_html(occurrence: dict[str, Any], rank: int) -> str:
       </li>"""
 
 
+def token_chips(tokens: list[dict[str, Any]]) -> str:
+    chips = []
+    for token in tokens[:10]:
+        text = str(token["text"])
+        visible = (
+            text.replace(" ", "␠")
+            .replace("\n", "↵")
+            .replace("\t", "⇥")
+            .replace("\u00a0", "⍽")
+            .replace("\u200b", "⟦ZWSP⟧")
+            if not text.strip()
+            else text.replace("\n", "↵").replace("\t", "⇥")
+        )
+        chips.append(
+            f'<span class="token-chip" title="token {int(token["token_id"])} · '
+            f'logit {float(token["logit"]):+.3f}">{html.escape(visible)}</span>'
+        )
+    return "".join(chips)
+
+
 def panel_html(profile: dict[str, Any], index: int) -> str:
     neuron = int(profile["neuron"])
     group = str(profile["selection_group"])
@@ -107,6 +127,10 @@ def panel_html(profile: dict[str, Any], index: int) -> str:
     )
     active = " active" if index == 0 else ""
     hidden = "" if index == 0 else " hidden"
+    logit_tokens = profile.get("logit_lens", {}).get("dominant", {}).get("top_tokens", [])
+    r_lens_tokens = profile.get("r_lens", {}).get("dominant", {}).get("top_tokens", [])
+    if not logit_tokens or not r_lens_tokens:
+        raise ValueError("report input lacks vocabulary readouts; run add_readouts.py")
     return f"""
     <section id="panel-{index}" class="tab-panel{active}" role="tabpanel" aria-labelledby="tab-{index}"{hidden}>
       <header class="profile-header">
@@ -122,6 +146,10 @@ def panel_html(profile: dict[str, Any], index: int) -> str:
         <div><span>Skewness</span><strong>{float(profile['skewness']):+.3f}</strong></div>
         <div><span>Variance</span><strong>{float(profile['variance']):.4g}</strong></div>
         <div><span>Mean</span><strong>{float(profile['mean']):+.4g}</strong></div>
+      </div>
+      <div class="readouts">
+        <div><h3>Logit Lens · dominant {html.escape(str(profile['dominant_sign']))} direction</h3><div class="token-chips">{token_chips(logit_tokens)}</div></div>
+        <div><h3>R-Lens · dominant {html.escape(str(profile['dominant_sign']))} direction</h3><div class="token-chips">{token_chips(r_lens_tokens)}</div></div>
       </div>
       <div class="occurrence-title">
         <h3>Top 20 dominant-tail occurrences</h3>
@@ -175,6 +203,11 @@ def render(profiles: list[dict[str, Any]]) -> str:
   .metrics div {{ background:#f7f9fc; border:1px solid #e5e9f0; border-radius:8px; padding:11px 13px; }}
   .metrics span {{ display:block; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.05em; }}
   .metrics strong {{ display:block; margin-top:2px; font:700 19px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }}
+  .readouts {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:-4px 0 22px; }}
+  .readouts > div {{ min-width:0; border:1px solid #e1e6ee; border-radius:8px; padding:11px 13px; background:#fcfdff; }}
+  .readouts h3 {{ margin:0 0 8px; font-size:12px; color:var(--muted); }}
+  .token-chips {{ display:flex; flex-wrap:wrap; gap:5px; }}
+  .token-chip {{ border:1px solid #cfd8e6; border-radius:999px; background:#f4f7fb; padding:3px 8px; font:12px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre; }}
   h3 {{ margin:0 0 12px; font-size:16px; }}
   .occurrence-title {{ display:flex; justify-content:space-between; align-items:baseline; gap:16px; }}
   .color-key {{ color:var(--muted); font-size:10px; white-space:nowrap; }}
@@ -189,7 +222,7 @@ def render(profiles: list[dict[str, Any]]) -> str:
   .scored-token.target {{ text-decoration:underline 1.5px; text-underline-offset:3px; }}
   .token-meta {{ margin-top:7px; color:var(--muted); font-size:10px; }} code {{ color:#344054; }}
   [hidden] {{ display:none !important; }}
-  @media (max-width:900px) {{ .tabs {{ grid-template-columns:repeat(3,1fr); }} .occurrences {{ grid-template-columns:1fr; }} .occurrence-title {{ display:block; }} .color-key {{ margin:-5px 0 12px; white-space:normal; }} }}
+  @media (max-width:900px) {{ .tabs {{ grid-template-columns:repeat(3,1fr); }} .readouts,.occurrences {{ grid-template-columns:1fr; }} .occurrence-title {{ display:block; }} .color-key {{ margin:-5px 0 12px; white-space:normal; }} }}
   @media (max-width:560px) {{ main {{ padding:18px 10px 40px; }} .metrics {{ grid-template-columns:repeat(2,1fr); }} .profile-header {{ display:block; }} .tail-badge {{ display:inline-block; margin-top:10px; }} }}
 </style>
 </head>

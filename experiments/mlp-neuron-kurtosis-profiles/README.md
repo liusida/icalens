@@ -38,13 +38,17 @@ a self-contained tabbed report:
 
 ```bash
 uv run python experiments/mlp-neuron-kurtosis-profiles/enrich_contexts.py
+uv run python experiments/mlp-neuron-kurtosis-profiles/add_readouts.py
 uv run python experiments/mlp-neuron-kurtosis-profiles/report.py
 ```
 
 The enrichment pass revisits only occurrence documents and records 48 tokens
 before and 8 tokens after each target, including the selected neuron's score at
-every position. The report writes `reports/neuron-profiles.html`; token
-backgrounds encode signed scores and an underline marks the target token.
+every position. The readout pass treats column `i` of `W_downproj` as neuron
+`i`'s residual writing direction and adds dominant-sign Logit-Lens and R-Lens
+vocabulary readouts using the same decoding rules as ICA component profiles.
+The report writes `reports/neuron-profiles.html`; token backgrounds encode
+signed scores and an underline marks the target token.
 
 For interactive hypothesis testing, open `neuron_prompt_playground.ipynb` and
 edit the final prompt cell. Its `analyze(...)` helper supports any layer-16
