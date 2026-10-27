@@ -77,6 +77,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--skip-initial-tokens",
+        type=parse_nonnegative_integer,
+        default=0,
+        help=(
+            "Exclude the first N document tokens from fitting while retaining them "
+            "as model context (default: 0)."
+        ),
+    )
+    parser.add_argument(
         "--refresh-model-registry",
         action="store_true",
         help="Fetch and cache the current model-framing registry from GitHub.",
@@ -193,6 +202,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         candidate_token_budget=candidate_tokens,
         context_length=args.context_length,
         document_framing=document_framing,
+        skip_initial_tokens=args.skip_initial_tokens,
     )
     candidate_token_count = sum(
         int(document.candidate_positions.shape[0]) for document in documents
@@ -284,6 +294,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     "sampling_seed": args.seed,
                     "context_length": args.context_length,
                     "document_framing": document_framing,
+                    "skip_initial_tokens": args.skip_initial_tokens,
                 },
             )
             output = lens.save(output)
@@ -309,10 +320,13 @@ def load_pile_documents(
     candidate_token_budget: int | None,
     context_length: int,
     document_framing: dict[str, Any] | None = None,
+    skip_initial_tokens: int = 0,
 ) -> list[TextDocument]:
     """Tokenize text documents until the requested candidate pool is full."""
     if candidate_token_budget is not None and candidate_token_budget <= 0:
         raise ValueError("--candidate-tokens must be positive")
+    if skip_initial_tokens < 0:
+        raise ValueError("--skip-initial-tokens must be non-negative")
     local_path = Path(dataset_id).expanduser()
     if local_path.is_file():
         suffix = local_path.suffix.lower()
@@ -355,17 +369,22 @@ def load_pile_documents(
                 if candidate_token_budget is None
                 else candidate_token_budget - captured_tokens
             )
+            content_budget = min(content_limit, remaining + skip_initial_tokens)
             encoded = tokenizer(
                 text,
                 add_special_tokens=False,
                 truncation=True,
-                max_length=min(content_limit, remaining),
+                max_length=content_budget,
             )["input_ids"]
-            if encoded:
+            if len(encoded) > skip_initial_tokens:
                 input_ids = torch.tensor(prefix_ids + encoded, dtype=torch.long)
                 candidate_positions = torch.arange(
-                    len(prefix_ids), len(prefix_ids) + len(encoded), dtype=torch.long
+                    len(prefix_ids) + skip_initial_tokens,
+                    len(prefix_ids) + len(encoded),
+                    dtype=torch.long,
                 )
+                if candidate_token_budget is not None:
+                    candidate_positions = candidate_positions[:remaining]
                 document = TextDocument(
                     input_ids=input_ids,
                     candidate_positions=candidate_positions,
@@ -544,6 +563,17 @@ def parse_token_budget(value: str) -> int | None:
     if budget <= 0:
         raise argparse.ArgumentTypeError("must be a positive integer or 'all'")
     return budget
+
+
+def parse_nonnegative_integer(value: str) -> int:
+    """Parse a non-negative integer CLI option."""
+    try:
+        result = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be a non-negative integer") from error
+    if result < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return result
 
 
 def capture_activations(

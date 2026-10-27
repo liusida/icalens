@@ -4,7 +4,7 @@ from typing import Any
 
 import torch
 
-from icalens.cli.fit_chat import ChatDocument, format_conversation, sample_positions
+from icalens.cli.fit_chat import ChatDocument, format_conversation, parse_args, sample_positions
 
 
 class CharacterTokenizer:
@@ -35,6 +35,10 @@ MESSAGES = [
 ]
 
 
+def test_parse_skip_initial_tokens() -> None:
+    assert parse_args(["--skip-initial-tokens", "2"]).skip_initial_tokens == 2
+
+
 def test_format_conversation_selects_only_assistant_content() -> None:
     document = format_conversation(
         CharacterTokenizer(), MESSAGES, token_scope="assistant", context_length=100
@@ -54,6 +58,20 @@ def test_format_conversation_excludes_truncated_assistant_content() -> None:
         context_length=assistant_start,
     )
     assert document is None
+
+
+def test_format_conversation_retains_but_excludes_initial_positions() -> None:
+    document = format_conversation(
+        CharacterTokenizer(),
+        MESSAGES,
+        token_scope="all",
+        context_length=100,
+        skip_initial_tokens=2,
+    )
+
+    assert document is not None
+    assert document.input_ids.tolist()[:2] == [0, 1]
+    assert document.candidate_positions.tolist() == list(range(2, len(document.input_ids)))
 
 
 def test_sample_positions_maps_candidates_back_to_sequence_positions() -> None:

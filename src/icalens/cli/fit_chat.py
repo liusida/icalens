@@ -23,6 +23,7 @@ from icalens import ICALens
 from icalens._capture import capture_resid_post
 
 from ._status import log
+from .fit_text import parse_nonnegative_integer
 
 MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -61,6 +62,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         choices=("assistant", "user", "content", "all"),
         default="all",
         help="Tokens eligible for fitting (default: all, including template tokens).",
+    )
+    parser.add_argument(
+        "--skip-initial-tokens",
+        type=parse_nonnegative_integer,
+        default=0,
+        help=(
+            "Exclude the first N rendered positions from fitting while retaining them "
+            "as model context (default: 0)."
+        ),
     )
     parser.add_argument(
         "--layers",
@@ -176,6 +186,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         token_scope=args.token_scope,
         candidate_token_budget=candidate_tokens,
         context_length=args.context_length,
+        skip_initial_tokens=args.skip_initial_tokens,
     )
     selected_positions = sample_positions(
         documents,
@@ -265,6 +276,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     "fitting_tokens": args.token_budget,
                     "sampling_seed": args.seed,
                     "context_length": args.context_length,
+                    "skip_initial_tokens": args.skip_initial_tokens,
                 },
             )
             output = lens.save(output)
@@ -309,10 +321,13 @@ def load_chat_documents(
     token_scope: str,
     candidate_token_budget: int,
     context_length: int,
+    skip_initial_tokens: int = 0,
 ) -> list[ChatDocument]:
     """Stream and format conversations until enough eligible tokens are collected."""
     if candidate_token_budget <= 0:
         raise ValueError("--candidate-tokens must be positive")
+    if skip_initial_tokens < 0:
+        raise ValueError("--skip-initial-tokens must be non-negative")
     dataset = load_dataset(
         dataset_id,
         split=split,
@@ -337,6 +352,7 @@ def load_chat_documents(
                     messages,
                     token_scope=token_scope,
                     context_length=context_length,
+                    skip_initial_tokens=skip_initial_tokens,
                 )
             except (TypeError, ValueError):
                 skipped += 1
@@ -378,6 +394,7 @@ def format_conversation(
     *,
     token_scope: str,
     context_length: int,
+    skip_initial_tokens: int = 0,
 ) -> ChatDocument | None:
     """Apply the chat template and locate eligible content tokens by offsets."""
     normalized = normalize_messages(messages)
@@ -410,6 +427,9 @@ def format_conversation(
         candidate_positions = [
             index for index, offset in enumerate(offsets) if token_overlaps_spans(offset, spans)
         ]
+    candidate_positions = [
+        position for position in candidate_positions if position >= skip_initial_tokens
+    ]
     if not candidate_positions:
         return None
     return ChatDocument(

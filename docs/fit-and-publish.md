@@ -96,6 +96,9 @@ For large refits, capture all requested layers directly to an external disk firs
 streams each document through the model once and appends `bfloat16` rows to per-layer files; it
 does not retain all layers in CPU memory.
 
+If activations are captured by another inference system, write them in the
+[ActivationDataset format](activation-dataset-format.md) so they can be fitted by the same CLI.
+
 ```bash
 icalens capture text \
   --model openai-community/gpt2 \
@@ -192,6 +195,7 @@ sampled, while the complete rendered conversation remains the model context.
 | `--text-field` | Raw-text column used by `icalens fit text` |
 | `--context-length` | Maximum number of tokens retained from each text document |
 | `--document-framing` | Exact-model registry policy (`auto`), or an explicit `none`, `prepend-bos`, or `prepend-eos` |
+| `--skip-initial-tokens` | Exclude the first N document or rendered-chat positions from fitting while retaining them as model context |
 | `--refresh-model-registry` | Fetch and cache the current framing registry from GitHub |
 | `--layers` | Comma-separated zero-based transformer-block indices, or `all` |
 | `--token-budget` | Number of sampled activation rows used for fitting |
