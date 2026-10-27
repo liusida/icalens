@@ -660,6 +660,7 @@ def _recover_cached_records(
     dataset_id, dataset_revision = _replay_dataset_source(source)
     candidate_tokens = int(provenance["candidate_tokens"])
     context_length = int(provenance["context_length"])
+    skip_initial_tokens = int(provenance.get("skip_initial_tokens", 0))
     documents: Any
     if lens.model_type == "instruct":
         documents = load_chat_documents(
@@ -671,6 +672,7 @@ def _recover_cached_records(
             token_scope=str(provenance.get("token_scope", "all")),
             candidate_token_budget=candidate_tokens,
             context_length=context_length,
+            skip_initial_tokens=skip_initial_tokens,
         )
     else:
         documents = load_pile_documents(
@@ -682,6 +684,7 @@ def _recover_cached_records(
             candidate_token_budget=candidate_tokens,
             context_length=context_length,
             document_framing=provenance.get("document_framing"),
+            skip_initial_tokens=skip_initial_tokens,
         )
     metadata = dataset.samples()
     records = []
