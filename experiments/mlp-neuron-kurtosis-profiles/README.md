@@ -62,3 +62,38 @@ every 100 documents by default, and `occurrences.partial.npz` retains the same
 state for automatic resume. The partial JSON is replaced by the final
 `selected-neuron-profiles.json` when all documents are complete.
 
+## Qwen3 32B Base
+
+The matched Qwen3-32B run uses zero-based layer 32 of 64 and writes to a
+separate result directory:
+
+```bash
+uv run python experiments/mlp-neuron-kurtosis-profiles/run_qwen3_32b.py
+```
+
+It reconstructs the same Pile-10k population protocol directly because no
+Qwen3-32B residual-activation cache is needed for neuron scoring. Documents use
+the tokenizer's natural plain-text format: `add_special_tokens=True` adds no BOS
+or EOS, so no framing token is prepended. The candidate count is determined
+from all 10,000 documents using the Qwen3 tokenizer rather than copied from a
+different model's tokenizer. Results are stored under
+`runs/qwen3-32b-layer32/` and resume from incremental checkpoints.
+
+After the run completes, generate its longer-context HTML report with:
+
+```bash
+uv run python experiments/mlp-neuron-kurtosis-profiles/enrich_contexts.py \
+  --run experiments/mlp-neuron-kurtosis-profiles/runs/qwen3-32b-layer32 \
+  --input experiments/mlp-neuron-kurtosis-profiles/runs/qwen3-32b-layer32/selected-neuron-profiles.json \
+  --output experiments/mlp-neuron-kurtosis-profiles/runs/qwen3-32b-layer32/selected-neuron-profiles-context.json
+
+uv run python experiments/mlp-neuron-kurtosis-profiles/report.py \
+  --input experiments/mlp-neuron-kurtosis-profiles/runs/qwen3-32b-layer32/selected-neuron-profiles-context.json \
+  --output experiments/mlp-neuron-kurtosis-profiles/reports/qwen3-32b-layer32/neuron-profiles.html \
+  --model-title "Qwen3 32B Base" \
+  --layer 32
+```
+
+R-Lens chips are omitted because this project does not currently have a
+Qwen3-32B R-Lens artifact.
+

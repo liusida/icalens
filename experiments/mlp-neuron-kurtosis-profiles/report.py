@@ -29,6 +29,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--model-title", default="Qwen 3.5 9B Base")
+    parser.add_argument("--layer", type=int, default=16)
     parser.add_argument("--force", action="store_true", help="Replace an existing report.")
     return parser.parse_args()
 
@@ -117,7 +119,7 @@ def token_chips(tokens: list[dict[str, Any]]) -> str:
     return "".join(chips)
 
 
-def panel_html(profile: dict[str, Any], index: int) -> str:
+def panel_html(profile: dict[str, Any], index: int, *, layer: int) -> str:
     neuron = int(profile["neuron"])
     group = str(profile["selection_group"])
     group_label = GROUP_LABELS[group]
@@ -129,14 +131,26 @@ def panel_html(profile: dict[str, Any], index: int) -> str:
     hidden = "" if index == 0 else " hidden"
     logit_tokens = profile.get("logit_lens", {}).get("dominant", {}).get("top_tokens", [])
     r_lens_tokens = profile.get("r_lens", {}).get("dominant", {}).get("top_tokens", [])
-    if not logit_tokens or not r_lens_tokens:
-        raise ValueError("report input lacks vocabulary readouts; run add_readouts.py")
+    readouts = ""
+    if logit_tokens or r_lens_tokens:
+        sections = []
+        if logit_tokens:
+            sections.append(
+                f'<div><h3>Logit Lens · dominant {html.escape(str(profile["dominant_sign"]))} direction</h3>'
+                f'<div class="token-chips">{token_chips(logit_tokens)}</div></div>'
+            )
+        if r_lens_tokens:
+            sections.append(
+                f'<div><h3>R-Lens · dominant {html.escape(str(profile["dominant_sign"]))} direction</h3>'
+                f'<div class="token-chips">{token_chips(r_lens_tokens)}</div></div>'
+            )
+        readouts = f'<div class="readouts">{"".join(sections)}</div>'
     return f"""
     <section id="panel-{index}" class="tab-panel{active}" role="tabpanel" aria-labelledby="tab-{index}"{hidden}>
       <header class="profile-header">
         <div>
           <div class="eyebrow {GROUP_CLASSES[group]}">{html.escape(group_label)}</div>
-          <h2>Layer 16 · Neuron {neuron}</h2>
+          <h2>Layer {layer} · Neuron {neuron}</h2>
           <p>{html.escape(str(profile['down_projection_direction']))}</p>
         </div>
         <div class="tail-badge {html.escape(str(profile['dominant_sign']))}">{html.escape(str(profile['dominant_sign']).title())} tail</div>
@@ -147,10 +161,7 @@ def panel_html(profile: dict[str, Any], index: int) -> str:
         <div><span>Variance</span><strong>{float(profile['variance']):.4g}</strong></div>
         <div><span>Mean</span><strong>{float(profile['mean']):+.4g}</strong></div>
       </div>
-      <div class="readouts">
-        <div><h3>Logit Lens · dominant {html.escape(str(profile['dominant_sign']))} direction</h3><div class="token-chips">{token_chips(logit_tokens)}</div></div>
-        <div><h3>R-Lens · dominant {html.escape(str(profile['dominant_sign']))} direction</h3><div class="token-chips">{token_chips(r_lens_tokens)}</div></div>
-      </div>
+      {readouts}
       <div class="occurrence-title">
         <h3>Top 20 dominant-tail occurrences</h3>
         <div class="color-key"><span class="negative-swatch"></span> negative <span class="positive-swatch"></span> positive · fixed linear intensity · target is underlined</div>
@@ -159,7 +170,9 @@ def panel_html(profile: dict[str, Any], index: int) -> str:
     </section>"""
 
 
-def render(profiles: list[dict[str, Any]]) -> str:
+def render(
+    profiles: list[dict[str, Any]], *, model_title: str, layer: int
+) -> str:
     tabs = []
     panels = []
     for index, profile in enumerate(profiles):
@@ -172,13 +185,13 @@ def render(profiles: list[dict[str, Any]]) -> str:
             f'data-panel="panel-{index}"><span>{html.escape(GROUP_LABELS[group])}</span>'
             f'<strong>N{int(profile["neuron"])}</strong></button>'
         )
-        panels.append(panel_html(profile, index))
+        panels.append(panel_html(profile, index, layer=layer))
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Qwen layer-16 MLP neuron profiles</title>
+<title>{html.escape(model_title)} layer-{layer} MLP neuron profiles</title>
 <style>
   :root {{ color-scheme: light; --blue:#3d5f99; --ink:#18202c; --muted:#667085; --line:#d8dee8; --bg:#f5f7fa; }}
   * {{ box-sizing: border-box; }}
@@ -228,7 +241,7 @@ def render(profiles: list[dict[str, Any]]) -> str:
 </head>
 <body>
 <main>
-  <h1>Qwen 3.5 9B Base · layer 16 MLP neurons</h1>
+  <h1>{html.escape(model_title)} · layer {layer} MLP neurons</h1>
   <p class="subtitle">Nine neurons selected after measuring all 12,288 neurons on one million fitting-token positions. Occurrences come from the fixed 100,000-token profiling subset.</p>
   <nav class="tabs" role="tablist" aria-label="Selected neurons">{''.join(tabs)}</nav>
   {''.join(panels)}
@@ -267,7 +280,10 @@ def main() -> None:
     profiles = load_profiles(source)
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(output.name + ".tmp")
-    temporary.write_text(render(profiles), encoding="utf-8")
+    temporary.write_text(
+        render(profiles, model_title=args.model_title, layer=args.layer),
+        encoding="utf-8",
+    )
     if "role=\"tablist\"" not in temporary.read_text(encoding="utf-8"):
         raise ValueError("temporary report failed validation")
     os.replace(temporary, output)

@@ -18,6 +18,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import run as experiment
 from icalens._activation_dataset import ActivationDataset
 from icalens.cli._status import log
+from icalens.cli.fit_text import load_pile_documents
 from icalens.experiments._run import atomic_write_json
 
 HERE = Path(__file__).resolve().parent
@@ -145,13 +146,27 @@ def main() -> None:
         raise FileExistsError(f"output exists; pass --force to replace it: {output_path}")
     run, payload = load_inputs(run_root, input_path)
     resolved = run["resolved"]
-    dataset = ActivationDataset(Path(resolved["activation_dataset"]))
+    model_spec = resolved["model"]
     tokenizer = AutoTokenizer.from_pretrained(
-        dataset.model["repo_id"],
-        revision=dataset.model.get("revision"),
+        model_spec["repo_id"],
+        revision=model_spec.get("revision"),
         trust_remote_code=True,
     )
-    documents = experiment.load_documents(dataset, tokenizer)
+    if "activation_dataset" in resolved:
+        dataset = ActivationDataset(Path(resolved["activation_dataset"]))
+        documents = experiment.load_documents(dataset, tokenizer)
+    else:
+        source = resolved["source_dataset"]
+        documents = load_pile_documents(
+            tokenizer,
+            dataset_id=str(source["repo_id"]),
+            dataset_revision=str(source["revision"]),
+            split=str(source["split"]),
+            text_field=str(resolved.get("text_field", "text")),
+            candidate_token_budget=None,
+            context_length=int(resolved["context_length"]),
+            document_framing=resolved.get("document_framing"),
+        )
     profiles = payload["profiles"]
     selected, pair_to_row = requested_positions(
         profiles,
@@ -167,8 +182,8 @@ def main() -> None:
     )
     model = load_model_to_cuda(
         AutoModelForCausalLM,
-        dataset.model["repo_id"],
-        revision=dataset.model.get("revision"),
+        model_spec["repo_id"],
+        revision=model_spec.get("revision"),
         device=args.device,
         dtype=torch.bfloat16,
         touch="auto",
@@ -209,6 +224,8 @@ def main() -> None:
         {
             "status": "complete",
             "source": str(input_path),
+            "model": model_spec,
+            "model_title": resolved.get("model_title", model_spec["repo_id"]),
             "layer": int(resolved["layer"]),
             "left_context_tokens": args.left_context,
             "right_context_tokens": args.right_context,
