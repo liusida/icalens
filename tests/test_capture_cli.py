@@ -12,6 +12,15 @@ def test_text_capture_parses_skip_initial_tokens() -> None:
     assert args.skip_initial_tokens == 2
 
 
+def test_chat_capture_parses_skip_initial_tokens() -> None:
+    args = _parse_args(
+        "chat",
+        ["--output", "activations", "--skip-initial-tokens", "2"],
+    )
+
+    assert args.skip_initial_tokens == 2
+
+
 def test_text_config_accepts_flat_causal_config() -> None:
     config = type("Config", (), {"num_hidden_layers": 12, "hidden_size": 768})()
 

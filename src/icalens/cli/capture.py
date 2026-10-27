@@ -145,6 +145,7 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
             token_scope=args.token_scope,
             candidate_token_budget=candidates,
             context_length=args.context_length,
+            skip_initial_tokens=args.skip_initial_tokens,
         )
         selected = sample_chat_positions(documents, token_budget=args.token_budget, seed=args.seed)
         provenance = {
@@ -155,6 +156,7 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
             "fitting_tokens": args.token_budget,
             "sampling_seed": args.seed,
             "context_length": args.context_length,
+            "skip_initial_tokens": args.skip_initial_tokens,
             "tokenization_runtime": _tokenization_runtime(),
         }
         model_type = "instruct"
@@ -258,7 +260,7 @@ def _preflight_capture(
         "sampling_seed": args.seed,
         "context_length": args.context_length,
         "token_scope": "all" if kind == "text" else args.token_scope,
-        "skip_initial_tokens": args.skip_initial_tokens if kind == "text" else 0,
+        "skip_initial_tokens": args.skip_initial_tokens,
     }
     actual: dict[str, Any] = {
         "model": existing.get("model"),
@@ -350,6 +352,15 @@ def _parse_args(kind: str, argv: Sequence[str] | None) -> argparse.Namespace:
         default=argparse.SUPPRESS if kind == "text" else None,
     )
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--skip-initial-tokens",
+        type=parse_nonnegative_integer,
+        default=0,
+        help=(
+            "Exclude the first N positions of each model input from captured samples "
+            "while retaining them as context (default: 0)."
+        ),
+    )
     parser.add_argument("--capture-layers-at-once", default="all", type=_capture_group_size)
     parser.add_argument("--max-vram-gb", type=float, default=None)
     if kind == "text":
@@ -360,15 +371,6 @@ def _parse_args(kind: str, argv: Sequence[str] | None) -> argparse.Namespace:
             default="auto",
         )
         parser.add_argument("--refresh-model-registry", action="store_true")
-        parser.add_argument(
-            "--skip-initial-tokens",
-            type=parse_nonnegative_integer,
-            default=0,
-            help=(
-                "Exclude the first N document tokens from captured samples while "
-                "retaining them as model context (default: 0)."
-            ),
-        )
     else:
         parser.add_argument("--messages-field", default="messages")
         parser.add_argument(
