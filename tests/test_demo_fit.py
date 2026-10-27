@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from icalens.cli.fit_activations import parse_args as parse_activation_args
@@ -48,6 +49,8 @@ def test_parse_text_source_options() -> None:
             "body",
             "--context-length",
             "512",
+            "--skip-initial-tokens",
+            "2",
         ]
     )
     assert args.model == "owner/model"
@@ -55,6 +58,12 @@ def test_parse_text_source_options() -> None:
     assert args.split == "validation"
     assert args.text_field == "body"
     assert args.context_length == 512
+    assert args.skip_initial_tokens == 2
+
+
+def test_skip_initial_tokens_rejects_negative_values() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["--skip-initial-tokens", "-1"])
 
 
 def test_resolve_local_text_dataset_records_path_and_hash(tmp_path) -> None:
@@ -106,6 +115,54 @@ def test_load_local_jsonl_uses_one_truncated_context_per_row(tmp_path) -> None:
         [1, 2, 3],
         [1, 2],
     ]
+
+
+def test_load_local_jsonl_retains_skipped_tokens_as_context(tmp_path) -> None:
+    dataset = tmp_path / "train.jsonl"
+    dataset.write_text('{"text":"abcdef"}\n{"text":"gh"}\n')
+
+    class Tokenizer:
+        def __call__(self, text: str, *, max_length: int, **_: object) -> dict[str, list[int]]:
+            return {"input_ids": [ord(character) for character in text][:max_length]}
+
+    documents = load_pile_documents(
+        Tokenizer(),
+        dataset_id=str(dataset),
+        split="train",
+        text_field="text",
+        candidate_token_budget=None,
+        context_length=6,
+        document_framing={"strategy": "none", "token_id": None},
+        skip_initial_tokens=2,
+    )
+
+    assert [document.input_ids.tolist() for document in documents] == [
+        [ord(character) for character in "abcdef"],
+    ]
+    assert documents[0].candidate_positions.tolist() == [2, 3, 4, 5]
+
+
+def test_skip_initial_tokens_are_counted_after_document_framing(tmp_path) -> None:
+    dataset = tmp_path / "train.jsonl"
+    dataset.write_text('{"text":"abcd"}\n')
+
+    class Tokenizer:
+        def __call__(self, text: str, *, max_length: int, **_: object) -> dict[str, list[int]]:
+            return {"input_ids": [ord(character) for character in text][:max_length]}
+
+    documents = load_pile_documents(
+        Tokenizer(),
+        dataset_id=str(dataset),
+        split="train",
+        text_field="text",
+        candidate_token_budget=2,
+        context_length=5,
+        document_framing={"strategy": "prepend-eos", "token_id": 99},
+        skip_initial_tokens=2,
+    )
+
+    assert documents[0].input_ids.tolist() == [99, ord("a"), ord("b"), ord("c"), ord("d")]
+    assert documents[0].candidate_positions.tolist() == [3, 4]
 
 
 def test_sample_all_positions_without_random_index() -> None:

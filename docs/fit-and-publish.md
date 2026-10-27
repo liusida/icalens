@@ -192,6 +192,7 @@ sampled, while the complete rendered conversation remains the model context.
 | `--text-field` | Raw-text column used by `icalens fit text` |
 | `--context-length` | Maximum number of tokens retained from each text document |
 | `--document-framing` | Exact-model registry policy (`auto`), or an explicit `none`, `prepend-bos`, or `prepend-eos` |
+| `--skip-initial-tokens` | Exclude the first N document tokens from fitting while retaining them as model context |
 | `--refresh-model-registry` | Fetch and cache the current framing registry from GitHub |
 | `--layers` | Comma-separated zero-based transformer-block indices, or `all` |
 | `--token-budget` | Number of sampled activation rows used for fitting |

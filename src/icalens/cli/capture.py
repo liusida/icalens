@@ -28,6 +28,7 @@ from .fit_chat import sample_positions as sample_chat_positions
 from .fit_text import (
     load_pile_documents,
     parse_layers,
+    parse_nonnegative_integer,
     parse_token_budget,
     resolve_document_framing,
     resolve_text_dataset,
@@ -101,6 +102,7 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
             candidate_token_budget=candidates,
             context_length=args.context_length,
             document_framing=framing,
+            skip_initial_tokens=args.skip_initial_tokens,
         )
         selected = sample_text_positions(documents, token_budget=args.token_budget, seed=args.seed)
         candidate_count = sum(int(doc.candidate_positions.numel()) for doc in documents)
@@ -113,6 +115,7 @@ def main(kind: str, argv: Sequence[str] | None = None) -> None:
             "sampling_seed": args.seed,
             "context_length": args.context_length,
             "document_framing": framing,
+            "skip_initial_tokens": args.skip_initial_tokens,
             "tokenization_runtime": _tokenization_runtime(),
         }
         model_type = "base"
@@ -255,6 +258,7 @@ def _preflight_capture(
         "sampling_seed": args.seed,
         "context_length": args.context_length,
         "token_scope": "all" if kind == "text" else args.token_scope,
+        "skip_initial_tokens": args.skip_initial_tokens if kind == "text" else 0,
     }
     actual: dict[str, Any] = {
         "model": existing.get("model"),
@@ -266,6 +270,7 @@ def _preflight_capture(
         "sampling_seed": provenance.get("sampling_seed"),
         "context_length": provenance.get("context_length"),
         "token_scope": provenance.get("token_scope"),
+        "skip_initial_tokens": provenance.get("skip_initial_tokens", 0),
     }
     if candidate_tokens is not None:
         expected["candidate_tokens"] = candidate_tokens
@@ -355,6 +360,15 @@ def _parse_args(kind: str, argv: Sequence[str] | None) -> argparse.Namespace:
             default="auto",
         )
         parser.add_argument("--refresh-model-registry", action="store_true")
+        parser.add_argument(
+            "--skip-initial-tokens",
+            type=parse_nonnegative_integer,
+            default=0,
+            help=(
+                "Exclude the first N document tokens from captured samples while "
+                "retaining them as model context (default: 0)."
+            ),
+        )
     else:
         parser.add_argument("--messages-field", default="messages")
         parser.add_argument(
